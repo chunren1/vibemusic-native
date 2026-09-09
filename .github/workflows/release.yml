@@ -1,0 +1,58 @@
+# CI: tag v* → 云端编译签名 → GitHub Release 发包
+# 触发：git tag v1.0.x-ai && git push origin v1.0.x-ai
+# Secrets（仓库 Settings → Secrets → Actions，需预置）：
+#   KEYSTORE_FILE      base64 后的 release keystore
+#   KEYSTORE_PASSWORD  keystore 密码（store/key 同密）
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Restore keystore
+        run: echo "$KEYSTORE_FILE" | base64 -d > /tmp/release.jks
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+
+      - name: Grant gradlew
+        run: chmod +x gradlew
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          VIBEMUSIC_KEYSTORE_PATH: /tmp/release.jks
+          VIBEMUSIC_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Rename APK
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          cp app/build/outputs/apk/release/app-release.apk "VibeMusic-${TAG}-release.apk"
+          echo "APK_NAME=VibeMusic-${TAG}-release.apk" >> "$GITHUB_ENV"
+
+      - name: Publish to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK_NAME" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes "VibeMusic 原生版 $GITHUB_REF_NAME（CI 自动构建签名）"
+          fi

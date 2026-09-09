@@ -1,0 +1,234 @@
+package com.cyk666.vibemusic
+
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
+
+/** Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
+fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
+
+/**
+ * Offline-aware next index (pure): from [fromIndex], the first ahead index
+ * where [isPlayable] holds; when nothing ahead is playable and [repeatAll],
+ * wrap once over 0 until [fromIndex] (the failed current item is excluded so
+ * a poisoned single-item queue stops instead of looping forever).
+ * Returns -1 when playback must stop. Online callers keep [shouldAutoSkip].
+ */
+fun selectNextOfflineIndex(
+    queue: List<Song>,
+    fromIndex: Int,
+    isPlayable: (Int) -> Boolean,
+    repeatAll: Boolean
+): Int {
+    if (queue.isEmpty()) return -1
+    val from = fromIndex.coerceIn(queue.indices)
+    for (i in from + 1 until queue.size) {
+        try {
+            if (isPlayable(i)) return i
+        } catch (_: Exception) {
+        }
+    }
+    if (!repeatAll) return -1
+    for (i in 0 until from) {
+        try {
+            if (isPlayable(i)) return i
+        } catch (_: Exception) {
+        }
+    }
+    return -1
+}
+
+/**
+ * Notification-path commands with audible intent (verified against the
+ * media3-session 1.5.1 API jar: MediaSession.Callback.onPlayerCommandRequest
+ * receives each controller command for approval). Arriving on an empty
+ * timeline after a cold start, they first materialize the persisted queue.
+ */
+val SERVICE_MATERIALIZE_COMMANDS: Set<Int> = setOf(
+    Player.COMMAND_PLAY_PAUSE,
+    Player.COMMAND_PREPARE,
+    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_NEXT,
+    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_PREVIOUS,
+    Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_DEFAULT_POSITION
+)
+
+/** Pure: a session player command needs service-side timeline materialization. */
+fun isServiceMaterializeCommand(playerCommand: Int): Boolean =
+    playerCommand in SERVICE_MATERIALIZE_COMMANDS
+
+class PlaybackService : MediaSessionService() {
+
+    private var mediaSession: MediaSession? = null
+    private var player: ExoPlayer? = null
+    private var consecFails = 0
+
+    override fun onCreate() {
+        super.onCreate()
+        // Cache-first pipeline: CacheDataSource serves cached bytes first and fills
+        // gaps from the HTTP upstream while online, so normal streaming behavior is
+        // unchanged. Offline replay works for fully-cached items; a partially-cached
+        // item errors on the cache hole (upstream unreachable) → auto-skip/message
+        // path handles it (see MainActivity.onPlayerError).
+        val upstream = DefaultHttpDataSource.Factory()
+        val cache = MediaCache.get(this)
+        val cacheSourceFactory = CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(upstream)
+            .setCacheWriteDataSinkFactory(
+                CacheDataSink.Factory()
+                    .setCache(cache)
+            )
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        // Scheme routing: file:// download items read straight from disk via
+        // FileDataSource; http(s) keeps flowing cache→upstream byte-identical
+        // to before. Without this, file:// misses the cache and falls through
+        // to the HTTP-only upstream, which errors on the scheme — every local
+        // file failed to play and self-heal deleted the good bytes.
+        val schemeFactory = DataSource.Factory { SchemeDataSource(cacheSourceFactory) }
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(schemeFactory)
+        val exo = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+        player = exo
+        exo.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                if (playing) consecFails = 0
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                // Local (downloaded-file) items are owned by MainActivity's
+                // self-heal path (delete + fall back to stream, or message
+                // when offline). Skipping here would race the heal and burn
+                // the queue, so hands off local: items entirely.
+                val isLocal = try {
+                    exo.currentMediaItem?.mediaId?.startsWith("local:") == true
+                } catch (_: Exception) {
+                    false
+                }
+                if (isLocal) return
+                if (!isNetworkAvailable(this@PlaybackService)) {
+                    // Offline: never burn the queue on holes — jump only to the
+                    // next offline-playable item (valid download or cached bytes),
+                    // wrapping once per repeat-all at most; otherwise stop.
+                    val app = this@PlaybackService
+                    val count = try {
+                        exo.mediaItemCount
+                    } catch (_: Exception) {
+                        0
+                    }
+                    val from = try {
+                        exo.currentMediaItemIndex
+                    } catch (_: Exception) {
+                        0
+                    }
+                    val repeatAll = try {
+                        exo.repeatMode == Player.REPEAT_MODE_ALL
+                    } catch (_: Exception) {
+                        false
+                    }
+                    val songs = (0 until count).map { i ->
+                        try {
+                            songFromMediaItem(exo.getMediaItemAt(i))
+                        } catch (_: Exception) {
+                            Song("", "", "", "", "", 0, "")
+                        }
+                    }
+                    val target = selectNextOfflineIndex(
+                        songs,
+                        from,
+                        isPlayable = { idx ->
+                            val s = songs.getOrNull(idx)
+                            if (s == null || s.sourceId.isBlank()) false
+                            else try {
+                                OfflineStore.isAudioFileIntact(app, s) ||
+                                    MediaCache.cachedBytes(app, s.streamUrl()) > 0
+                            } catch (_: Exception) {
+                                false
+                            }
+                        },
+                        repeatAll = repeatAll
+                    )
+                    if (target >= 0) {
+                        consecFails++
+                        try {
+                            exo.seekTo(target, 0L)
+                            exo.prepare()
+                            exo.play()
+                        } catch (_: Exception) {
+                        }
+                    } else {
+                        consecFails++
+                        try {
+                            exo.stop()
+                        } catch (_: Exception) {
+                        }
+                    }
+                    return
+                }
+                // 单首源坏了自动跳下一首；连续坏 3 次就停手（大概率没网，别把队列一口气烧光）
+                if (shouldAutoSkip(consecFails, exo.hasNextMediaItem())) {
+                    consecFails++
+                    exo.seekToNextMediaItem()
+                    exo.prepare()
+                    exo.play()
+                }
+            }
+        })
+        // NOTE (1.0.11-ai rollback): a session-callback materializer lived here and
+        // poisoned every transport path (stale snapshot surfaced as wrong song in
+        // notifications, fresh players went silent). Removed; Activity-side
+        // ensureTimeline remains the single recovery path. See lessons.
+        mediaSession = MediaSession.Builder(this, exo).build()
+    }
+
+    fun playQueue(songs: List<Song>, index: Int) {
+        val exo = player ?: return
+        exo.setMediaItems(
+            songs.map { it.toCachedMediaItem() },
+            index.coerceIn(songs.indices),
+            0L
+        )
+        exo.prepare()
+        exo.play()
+    }
+
+    fun next() {
+        val exo = player ?: return
+        if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() else exo.seekTo(0L)
+    }
+
+    fun prev() {
+        val exo = player ?: return
+        if (exo.hasPreviousMediaItem()) exo.seekToPreviousMediaItem() else exo.seekTo(0L)
+    }
+
+    fun seekTo(positionMs: Long) {
+        player?.seekTo(positionMs.coerceAtLeast(0L))
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        mediaSession
+
+    override fun onDestroy() {
+        mediaSession?.run {
+            player.release()
+            release()
+        }
+        mediaSession = null
+        player = null
+        super.onDestroy()
+    }
+}

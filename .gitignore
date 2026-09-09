@@ -1,0 +1,32 @@
+# Local SDK location (each machine has its own)
+local.properties
+
+# Build outputs
+build/
+app/build/
+*.apk
+*.aab
+*.ap_
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Signing (NEVER commit; release key lives in GitHub Secrets)
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor backups
+*.orig
+*.rej
