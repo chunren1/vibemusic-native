@@ -55,6 +55,19 @@ fun renderPositions(positions: Map<String, Long>): String {
     return o.toString()
 }
 
+/** First-run start destination: LOGIN forces the login gate, SEARCH_GUEST keeps
+ * today's guest landing, RESTORE attempts silent token restore via /me. */
+enum class StartRoute { LOGIN, SEARCH_GUEST, RESTORE }
+
+/** Pure: blank token + never launched -> LOGIN; blank token + launched -> guest
+ * Search; stored token -> RESTORE (validate via /me, guest-null stays guest). */
+fun decideStartRoute(tokenBlank: Boolean, launchedBefore: Boolean): StartRoute =
+    when {
+        !tokenBlank -> StartRoute.RESTORE
+        !launchedBefore -> StartRoute.LOGIN
+        else -> StartRoute.SEARCH_GUEST
+    }
+
 /** Persists last queue so a recreated Activity can restore UI without autoplay. */
 object QueueStore {
     private val KEY_QUEUE = stringPreferencesKey("queue_json")
@@ -65,6 +78,7 @@ object QueueStore {
     private val KEY_SLEEP_MIN = intPreferencesKey("sleep_timer_min")
     private val KEY_POSITIONS = stringPreferencesKey("positions_json")
     private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_ms")
+    private val KEY_HAS_LAUNCHED = booleanPreferencesKey("has_launched_before")
 
     suspend fun saveQueue(context: Context, songs: List<Song>, index: Int) {
         val arr = JSONArray()
@@ -217,6 +231,26 @@ object QueueStore {
         try {
             context.playbackDataStore.edit { p ->
                 p[KEY_LAST_UPDATE_CHECK] = nowMs.coerceAtLeast(0L)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** First-run gate flag (lives in "playback" file; "auth" store untouched). */
+    suspend fun loadHasLaunchedBefore(context: Context): Boolean {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                p[KEY_HAS_LAUNCHED] ?: false
+            }.first()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun saveHasLaunchedBefore(context: Context) {
+        try {
+            context.playbackDataStore.edit { p ->
+                p[KEY_HAS_LAUNCHED] = true
             }
         } catch (_: Exception) {
         }

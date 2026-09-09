@@ -1932,14 +1932,33 @@ class MainActivity : ComponentActivity() {
                     }
                 } catch (_: Exception) {
                 }
-                // Token restore + validate via /api/auth/me
+                // Token restore + validate via /api/auth/me.
+                // First-run gate: blank token + never launched -> Login screen
+                // (guest stays an explicit 先逛逛 choice, not the default).
                 try {
                     val snap = AuthStore.load(context)
+                    val launchedBefore = try {
+                        QueueStore.loadHasLaunchedBefore(context)
+                    } catch (_: Exception) {
+                        false
+                    }
+                    when (decideStartRoute(snap.token.isBlank(), launchedBefore)) {
+                        StartRoute.LOGIN -> screen = Screen.Login
+                        StartRoute.SEARCH_GUEST -> screen = Screen.Search
+                        StartRoute.RESTORE -> Unit
+                    }
                     if (snap.token.isNotBlank()) {
                         try {
-                            currentUser = VibeApi.me()
-                            loadFavIds()
-                            loadHistory()
+                            val restored = VibeApi.me()
+                            if (restored != null) {
+                                currentUser = restored
+                                loadFavIds()
+                                loadHistory()
+                            } else {
+                                // Guest-null: transient guest response, keep stored
+                                // token; only 401/AuthException owns clearing.
+                                currentUser = null
+                            }
                         } catch (e: AuthException) {
                             try {
                                 AuthStore.clear(context)
@@ -1952,6 +1971,10 @@ class MainActivity : ComponentActivity() {
                             currentUser = null
                             showError("Auth restore failed: ${e.message ?: e.javaClass.simpleName}")
                         }
+                    }
+                    try {
+                        QueueStore.saveHasLaunchedBefore(context)
+                    } catch (_: Exception) {
                     }
                 } catch (e: Exception) {
                     showError("Auth restore failed: ${e.message ?: e.javaClass.simpleName}")
@@ -2357,6 +2380,7 @@ class MainActivity : ComponentActivity() {
                                 initialRegister = loginInitialRegister,
                                 onLogin = ::doLogin,
                                 onRegister = ::doRegister,
+                                onBrowseAsGuest = { screen = Screen.Search },
                                 onBack = { screen = Screen.Mine }
                             )
 
@@ -3127,6 +3151,7 @@ fun LoginScreen(
     initialRegister: Boolean = false,
     onLogin: (String, String) -> Unit,
     onRegister: (String, String, String) -> Unit = { _, _, _ -> },
+    onBrowseAsGuest: () -> Unit = {},
     onBack: () -> Unit
 ) {
     var username by remember { mutableStateOf("") }
@@ -3205,6 +3230,9 @@ fun LoginScreen(
             text = "访客可继续搜歌听歌；只存 token，不存密码",
             style = MaterialTheme.typography.bodySmall
         )
+        TextButton(onClick = onBrowseAsGuest) {
+            Text("先逛逛")
+        }
     }
 }
 

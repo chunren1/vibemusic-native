@@ -52,6 +52,21 @@ fun buildRefreshBody(refreshToken: String): String =
     JSONObject().put("refreshToken", refreshToken).toString()
 
 /**
+ * Pure: a /me or login envelope whose data carries guest==true (boolean true,
+ * string "true"/"1", or numeric 1) is NOT a user — backend /me without a
+ * token returns {guest:true}. Callers treat guest as "not logged in".
+ */
+fun isGuestPayload(data: JSONObject): Boolean {
+    if (data.isNull("guest")) return false
+    return when (val g = data.opt("guest")) {
+        is Boolean -> g
+        is Number -> g.toInt() != 0
+        is String -> g.equals("true", ignoreCase = true) || g == "1"
+        else -> false
+    }
+}
+
+/**
  * Pure: parse a POST /api/auth/refresh response. Returns null on any failure
  * (401 envelope, missing data/blank token) — caller treats null as "re-login".
  */
@@ -578,18 +593,30 @@ object VibeApi {
         val root = JSONObject(json)
         checkEnvelope(root, "Login")
         val data = root.optJSONObject("data") ?: throw RuntimeException("Login: missing data")
+        if (isGuestPayload(data)) throw RuntimeException("Login: guest response is not a user")
         val token = data.optString("token")
             .ifBlank { data.optString("accessToken") }
         if (token.isBlank()) throw RuntimeException("Login: missing token in response")
         return LoginResult(token, parseUser(data), data.optString("refreshToken"))
     }
 
-    suspend fun me(): LoggedInUser {
-        val body = rawGet("api/auth/me")
-        val root = JSONObject(body)
+    /**
+     * Pure: parse GET /api/auth/me. Returns null for guest envelopes
+     * ({guest:true} when no token) — null means "not logged in", never a
+     * blank user. Callers must NOT clear stored tokens on null (transient
+     * guest must not nuke a saved token); only 401/AuthException clears.
+     */
+    fun parseMe(json: String): LoggedInUser? {
+        val root = JSONObject(json)
         checkEnvelope(root, "Auth check")
         val data = root.optJSONObject("data") ?: throw RuntimeException("Auth check: missing data")
+        if (isGuestPayload(data)) return null
         return parseUser(data)
+    }
+
+    suspend fun me(): LoggedInUser? {
+        val body = rawGet("api/auth/me")
+        return parseMe(body)
     }
 
     // ---- playlists (auth required; parse defensively) ----
