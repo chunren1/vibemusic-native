@@ -273,6 +273,18 @@ class MainActivity : ComponentActivity() {
             // ---- self-update state (dialog only when a newer release is found) ----
             var updateRelease by remember { mutableStateOf<GithubRelease?>(null) }
             var updateBusy by remember { mutableStateOf(false) }
+            var manualChecking by remember { mutableStateOf(false) }
+            var appVersionName by remember { mutableStateOf("") }
+            LaunchedEffect("app-version") {
+                appVersionName = try {
+                    @Suppress("DEPRECATION")
+                    context.packageManager
+                        .getPackageInfo(context.packageName, 0)
+                        .versionName.orEmpty()
+                } catch (_: Exception) {
+                    ""
+                }
+            }
 
             // ---- sleep timer (activity-level: survives song change + screen switch) ----
             var sleepMinutes by remember { mutableIntStateOf(0) }
@@ -1304,6 +1316,43 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            fun runManualUpdateCheck() {
+                if (manualChecking) return
+                manualChecking = true
+                scope.launch {
+                    try {
+                        val now = System.currentTimeMillis()
+                        try {
+                            QueueStore.saveLastUpdateCheck(context, now)
+                        } catch (_: Exception) {
+                        }
+                        val rel = try {
+                            fetchLatestRelease()
+                        } catch (e: Exception) {
+                            showError(friendlyNetworkMessage(e))
+                            return@launch
+                        }
+                        val current = appVersionName.ifBlank {
+                            try {
+                                @Suppress("DEPRECATION")
+                                context.packageManager
+                                    .getPackageInfo(context.packageName, 0)
+                                    .versionName.orEmpty()
+                            } catch (_: Exception) {
+                                ""
+                            }
+                        }
+                        when (compareAndDecide(current, rel.tag, fetchOk = true)) {
+                            UpdateDecision.UPDATE_AVAILABLE -> updateRelease = rel
+                            UpdateDecision.UP_TO_DATE -> showError("已是最新版本")
+                            UpdateDecision.CHECK_FAILED -> Unit
+                        }
+                    } finally {
+                        manualChecking = false
+                    }
+                }
+            }
+
             fun addSongAction(pl: Playlist, song: Song) {
                 if (currentUser == null) {
                     screen = Screen.Login
@@ -1896,7 +1945,7 @@ class MainActivity : ComponentActivity() {
                         } catch (_: Exception) {
                             0L
                         }
-                        if (!shouldCheckUpdate(now, last)) return@launch
+                        if (!shouldRunUpdateCheck(now, last, force = false)) return@launch
                         try {
                             QueueStore.saveLastUpdateCheck(context, now)
                         } catch (_: Exception) {
@@ -1914,8 +1963,9 @@ class MainActivity : ComponentActivity() {
                         } catch (_: Exception) {
                             ""
                         }
-                        if (current.isNotBlank() && isNewerVersion(current, rel.tag)) {
-                            updateRelease = rel
+                        when (compareAndDecide(current, rel.tag, fetchOk = true)) {
+                            UpdateDecision.UPDATE_AVAILABLE -> updateRelease = rel
+                            else -> Unit
                         }
                     } catch (_: Exception) {
                     }
@@ -2420,6 +2470,9 @@ class MainActivity : ComponentActivity() {
                                 onAddSongToPlaylist = ::openAddSheet,
                                 cacheSizeLabel = cacheSizeLabel,
                                 onClearCache = ::clearMediaCache,
+                                versionLabel = formatVersionLabel(appVersionName),
+                                checkingUpdate = manualChecking,
+                                onCheckUpdate = ::runManualUpdateCheck,
                                 offlineCount = offlineCount,
                                 onOpenOffline = { screen = Screen.Offline },
                                 favIds = favIds,
@@ -3284,6 +3337,38 @@ fun CacheManageRow(
 }
 
 @Composable
+fun VersionRow(
+    versionLabel: String,
+    checking: Boolean,
+    onCheck: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = versionLabel.ifBlank { formatVersionLabel("") },
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        TextButton(onClick = onCheck, enabled = !checking) {
+            if (checking) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text("检查更新")
+        }
+    }
+}
+
+@Composable
 fun MineScreen(
     modifier: Modifier = Modifier,
     user: LoggedInUser?,
@@ -3310,6 +3395,9 @@ fun MineScreen(
     onAddSongToPlaylist: (Song) -> Unit = {},
     cacheSizeLabel: String = "",
     onClearCache: () -> Unit = {},
+    versionLabel: String = "",
+    checkingUpdate: Boolean = false,
+    onCheckUpdate: () -> Unit = {},
     offlineCount: Int = 0,
     onOpenOffline: () -> Unit = {},
     onRegisterClick: () -> Unit = {},
@@ -3392,6 +3480,12 @@ fun MineScreen(
                     onClearCache()
                 },
                 onDismissClear = { showClearConfirm = false }
+            )
+            Spacer(Modifier.height(4.dp))
+            VersionRow(
+                versionLabel = versionLabel,
+                checking = checkingUpdate,
+                onCheck = onCheckUpdate
             )
             return
         }
@@ -3597,6 +3691,12 @@ fun MineScreen(
                 onClearCache()
             },
             onDismissClear = { showClearConfirm = false }
+        )
+        Spacer(Modifier.height(4.dp))
+        VersionRow(
+            versionLabel = versionLabel,
+            checking = checkingUpdate,
+            onCheck = onCheckUpdate
         )
         Spacer(Modifier.height(12.dp))
         if (selectedPlaylist == null) {

@@ -87,6 +87,47 @@ fun shouldCheckUpdate(nowMs: Long, lastCheckMs: Long): Boolean {
     return nowMs - lastCheckMs >= UPDATE_CHECK_INTERVAL_MS
 }
 
+/**
+ * Pure: update-check orchestrator gate. Auto path passes force=false (24h
+ * throttle applies); manual "检查更新" tap passes force=true (bypasses the
+ * throttle but still records the timestamp so auto stays sane).
+ */
+fun shouldRunUpdateCheck(nowMs: Long, lastCheckMs: Long, force: Boolean = false): Boolean =
+    force || shouldCheckUpdate(nowMs, lastCheckMs)
+
+/** Pure outcome of one update-decision step (shared by auto + manual paths). */
+enum class UpdateDecision {
+    UPDATE_AVAILABLE,
+    UP_TO_DATE,
+    CHECK_FAILED
+}
+
+/**
+ * Pure: route both check paths through one decision. fetchOk=false (or a
+ * blank/unparseable tag) → CHECK_FAILED; a current version or tag without
+ * any digit is malformed → CHECK_FAILED; otherwise strict isNewerVersion
+ * ordering decides (equal cores and suffix-only diffs are UP_TO_DATE).
+ */
+fun compareAndDecide(
+    currentVersion: String,
+    latestTag: String?,
+    fetchOk: Boolean
+): UpdateDecision {
+    if (!fetchOk) return UpdateDecision.CHECK_FAILED
+    if (latestTag.isNullOrBlank()) return UpdateDecision.CHECK_FAILED
+    if (!currentVersion.any(Char::isDigit)) return UpdateDecision.CHECK_FAILED
+    if (!latestTag.any(Char::isDigit)) return UpdateDecision.CHECK_FAILED
+    return if (isNewerVersion(currentVersion, latestTag)) {
+        UpdateDecision.UPDATE_AVAILABLE
+    } else {
+        UpdateDecision.UP_TO_DATE
+    }
+}
+
+/** Pure: Mine-tab version row label. */
+fun formatVersionLabel(versionName: String): String =
+    if (versionName.isBlank()) "版本 未知" else "版本 $versionName"
+
 // Clean client: GitHub API needs no auth — never attach the app Bearer interceptor.
 private val updateHttp = OkHttpClient.Builder()
     .connectTimeout(15, TimeUnit.SECONDS)
