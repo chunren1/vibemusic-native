@@ -13,6 +13,8 @@ on:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 发 Release 需要写权限（默认 GITHUB_TOKEN 只读）
     steps:
       - uses: actions/checkout@v4
 
