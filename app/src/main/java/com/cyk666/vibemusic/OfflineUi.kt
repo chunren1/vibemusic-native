@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,7 +49,8 @@ fun OfflineScreen(
     loading: Boolean = false,
     onPlayAt: (Int) -> Unit = {},
     onDelete: (OfflineMeta) -> Unit = {},
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onGoSearch: () -> Unit = {}
 ) {
     var confirmDelete by remember { mutableStateOf<OfflineMeta?>(null) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -69,14 +69,13 @@ fun OfflineScreen(
         Spacer(modifier = Modifier.padding(top = 4.dp))
         when {
             loading -> {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    CircularProgressIndicator()
-                }
+                SearchSkeleton()
             }
             items.isEmpty() -> {
-                Text(
-                    text = "还没有下载，在搜索页点 ⋯ → 下载，或常听3次自动离线",
-                    style = MaterialTheme.typography.bodyMedium
+                EmptyStateLine(
+                    text = "还没有下载，常听3次自动离线",
+                    actionLabel = "去搜索",
+                    onAction = onGoSearch
                 )
             }
             else -> {

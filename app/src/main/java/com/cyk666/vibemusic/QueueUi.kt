@@ -148,7 +148,8 @@ fun QueueScreen(
     onPlayAt: (Int) -> Unit,
     onRemove: (Int) -> Unit,
     onClear: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onGoSearch: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val currentPos = rows.indexOfFirst { it.isCurrent }
@@ -190,7 +191,11 @@ fun QueueScreen(
         }
         Spacer(Modifier.height(4.dp))
         if (rows.isEmpty()) {
-            Text("队列是空的，去搜索页点一首歌吧")
+            EmptyStateLine(
+                text = "队列是空的，去搜一首放进来吧",
+                actionLabel = "去搜索",
+                onAction = onGoSearch
+            )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {
                 itemsIndexed(rows, key = { idx, r -> "${r.sourceId}#$idx" }) { index, row ->

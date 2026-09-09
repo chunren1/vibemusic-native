@@ -20,6 +20,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -83,10 +84,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -123,6 +127,7 @@ sealed interface Screen {
     data object Mine : Screen
     data object Offline : Screen
     data object History : Screen
+    data object Settings : Screen
 }
 
 private val ObsidianBg = Color(0xFF0A0A0F)
@@ -181,11 +186,19 @@ class MainActivity : ComponentActivity() {
             }
             var controller by remember { mutableStateOf<MediaController?>(null) }
             var screen by remember { mutableStateOf<Screen>(Screen.Search) }
+            // Phase 10: where the user came from before entering Player, so
+            // swipe-down-close returns to the previous tab (default Search).
+            var playerOrigin by remember { mutableStateOf<Screen>(Screen.Search) }
+            // Phase 10: session-only collapse of the mini-player bar (X button).
+            // UI state only — queue/playback untouched; reset on next playAt.
+            var miniDismissed by remember { mutableStateOf(false) }
             var query by remember { mutableStateOf("予以") }
             var results by remember { mutableStateOf<List<Song>>(emptyList()) }
             var total by remember { mutableIntStateOf(0) }
             var loading by remember { mutableStateOf(false) }
             var searched by remember { mutableStateOf(false) }
+            // Phase 10: last search failure for the error row (null = no error).
+            var searchError by remember { mutableStateOf<String?>(null) }
             var searchJob by remember { mutableStateOf<Job?>(null) }
             var searchGen by remember { mutableIntStateOf(0) }
             // 500ms debounce auto-search job (cancelled + superseded on each keystroke).
@@ -211,6 +224,10 @@ class MainActivity : ComponentActivity() {
             var cacheTick by remember { mutableIntStateOf(0) }
             var cachedBadge by remember { mutableStateOf(false) }
             var cacheSizeLabel by remember { mutableStateOf("计算中…") }
+            // Phase 10: downloads dir usage for the Settings storage row.
+            var downloadsSizeLabel by remember { mutableStateOf("计算中…") }
+            var cacheBytes by remember { mutableLongStateOf(0L) }
+            var downloadBytes by remember { mutableLongStateOf(0L) }
             // ---- user-driven offline downloads (filesDir/offline, never evicted) ----
             var downloadingIds by remember { mutableStateOf(setOf<String>()) }
             var downloadedTick by remember { mutableIntStateOf(0) }
@@ -348,6 +365,7 @@ class MainActivity : ComponentActivity() {
                 searchGen += 1
                 val gen = searchGen
                 loading = true
+                searchError = null
                 searchJob = scope.launch {
                     try {
                         val r = VibeApi.search(kw)
@@ -355,6 +373,7 @@ class MainActivity : ComponentActivity() {
                         results = r.list
                         total = r.total
                         searched = true
+                        searchError = null
                         liveQuery = kw
                         artistFilter = null
                         try {
@@ -365,6 +384,7 @@ class MainActivity : ComponentActivity() {
                         throw e
                     } catch (e: Exception) {
                         if (isStaleSearchResult(gen, searchGen)) return@launch
+                        searchError = friendlyNetworkMessage(e)
                         showError("Search failed: ${friendlyNetworkMessage(e)}")
                     } finally {
                         if (!isStaleSearchResult(gen, searchGen)) loading = false
@@ -433,6 +453,8 @@ class MainActivity : ComponentActivity() {
                 try {
                     queue = list
                     currentIndex = safeIndex
+                    playerOrigin = if (screen is Screen.Player) playerOrigin else screen
+                    miniDismissed = false
                     c.setMediaItems(
                         list.map { it.toPlayMediaItem(context) },
                         currentIndex,
@@ -467,8 +489,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun persistPosition(force: Boolean = false) {
-                val song = queue.getOrNull(currentIndex) ?: return
+            fun persistPosition(force: Boolean = false) {                val song = queue.getOrNull(currentIndex) ?: return
                 if (song.sourceId.isBlank()) return
                 val pos = try {
                     controller?.currentPosition ?: positionMs
@@ -515,8 +536,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun swapToStreamAndPlay(idx: Int, song: Song) {
+            fun togglePlayPause() {
+                val c = controller
+                if (c == null) {
+                    showError("Playback failed: player not connected yet")
+                    return
+                }
                 try {
+                    ensureTimeline(c)
+                    if (c.playbackState == Player.STATE_IDLE) c.prepare()
+                    if (c.isPlaying) c.pause() else c.play()
+                } catch (e: Exception) {
+                    showError("Playback failed: ${e.message ?: e.javaClass.simpleName}")
+                }
+            }
+
+            fun swapToStreamAndPlay(idx: Int, song: Song) {                try {
                     val cc = controller ?: return
                     val streamItem = song.toCachedMediaItem()
                     if (idx in 0 until cc.mediaItemCount) {
@@ -2087,15 +2122,25 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(screen, cacheTick) {
-                if (screen is Screen.Mine) {
-                    val mb = withContext(Dispatchers.IO) {
+                if (screen is Screen.Mine || screen is Screen.Settings) {
+                    val bytes = withContext(Dispatchers.IO) {
                         try {
-                            MediaCache.sizeBytes(context) / 1024.0 / 1024.0
+                            MediaCache.sizeBytes(context)
                         } catch (_: Exception) {
-                            0.0
+                            0L
                         }
                     }
-                    cacheSizeLabel = "%.1f MB".format(mb)
+                    cacheBytes = bytes
+                    cacheSizeLabel = formatStorageMb(bytes)
+                    val dl = withContext(Dispatchers.IO) {
+                        try {
+                            dirAudioBytes(OfflineStore.dir(context))
+                        } catch (_: Exception) {
+                            0L
+                        }
+                    }
+                    downloadBytes = dl
+                    downloadsSizeLabel = formatStorageMb(dl)
                 }
             }
 
@@ -2148,7 +2193,8 @@ class MainActivity : ComponentActivity() {
                 is Screen.Discover -> 0
                 is Screen.Search -> 1
                 is Screen.Player, is Screen.Queue -> 2
-                is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History -> 3
+                is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History,
+                is Screen.Settings -> 3
             }
 
             MaterialTheme(colorScheme = ObsidianScheme) {
@@ -2156,7 +2202,21 @@ class MainActivity : ComponentActivity() {
                     containerColor = ObsidianBg,
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
-                        NavigationBar {
+                        Column {
+                            if (queue.isNotEmpty() && screen !is Screen.Player && !miniDismissed) {
+                                MiniPlayerBar(
+                                    song = queue.getOrNull(currentIndex),
+                                    isPlaying = isPlaying,
+                                    onTap = {
+                                        playerOrigin =
+                                            if (screen is Screen.Player) playerOrigin else screen
+                                        screen = Screen.Player
+                                    },
+                                    onPlayPause = { togglePlayPause() },
+                                    onDismiss = { miniDismissed = true }
+                                )
+                            }
+                            NavigationBar {
                             NavigationBarItem(
                                 selected = selectedTab == 0,
                                 onClick = { screen = Screen.Discover },
@@ -2181,6 +2241,7 @@ class MainActivity : ComponentActivity() {
                                 label = { Text("我的") },
                                 icon = { Text("👤") }
                             )
+                            }
                         }
                     }
                 ) { innerPadding ->
@@ -2251,6 +2312,11 @@ class MainActivity : ComponentActivity() {
                                 searched = searched,
                                 results = results,
                                 total = total,
+                                searchError = searchError,
+                                onRetrySearch = {
+                                    debounceJob?.cancel()
+                                    if (query.trim().isNotEmpty()) runSearch(query)
+                                },
                                 onPlayAt = ::playAt,
                                 artistFilter = artistFilter,
                                 onArtistFilterChange = { artistFilter = it },
@@ -2314,21 +2380,7 @@ class MainActivity : ComponentActivity() {
                                 sleepLabel = sleepLabel,
                                 onSleepClick = { showSleepDialog = true },
                                 onPlayPause = {
-                                    val c = controller
-                                    if (c == null) {
-                                        showError("Playback failed: player not connected yet")
-                                    } else {
-                                        try {
-                                            ensureTimeline(c)
-                                            if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            if (c.isPlaying) c.pause() else c.play()
-                                        } catch (e: Exception) {
-                                            showError(
-                                                "Playback failed: " +
-                                                    "${e.message ?: e.javaClass.simpleName}"
-                                            )
-                                        }
-                                    }
+                                    togglePlayPause()
                                 },
                                 onNext = {
                                     val c = controller
@@ -2383,7 +2435,11 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 },
-                                onClose = { screen = Screen.Search },
+                                onClose = {
+                                    screen =
+                                        if (playerOrigin is Screen.Player) Screen.Search
+                                        else playerOrigin
+                                },
                                 onAddCurrentToPlaylist = {
                                     queue.getOrNull(currentIndex)?.let(::openAddSheet)
                                 },
@@ -2421,7 +2477,8 @@ class MainActivity : ComponentActivity() {
                                 onPlayAt = ::queueSeekTo,
                                 onRemove = ::queueRemoveAt,
                                 onClear = ::queueClearKeepCurrent,
-                                onBack = { screen = Screen.Player }
+                                onBack = { screen = Screen.Player },
+                                onGoSearch = { screen = Screen.Search }
                             )
 
                             is Screen.Login -> LoginScreen(
@@ -2498,7 +2555,9 @@ class MainActivity : ComponentActivity() {
                                         uploadTarget = null
                                         showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
                                     }
-                                }
+                                },
+                                onGoSearch = { screen = Screen.Search },
+                                onOpenSettings = { screen = Screen.Settings }
                             )
 
                             is Screen.History -> HistoryScreen(
@@ -2521,6 +2580,17 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Mine }
                             )
 
+                            is Screen.Settings -> SettingsScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                cacheSizeLabel = cacheSizeLabel,
+                                storageLabel = storageTotalLabel(cacheBytes, downloadBytes),
+                                versionLabel = formatVersionLabel(appVersionName),
+                                checkingUpdate = manualChecking,
+                                onCheckUpdate = ::runManualUpdateCheck,
+                                onClearCache = ::clearMediaCache,
+                                onBack = { screen = Screen.Mine }
+                            )
+
                             is Screen.Offline -> OfflineScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 items = offlineItems,
@@ -2530,7 +2600,8 @@ class MainActivity : ComponentActivity() {
                                     if (songs.isNotEmpty()) playAt(songs, idx.coerceIn(songs.indices))
                                 },
                                 onDelete = ::deleteOffline,
-                                onBack = { screen = Screen.Mine }
+                                onBack = { screen = Screen.Mine },
+                                onGoSearch = { screen = Screen.Search }
                             )
                         }
                     }
@@ -2718,6 +2789,8 @@ fun SearchScreen(
     searched: Boolean,
     results: List<Song>,
     total: Int,
+    searchError: String? = null,
+    onRetrySearch: () -> Unit = {},
     onPlayAt: (List<Song>, Int) -> Unit,
     artistFilter: String? = null,
     onArtistFilterChange: (String?) -> Unit = {},
@@ -2884,7 +2957,21 @@ fun SearchScreen(
             )
             Spacer(Modifier.height(4.dp))
             if (visible.isEmpty()) {
-                Text(if (results.isEmpty()) "No results" else "该歌手无结果")
+                when (selectListState(loading = false, error = searchError, isEmpty = true)) {
+                    ListState.ERROR -> DiscoverRetryRow(
+                        message = searchError.orEmpty(),
+                        onRetry = onRetrySearch
+                    )
+                    else -> if (results.isEmpty()) {
+                        EmptyStateLine(text = "没有搜到，换个关键词试试")
+                    } else {
+                        EmptyStateLine(
+                            text = "该歌手无结果",
+                            actionLabel = "清除筛选",
+                            onAction = { onArtistFilterChange(null) }
+                        )
+                    }
+                }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(visible, key = { _, s -> s.sourceId + s.platform }) { index, song ->
@@ -3003,39 +3090,193 @@ fun PlayerScreen(
     val sliderMax = durationMs.coerceAtLeast(1L).toFloat()
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
     val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
-    val listState = rememberLazyListState()
+    val lyricsListState = rememberLazyListState()
+    val coverScroll = rememberScrollState()
+    var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
+    var lastGestureMs by remember { mutableStateOf(-1L) }
+    val density = LocalDensity.current
+    val coverUrl = song?.coverUrl?.ifBlank { null }
 
-    LaunchedEffect(currentLine, lines) {
-        if (currentLine >= 0) {
+    LaunchedEffect(currentLine, lines, view) {
+        if (view == PlayerView.LYRICS && currentLine >= 0) {
             try {
-                listState.scrollToItem(1 + currentLine)
+                lyricsListState.scrollToItem(currentLine)
             } catch (_: Exception) {
             }
         }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize().background(ObsidianBg),
-        state = listState,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        item {
+    fun fireGesture(g: PlayerGesture) {
+        if (g == PlayerGesture.NONE) return
+        val now = System.currentTimeMillis()
+        if (!shouldFireGesture(now, lastGestureMs)) return
+        lastGestureMs = now
+        when (g) {
+            PlayerGesture.CLOSE -> onClose()
+            PlayerGesture.NEXT -> onNext()
+            PlayerGesture.PREV -> onPrev()
+            PlayerGesture.NONE -> Unit
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(ObsidianBg)) {
+        AsyncImage(
+            model = coverUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize().alpha(0.25f)
+        )
+        Box(
+            modifier = Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    listOf(
+                        ObsidianBg.copy(alpha = 0.55f),
+                        ObsidianBg.copy(alpha = 0.88f),
+                        ObsidianBg
+                    )
+                )
+            )
+        )
+        if (view == PlayerView.LYRICS && song != null) {
+            Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { view = PlayerView.COVER },
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
+                        Text("‹ 封面")
+                    }
+                    Text(
+                        text = song.name.ifBlank { "(untitled)" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(MIN_TOUCH_DP.dp)
+                    ) {
+                        Text("✕")
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                when (lyricState) {
+                    null, LyricUiState.Loading -> SearchSkeleton()
+                    LyricUiState.Failed -> EmptyStateLine(
+                        text = "歌词加载失败",
+                        actionLabel = "返回封面",
+                        onAction = { view = PlayerView.COVER }
+                    )
+                    is LyricUiState.Ok -> if (lines.isEmpty()) {
+                        EmptyStateLine(
+                            text = "暂无歌词",
+                            actionLabel = "返回封面",
+                            onAction = { view = PlayerView.COVER }
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            state = lyricsListState,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
+                                val active = idx == currentLine
+                                Text(
+                                    text = line.text.ifBlank { " " },
+                                    style = if (active) MaterialTheme.typography.titleMedium
+                                    else MaterialTheme.typography.bodyMedium,
+                                    color = if (active) Champagne else GrayMuted,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = MIN_TOUCH_DP.dp)
+                                        .clickable { view = PlayerView.COVER }
+                                        .padding(vertical = 6.dp, horizontal = 24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onPrev,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
+                        Text("⏮")
+                    }
+                    Button(
+                        onClick = onPlayPause,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
+                        Text(if (isPlaying) "⏸" else "▶")
+                    }
+                    Button(
+                        onClick = onNext,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
+                        Text("⏭")
+                    }
+                }
+            }
+        } else {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                modifier = Modifier.fillMaxSize().verticalScroll(coverScroll).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    IconButton(onClick = onClose) {
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(MIN_TOUCH_DP.dp)
+                    ) {
                         Text("✕")
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                AsyncImage(
-                    model = song?.coverUrl?.ifBlank { null },
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(280.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .pointerInput(song?.sourceId) {
+                            var tx = 0f
+                            var ty = 0f
+                            detectDragGestures(
+                                onDragStart = { tx = 0f; ty = 0f },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    tx += amount.x
+                                    ty += amount.y
+                                },
+                                onDragEnd = {
+                                    val dxDp = with(density) { tx.toDp().value }
+                                    val dyDp = with(density) { ty.toDp().value }
+                                    fireGesture(
+                                        resolvePlayerGesture(
+                                            dxDp,
+                                            dyDp,
+                                            fromCoverZone = true
+                                        )
+                                    )
+                                }
+                            )
+                        }
+                        .clickable { view = togglePlayerView(view) }
+                ) {
+                    AsyncImage(
+                        model = coverUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(280.dp)
+                            .shadow(16.dp, RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
                 Text(
                     text = song?.name ?: "(nothing playing)",
@@ -3089,13 +3330,25 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = onPrev, enabled = song != null) {
+                    Button(
+                        onClick = onPrev,
+                        enabled = song != null,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
                         Text("⏮ Prev")
                     }
-                    Button(onClick = onPlayPause, enabled = song != null) {
+                    Button(
+                        onClick = onPlayPause,
+                        enabled = song != null,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
                         Text(if (isPlaying) "⏸ Pause" else "▶ Play")
                     }
-                    Button(onClick = onNext, enabled = song != null) {
+                    Button(
+                        onClick = onNext,
+                        enabled = song != null,
+                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+                    ) {
                         Text("Next ⏭")
                     }
                 }
@@ -3151,47 +3404,12 @@ fun PlayerScreen(
                 OutlinedButton(onClick = onSleepClick) {
                     Text(sleepLabel)
                 }
-            }
-        }
-        if (song != null) {
-            when (lyricState) {
-                null, LyricUiState.Loading -> item {
-                    Text(
-                        text = "歌词加载中…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GrayMuted,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-                LyricUiState.Failed -> item {
-                    Text(
-                        text = "歌词加载失败",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GrayMuted,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-                is LyricUiState.Ok -> if (lines.isEmpty()) {
-                    item {
-                        Text(
-                            text = "暂无歌词",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = GrayMuted,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                } else {
-                    itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
-                        val active = idx == currentLine
-                        Text(
-                            text = line.text.ifBlank { " " },
-                            style = if (active) MaterialTheme.typography.titleMedium
-                            else MaterialTheme.typography.bodyMedium,
-                            color = if (active) Champagne else GrayMuted,
-                            modifier = Modifier.padding(vertical = 6.dp, horizontal = 24.dp)
-                        )
-                    }
-                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "点封面看歌词 · 左右滑切歌 · 封面下滑关闭",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GrayMuted
+                )
             }
         }
     }
@@ -3290,6 +3508,22 @@ fun LoginScreen(
 }
 
 @Composable
+fun SettingsEntryRow(onOpen: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MIN_TOUCH_DP.dp)
+            .clickable(onClick = onOpen)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = "设置", style = MaterialTheme.typography.titleMedium)
+        Text(text = "›", style = MaterialTheme.typography.titleLarge)
+    }
+}
+
+@Composable
 fun CacheManageRow(
     cacheSizeLabel: String,
     showConfirm: Boolean,
@@ -3369,6 +3603,69 @@ fun VersionRow(
 }
 
 @Composable
+fun SettingsScreen(
+    modifier: Modifier = Modifier,
+    cacheSizeLabel: String,
+    storageLabel: String,
+    versionLabel: String,
+    checkingUpdate: Boolean,
+    onCheckUpdate: () -> Unit,
+    onClearCache: () -> Unit,
+    onBack: () -> Unit
+) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+    val rows = remember(cacheSizeLabel, storageLabel, versionLabel) {
+        buildSettingsRows(
+            cacheLabel = "已用 $cacheSizeLabel · 满150MB自动清理",
+            storageLabel = storageLabel,
+            versionLabel = versionLabel.ifBlank { formatVersionLabel("") }
+        )
+    }
+    val themeRow = rows.first { it.id == "theme" }
+    val storageRow = rows.first { it.id == "storage" }
+    val aboutRow = rows.first { it.id == "about" }
+    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack, modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)) {
+                Text("‹ 我的")
+            }
+            Text(
+                text = "设置",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        SettingsRowShell(
+            title = themeRow.title,
+            subtitle = themeRow.subtitle,
+            trailing = { Text(text = "✓", color = NeonViolet) }
+        )
+        CacheManageRow(
+            cacheSizeLabel = cacheSizeLabel,
+            showConfirm = showClearConfirm,
+            onAskClear = { showClearConfirm = true },
+            onConfirmClear = {
+                showClearConfirm = false
+                onClearCache()
+            },
+            onDismissClear = { showClearConfirm = false }
+        )
+        SettingsRowShell(title = storageRow.title, subtitle = storageRow.subtitle)
+        SettingsRowShell(
+            title = aboutRow.title,
+            subtitle = "${aboutRow.subtitle}\n$SETTINGS_GITHUB_URL\n开源致谢：感谢每一位贡献者"
+        )
+        Spacer(Modifier.height(4.dp))
+        VersionRow(
+            versionLabel = versionLabel,
+            checking = checkingUpdate,
+            onCheck = onCheckUpdate
+        )
+    }
+}
+
+@Composable
 fun MineScreen(
     modifier: Modifier = Modifier,
     user: LoggedInUser?,
@@ -3408,7 +3705,9 @@ fun MineScreen(
     onChangePassword: (String, String) -> Unit = { _, _ -> },
     onUpdateProfile: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onPickAvatar: () -> Unit = {},
-    onPickBg: () -> Unit = {}
+    onPickBg: () -> Unit = {},
+    onGoSearch: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     var selecting by remember { mutableStateOf(false) }
     var checkedIds by remember { mutableStateOf(setOf<String>()) }
@@ -3487,6 +3786,8 @@ fun MineScreen(
                 checking = checkingUpdate,
                 onCheck = onCheckUpdate
             )
+            Spacer(Modifier.height(4.dp))
+            SettingsEntryRow(onOpen = onOpenSettings)
             return
         }
         // Logged in header
@@ -3698,6 +3999,8 @@ fun MineScreen(
             checking = checkingUpdate,
             onCheck = onCheckUpdate
         )
+        Spacer(Modifier.height(4.dp))
+        SettingsEntryRow(onOpen = onOpenSettings)
         Spacer(Modifier.height(12.dp))
         if (selectedPlaylist == null) {
             Row(
@@ -3846,11 +4149,13 @@ fun MineScreen(
             }
             Spacer(Modifier.height(4.dp))
             if (playlistsLoading) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
-                }
+                SearchSkeleton()
             } else if (playlists.isEmpty()) {
-                Text("暂无歌单，点「新建歌单」创建一个吧")
+                EmptyStateLine(
+                    text = "还没有歌单，新建一个开始收藏吧",
+                    actionLabel = "去搜索",
+                    onAction = onGoSearch
+                )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(playlists, key = { it.id.ifBlank { it.name } }) { pl ->
@@ -3966,11 +4271,13 @@ fun MineScreen(
             }
             Spacer(Modifier.height(4.dp))
             if (songsLoading) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
-                }
+                SearchSkeleton()
             } else if (songs.isEmpty()) {
-                Text("歌单是空的，去搜索页把喜欢的歌加进来吧")
+                EmptyStateLine(
+                    text = "歌单是空的，去搜索页把喜欢的歌加进来吧",
+                    actionLabel = "去搜索",
+                    onAction = onGoSearch
+                )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(songs, key = { idx, s -> s.sourceId + s.platform + idx }) { index, song ->
@@ -4532,9 +4839,7 @@ fun HistoryScreen(
         }
         Spacer(Modifier.height(4.dp))
         if (loading) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                CircularProgressIndicator()
-            }
+            SearchSkeleton()
             return
         }
         if (items.isEmpty()) {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,7 +59,10 @@ fun DiscoverRetryRow(message: String, onRetry: () -> Unit) {
             overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.width(8.dp))
-        OutlinedButton(onClick = onRetry) {
+        OutlinedButton(
+            onClick = onRetry,
+            modifier = Modifier.heightIn(min = 44.dp)
+        ) {
             Text("重试")
         }
     }
