@@ -15,13 +15,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 
 /** Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
 fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
@@ -164,81 +157,11 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
     private var consecFails = 0
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-
-    // Persisted-queue snapshot for the narrow PLAY_PAUSE materializer below
-    // (preloaded in onCreate so the session callback stays synchronous).
-    @Volatile
-    private var snapshotSongs: List<Song> = emptyList()
-
-    @Volatile
-    private var snapshotIndex: Int = 0
 
     // Signed-URL single-retry state: exactly one same-index retry per item
     // per error episode. Reset on successful play + on index change.
     private var lastStreamRetryKey: String? = null
     private var lastStreamRetryIndex: Int = -1
-
-    /**
-     * NARROW service-side recovery (post-1.0.11-ai): after long idle the OS
-     * kills the process; a notification tap restarts the service with an
-     * EMPTY timeline. ONLY Player.COMMAND_PLAY_PAUSE (see
-     * [isServiceMaterializeCommand]) refills the timeline from the persisted
-     * [QueueStore] snapshot at the saved index + prepare(), PAUSED — the
-     * allowed command itself then flips to play. All other commands pass
-     * through untouched (seeks never intercepted, so no stale-song surface).
-     */
-    private val sessionCallback = object : MediaSession.Callback {
-        override fun onPlayerCommandRequest(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            playerCommand: Int
-        ): Int {
-            if (!isServiceMaterializeCommand(playerCommand)) return playerCommand
-            try {
-                val exo = player ?: return playerCommand
-                val empty = try {
-                    exo.mediaItemCount == 0
-                } catch (_: Exception) {
-                    false
-                }
-                if (!empty) return playerCommand
-                val cached = snapshotSongs
-                if (cached.isNotEmpty()) {
-                    materializeFromSnapshot(exo, cached, snapshotIndex)
-                } else {
-                    // Preload lost the race (tap arrived right after process
-                    // start): bounded blocking fallback, then give up silently.
-                    val loaded = try {
-                        runBlocking {
-                            withTimeout(2000L) {
-                                QueueStore.loadQueue(this@PlaybackService)
-                            }
-                        }
-                    } catch (_: Exception) {
-                        null
-                    }
-                    if (loaded != null && loaded.first.isNotEmpty()) {
-                        snapshotSongs = loaded.first
-                        snapshotIndex = loaded.second
-                        materializeFromSnapshot(exo, loaded.first, loaded.second)
-                    }
-                }
-            } catch (_: Exception) {
-            }
-            return playerCommand
-        }
-    }
-
-    private fun materializeFromSnapshot(exo: ExoPlayer, songs: List<Song>, index: Int) {
-        try {
-            val idx = index.coerceIn(songs.indices)
-            exo.setMediaItems(songs.map { it.toPlayMediaItem(this) }, idx, 0L)
-            exo.prepare()
-            exo.pause()
-        } catch (_: Exception) {
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -444,17 +367,11 @@ class PlaybackService : MediaSessionService() {
         // above ([sessionCallback]) handles ONLY COMMAND_PLAY_PAUSE on an
         // empty timeline; Activity-side ensureTimeline stays the recovery path
         // for every other transport action. See lessons.
-        mediaSession = MediaSession.Builder(this, exo).setCallback(sessionCallback).build()
-        // Preload the persisted queue so the session callback can refill the
-        // timeline synchronously after process death (notification tap path).
-        serviceScope.launch {
-            try {
-                val (songs, index) = QueueStore.loadQueue(this@PlaybackService)
-                snapshotSongs = songs
-                snapshotIndex = index
-            } catch (_: Exception) {
-            }
-        }
+        // NOTE (1.0.28-ai): session-callback materializer REMOVED again after
+        // 1.0.27-ai total-playback-death report (2nd incident; same suspect as
+        // 1.0.10-ai). Pure helpers + tests stay pinned; Activity ensureTimeline
+        // remains the single recovery path. See lessons.
+        mediaSession = MediaSession.Builder(this, exo).build()
     }
 
     fun playQueue(songs: List<Song>, index: Int) {
@@ -486,7 +403,6 @@ class PlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
-        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()
