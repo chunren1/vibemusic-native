@@ -1,21 +1,43 @@
 package com.cyk666.vibemusic
 
 import android.media.audiofx.Visualizer
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -123,3 +145,99 @@ fun SpectrumVisualizer(
 }
 
 private fun DrawScope.drawDp(dp: Float): Float = dp * density
+
+/**
+ * Static blurred cover backdrop. Owns NOTHING animatable: it composes once
+ * per song and never recomposes with the rotation, so the RenderEffect blur
+ * is rendered once and cached on the GPU layer. Small decoded bitmap
+ * (PLAYER_BACKDROP_REQ_PX) — indistinguishable under blur + scrim.
+ */
+@Composable
+fun BoxScope.PlayerBackdrop(coverUrl: String?) {
+    val ctx = LocalContext.current
+    val request = remember(coverUrl, ctx) {
+        ImageRequest.Builder(ctx)
+            .data(coverUrl?.ifBlank { null })
+            .size(PLAYER_BACKDROP_REQ_PX)
+            .crossfade(true)
+            .build()
+    }
+    val backdropModifier = if (supportsRenderEffectBlur()) {
+        Modifier.matchParentSize()
+            .graphicsLayer {
+                renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                    PLAYER_BACKDROP_BLUR_PX,
+                    PLAYER_BACKDROP_BLUR_PX,
+                    android.graphics.Shader.TileMode.CLAMP
+                ).asComposeRenderEffect()
+            }
+            .alpha(0.35f)
+    } else {
+        Modifier.matchParentSize().alpha(0.25f)
+    }
+    AsyncImage(
+        model = request,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = backdropModifier
+    )
+}
+
+/**
+ * Rotating vinyl cover. The infinite transition (and therefore the
+ * per-frame recomposition) lives INSIDE this composable: the parent
+ * PlayerScreen never reads the angle, so backdrop / title / slider /
+ * controls do not recompose while spinning. Sized Coil request
+ * (VINYL_COVER_REQ_PX) instead of the full source bitmap; rotation +
+ * scale stay on the GPU graphicsLayer. Angle freezes on pause (mirrored
+ * into pausedAngle) and resumes without snap-back; resets per song.
+ */
+@Composable
+fun VinylCover(
+    coverUrl: String?,
+    isPlaying: Boolean,
+    spinKey: Any?,
+    scale: Float = 1f,
+    cornerDp: Dp = 160.dp,
+    modifier: Modifier = Modifier
+) {
+    var pausedAngle by remember(spinKey) { mutableFloatStateOf(0f) }
+    var vinylAngle by remember(spinKey) { mutableFloatStateOf(0f) }
+    if (isPlaying) {
+        val spinTransition = rememberInfiniteTransition(label = "vinylSpin")
+        val spin by spinTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(VINYL_ROTATION_MS.toInt(), easing = LinearEasing)
+            ),
+            label = "vinylAngle"
+        )
+        SideEffect { vinylAngle = (pausedAngle + spin) % 360f }
+    } else {
+        SideEffect { pausedAngle = vinylAngle }
+    }
+    val ctx = LocalContext.current
+    val request = remember(coverUrl, ctx) {
+        ImageRequest.Builder(ctx)
+            .data(coverUrl?.ifBlank { null })
+            .size(VINYL_COVER_REQ_PX)
+            .crossfade(true)
+            .build()
+    }
+    AsyncImage(
+        model = request,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .fillMaxWidth(0.72f)
+            .aspectRatio(1f)
+            .graphicsLayer {
+                rotationZ = vinylAngle
+                scaleX = scale
+                scaleY = scale
+            }
+            .shadow(16.dp, RoundedCornerShape(cornerDp))
+            .clip(RoundedCornerShape(cornerDp))
+    )
+}

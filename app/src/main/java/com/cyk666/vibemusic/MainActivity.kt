@@ -15,12 +15,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.RepeatMode
+import androidx.activity.SystemBarStyle
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -33,7 +30,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -80,9 +77,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -91,13 +86,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -174,7 +166,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Edge-to-edge with a single Obsidian background behind the status
+        // bar: transparent bars + dark icons so no translucent band shows.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.dark(
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         setContent {
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
@@ -1087,7 +1088,9 @@ class MainActivity : ComponentActivity() {
                 loadHot(markLoading = !silent) { oneDone() }
             }
 
-            fun handleAuthLost(msg: String?) {                showError(msg ?: "密码错/登录过期，请重登")
+            fun handleAuthLost(msg: String?, clearTokens: Boolean = true) {
+                showError(msg ?: "密码错/登录过期，请重登")
+                if (!clearTokens) return
                 scope.launch {
                     try {
                         AuthStore.clear(context)
@@ -1106,6 +1109,8 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         favIds = VibeApi.favIds()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (_: Exception) {
@@ -1120,6 +1125,8 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         historyItems = VibeApi.history(20)
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1142,6 +1149,8 @@ class MainActivity : ComponentActivity() {
                     try {
                         val faved = VibeApi.toggleFavorite(song, VibeApi.newRequestId())
                         favIds = if (faved) favIds + song.sourceId else favIds - song.sourceId
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1194,6 +1203,8 @@ class MainActivity : ComponentActivity() {
                         val r = VibeApi.createPlaylist(name, description)
                         showError(if (r.duplicate) "歌单已存在，已打开现有歌单" else "新建歌单成功")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1212,6 +1223,8 @@ class MainActivity : ComponentActivity() {
                         VibeApi.updatePlaylist(pl.id, name = name)
                         showError("重命名成功")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1230,6 +1243,8 @@ class MainActivity : ComponentActivity() {
                         VibeApi.updatePlaylist(pl.id, description = description)
                         showError("简介更新成功")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1252,6 +1267,8 @@ class MainActivity : ComponentActivity() {
                         }
                         showError("已删除「${pl.name}」")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1275,6 +1292,8 @@ class MainActivity : ComponentActivity() {
                         }
                         showError("已删除 $n 个歌单")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1300,6 +1319,9 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         VibeApi.reorderPlaylists(swapped.map { it.id })
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
+                        loadPlaylists()
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                         loadPlaylists()
@@ -1323,6 +1345,8 @@ class MainActivity : ComponentActivity() {
                         showError("已从歌单删除《${song.name}》")
                         loadSongs(pl)
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1341,6 +1365,8 @@ class MainActivity : ComponentActivity() {
                         val r = VibeApi.importPlaylist(source, id)
                         showError("成功导入${r.imported}/${r.total}首「${r.name}」")
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1458,6 +1484,8 @@ class MainActivity : ComponentActivity() {
                         )
                         pendingAddSong = null
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1485,6 +1513,8 @@ class MainActivity : ComponentActivity() {
                         )
                         pendingAddSong = null
                         loadPlaylists()
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1573,6 +1603,8 @@ class MainActivity : ComponentActivity() {
                     try {
                         VibeApi.changePassword(oldPassword, newPassword)
                         showError("密码修改成功")
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1601,6 +1633,8 @@ class MainActivity : ComponentActivity() {
                         } catch (_: Exception) {
                         }
                         showError("资料已更新")
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -1630,6 +1664,10 @@ class MainActivity : ComponentActivity() {
                             if (refreshed != null) currentUser = refreshed
                             showError(if (bg) "背景已更新" else "头像已更新")
                         }
+                    } catch (e: NetworkAuthException) {
+                        withContext(Dispatchers.Main) {
+                            handleAuthLost(e.message, clearTokens = false)
+                        }
                     } catch (e: AuthException) {
                         withContext(Dispatchers.Main) {
                             handleAuthLost(e.message)
@@ -1653,6 +1691,8 @@ class MainActivity : ComponentActivity() {
                         VibeApi.removeHistory(sourceIds)
                         historyItems = historyItems.filterNot { it.song.sourceId in sourceIds.toSet() }
                         showError(if (clearAll) "已清空播放历史" else "已删除")
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
@@ -2511,7 +2551,13 @@ class MainActivity : ComponentActivity() {
                             )
 
                             is Screen.Player -> PlayerScreen(
-                                modifier = Modifier.padding(innerPadding),
+                                // Edge-to-edge: consume only the bottom bar
+                                // inset here; the top status inset is handled
+                                // inside PlayerScreen (statusBarsPadding on the
+                                // top bar over a full-bleed Obsidian backdrop).
+                                modifier = Modifier.fillMaxSize().padding(
+                                    bottom = innerPadding.calculateBottomPadding()
+                                ),
                                 queue = queue,
                                 currentIndex = currentIndex,
                                 isPlaying = isPlaying,
@@ -3258,26 +3304,9 @@ fun PlayerScreen(
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
     val coverUrl = song?.coverUrl?.ifBlank { null }
-    // Track B1: vinyl rotation — 12s infinite spin while playing via
-    // graphicsLayer rotationZ (GPU-cheap). The transition is composed only
-    // while playing, so pause costs zero; the angle freezes on pause and
-    // resumes continuously (SideEffect mirror, no snap-back).
-    var pausedAngle by remember(song?.sourceId) { mutableFloatStateOf(0f) }
-    var vinylAngle by remember(song?.sourceId) { mutableFloatStateOf(0f) }
-    if (isPlaying) {
-        val spinTransition = rememberInfiniteTransition(label = "vinylSpin")
-        val spin by spinTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(12_000, easing = LinearEasing)
-            ),
-            label = "vinylAngle"
-        )
-        SideEffect { vinylAngle = (pausedAngle + spin) % 360f }
-    } else {
-        SideEffect { pausedAngle = vinylAngle }
-    }
+    // Vinyl rotation state lives inside VinylCover (PlayerFx.kt): the angle
+    // is read only there, so the rest of PlayerScreen does not recompose
+    // per frame. Scale/corner stay here — they animate on toggle/play only.
     // Track B4: cover scale/corner animate on view toggle + play state
     // (GPU layer props; the toggle itself crossfades below).
     val coverScale by animateFloatAsState(
@@ -3314,28 +3343,8 @@ fun PlayerScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(ObsidianBg)) {
-        // Track B1: real blur backdrop on API 31+ (RenderEffect, hw-accelerated);
-        // API 26-30 keeps the existing alpha+scrim path. Runtime gate only —
-        // the RenderEffect branch never loads below 31, so it cannot crash.
-        val backdropModifier = if (supportsRenderEffectBlur()) {
-            Modifier.matchParentSize()
-                .graphicsLayer {
-                    renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                        PLAYER_BACKDROP_BLUR_PX,
-                        PLAYER_BACKDROP_BLUR_PX,
-                        android.graphics.Shader.TileMode.CLAMP
-                    ).asComposeRenderEffect()
-                }
-                .alpha(0.35f)
-        } else {
-            Modifier.matchParentSize().alpha(0.25f)
-        }
-        AsyncImage(
-            model = coverUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = backdropModifier
-        )
+        // Static blurred backdrop (composed once per song — never spins).
+        PlayerBackdrop(coverUrl = coverUrl)
         Box(
             modifier = Modifier.matchParentSize().background(
                 Brush.verticalGradient(
@@ -3356,7 +3365,7 @@ fun PlayerScreen(
             if (v == PlayerView.LYRICS && song != null) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
@@ -3402,11 +3411,19 @@ fun PlayerScreen(
                         ) {
                             itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
                                 val active = idx == currentLine
-                                Text(
-                                    text = line.text.ifBlank { " " },
-                                    style = if (active) MaterialTheme.typography.titleMedium
-                                    else MaterialTheme.typography.bodyMedium,
-                                    color = if (active) Champagne else GrayMuted,
+                                val lineStartMs = (line.timeSec * 1000).toLong()
+                                val nextStartMs = lines.getOrNull(idx + 1)
+                                    ?.let { (it.timeSec * 1000).toLong() }
+                                val lineEndMs = when {
+                                    nextStartMs != null && nextStartMs > lineStartMs -> nextStartMs
+                                    durationMs > 0 -> durationMs
+                                    else -> positionMs.coerceAtLeast(lineStartMs) + 4_000L
+                                }
+                                KaraokeLine(
+                                    line = line,
+                                    positionMs = positionMs,
+                                    lineEndMs = lineEndMs,
+                                    isActive = active,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 6.dp, horizontal = 16.dp)
@@ -3491,20 +3508,12 @@ fun PlayerScreen(
                             }
                             .clickable { view = togglePlayerView(view) }
                     ) {
-                        AsyncImage(
-                            model = coverUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth(0.72f)
-                                .aspectRatio(1f)
-                                .graphicsLayer {
-                                    rotationZ = vinylAngle
-                                    scaleX = coverScale
-                                    scaleY = coverScale
-                                }
-                                .shadow(16.dp, RoundedCornerShape(coverCornerDp))
-                                .clip(RoundedCornerShape(coverCornerDp))
+                        VinylCover(
+                            coverUrl = coverUrl,
+                            isPlaying = isPlaying,
+                            spinKey = song?.sourceId,
+                            scale = coverScale,
+                            cornerDp = coverCornerDp
                         )
                     }
                 }
@@ -4365,11 +4374,11 @@ fun MineScreen(
                                     .background(ObsidianSurface)
                                     .padding(bottom = 4.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                                     Text(
                                         text = "我的歌单",
                                         style = MaterialTheme.typography.titleMedium

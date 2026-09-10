@@ -15,6 +15,38 @@ const val SPECTRUM_SAMPLE_INTERVAL_MS = 33L
 /** Blur radius (px) for the Player RenderEffect backdrop on API 31+. */
 const val PLAYER_BACKDROP_BLUR_PX = 28f
 
+/**
+ * Coil request size (px, square) for the vinyl cover image.
+ * The cover displays at ~0.72 × screen width (≈280–300dp); 560px covers
+ * xhdpi densities without decoding the full (often 1000px+) source bitmap,
+ * which was the main frame-time cost of the rotation.
+ */
+const val VINYL_COVER_REQ_PX = 560
+
+/**
+ * Coil request size (px, square) for the blurred backdrop image.
+ * It renders under a 28px blur + dark scrim, so a thumbnail is
+ * indistinguishable from full-res and decodes ~10× faster.
+ */
+const val PLAYER_BACKDROP_REQ_PX = 256
+
+/**
+ * Full vinyl rotation period (ms). 20s/rev: slow enough to read as ambient
+ * motion without visible stepping on 60Hz panels.
+ */
+const val VINYL_ROTATION_MS = 20_000L
+
+/**
+ * Pure: vinyl angle in degrees for [elapsedMs] into a [periodMs] revolution.
+ * Linear 0→360 wrap; non-positive period → 0 (never NaN); negative elapsed
+ * wraps positively so pause/resume mirrors stay continuous.
+ */
+fun vinylAngleDeg(elapsedMs: Long, periodMs: Long = VINYL_ROTATION_MS): Float {
+    if (periodMs <= 0L) return 0f
+    val m = ((elapsedMs % periodMs) + periodMs) % periodMs
+    return (m.toFloat() / periodMs.toFloat()) * 360f
+}
+
 /** Tab-switch crossfade duration (ms). */
 const val TAB_CROSSFADE_MS = 150
 

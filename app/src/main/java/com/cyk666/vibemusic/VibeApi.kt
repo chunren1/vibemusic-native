@@ -90,7 +90,7 @@ fun parseRefreshResult(json: String): RefreshResult? {
 fun shouldReuseRefreshedToken(currentToken: String, failedToken: String): Boolean =
     currentToken.isNotBlank() && currentToken != failedToken
 
-data class LyricLine(val timeSec: Double, val text: String)
+data class LyricLine(val timeSec: Double, val text: String, val words: List<WordTimed>? = null)
 
 data class Playlist(
     val id: String,
@@ -100,6 +100,35 @@ data class Playlist(
 )
 
 class AuthException(message: String) : RuntimeException(message)
+
+/**
+ * Transient-connectivity auth failure: the access token 401'd but the
+ * refresh POST never got a decisive answer (timeout/DNS/VPN blip), so the
+ * stored 7-day refreshToken is probably still valid. Deliberately NOT an
+ * AuthException subclass, so existing `catch (e: AuthException)` handlers
+ * (which nuke tokens) can never catch it.
+ */
+class NetworkAuthException(message: String) : RuntimeException(message)
+
+/**
+ * Tri-state silent-refresh outcome. The old Boolean conflated "server said
+ * the credential is dead" with "the network blipped", and every caller
+ * treated both as "clear tokens" — a transient blip then permanently
+ * destroyed a still-valid refreshToken (re-login after every bad-network
+ * day / update-day cold start on flaky VPN).
+ */
+enum class RefreshOutcome {
+    REFRESHED,
+    INVALID_TOKEN,
+    NETWORK_FAIL
+}
+
+/**
+ * Pure policy: only truly-invalid credentials may nuke stored tokens.
+ * Network blips (and anything else) keep them; the next authed call
+ * retries the refresh naturally.
+ */
+fun shouldClearTokensOnFailure(t: Throwable): Boolean = t is AuthException
 
 private val HTTP_STATUS_IN_MESSAGE = Regex("HTTP\\s+(\\d{3})")
 
@@ -176,39 +205,62 @@ object VibeApi {
         appContext = context.applicationContext
     }
 
-    suspend fun trySilentRefresh(failedToken: String): Boolean {
+    suspend fun trySilentRefresh(failedToken: String): RefreshOutcome =
+        trySilentRefreshWith(failedToken, BASE_URL + "api/auth/refresh", refreshHttp)
+
+    /**
+     * Endpoint/client are parameters (not globals) so unit tests can point
+     * the refresh at a local stub server with zero new dependencies.
+     */
+    internal suspend fun trySilentRefreshWith(
+        failedToken: String,
+        endpoint: String,
+        client: OkHttpClient
+    ): RefreshOutcome {
         refreshMutex.withLock {
-            if (shouldReuseRefreshedToken(AuthToken.token, failedToken)) return true
-            val ctx = appContext ?: return false
+            if (shouldReuseRefreshedToken(AuthToken.token, failedToken)) return RefreshOutcome.REFRESHED
+            val ctx = appContext ?: return RefreshOutcome.NETWORK_FAIL
             val rt = AuthToken.refreshToken
-            if (rt.isBlank()) return false
+            if (rt.isBlank()) return RefreshOutcome.NETWORK_FAIL
             val res = try {
-                postRefresh(rt)
-            } catch (_: Exception) {
-                null
-            } ?: return false
-            if (res.token.isBlank()) return false
+                postRefresh(endpoint, client, rt)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                return RefreshOutcome.NETWORK_FAIL
+            } ?: return RefreshOutcome.INVALID_TOKEN
+            if (res.token.isBlank()) return RefreshOutcome.INVALID_TOKEN
             AuthToken.token = res.token
             if (res.refreshToken.isNotBlank()) AuthToken.refreshToken = res.refreshToken
             return try {
                 AuthStore.saveTokens(ctx, AuthToken.token, AuthToken.refreshToken)
-                true
-            } catch (_: Exception) {
-                false
+                RefreshOutcome.REFRESHED
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                RefreshOutcome.NETWORK_FAIL
             }
         }
     }
 
-    private suspend fun postRefresh(refreshToken: String): RefreshResult? =
+    /**
+     * POST the refresh grant. Returns the decoded pair, null when the
+     * server decisively rejects the credential (401 envelope / garbage /
+     * blank token → INVALID_TOKEN upstream), and THROWS on anything
+     * transport-level (IOException/timeout/DNS → NETWORK_FAIL upstream).
+     */
+    private suspend fun postRefresh(
+        endpoint: String,
+        client: OkHttpClient,
+        refreshToken: String
+    ): RefreshResult? =
         suspendCoroutine { cont ->
             val req = Request.Builder()
-                .url(BASE_URL + "api/auth/refresh")
+                .url(endpoint)
                 .post(buildRefreshBody(refreshToken).toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            refreshHttp.newCall(req).enqueue(object : okhttp3.Callback {
+            client.newCall(req).enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
-                        cont.resume(null)
+                        cont.resumeWithException(e)
                     } catch (_: IllegalStateException) {
                     }
                 }
@@ -216,11 +268,17 @@ object VibeApi {
                 override fun onResponse(call: okhttp3.Call, res: okhttp3.Response) {
                     try {
                         res.use {
-                            cont.resume(parseRefreshResult(it.body?.string().orEmpty()))
+                            val raw = try {
+                                it.body?.string().orEmpty()
+                            } catch (e: java.io.IOException) {
+                                throw e
+                            }
+                            cont.resume(parseRefreshResult(raw))
                         }
                     } catch (e: Exception) {
                         try {
-                            cont.resume(null)
+                            if (e is java.io.IOException) cont.resumeWithException(e)
+                            else cont.resume(null)
                         } catch (_: IllegalStateException) {
                         }
                     }
@@ -228,17 +286,34 @@ object VibeApi {
             })
         }
 
+    /**
+     * Shared retry routing for every AuthException catch site: REFRESHED →
+     * return so the caller retries once; INVALID_TOKEN → rethrow the
+     * original; NETWORK_FAIL → degraded-but-logged-in (tokens + user kept,
+     * next authed call retries naturally).
+     */
+    internal fun routeAfterRefresh(outcome: RefreshOutcome, original: AuthException) {
+        when (outcome) {
+            RefreshOutcome.REFRESHED -> return
+            RefreshOutcome.INVALID_TOKEN -> throw original
+            RefreshOutcome.NETWORK_FAIL ->
+                throw NetworkAuthException("网络连接断开，登录态保留")
+        }
+    }
+
     private suspend fun <T> authed(block: suspend () -> T): T {
         try {
             return block()
         } catch (e: AuthException) {
             val failed = AuthToken.token
-            val ok = try {
+            val outcome = try {
                 trySilentRefresh(failed)
+            } catch (e2: kotlinx.coroutines.CancellationException) {
+                throw e2
             } catch (_: Exception) {
-                false
+                RefreshOutcome.NETWORK_FAIL
             }
-            if (!ok) throw e
+            routeAfterRefresh(outcome, e)
             return block()
         }
     }
@@ -658,7 +733,18 @@ object VibeApi {
                 is String -> v.toDoubleOrNull() ?: continue
                 else -> continue
             }
-            out.add(LyricLine(timeSec = t, text = o.optString("text")))
+            val rawText = o.optString("text")
+            // Word timing is optional: "words" array wins; else inline
+            // <mm:ss.xx> tags inside the text; else null → Mode B fallback.
+            val tagged = parseWordsJson(o.optJSONArray("words"))
+            val inline = if (tagged == null) {
+                parseEnhancedLrcLine(rawText).ifEmpty { null }
+            } else {
+                null
+            }
+            val words = tagged ?: inline
+            val plain = if (inline != null) stripInlineTags(rawText) else rawText
+            out.add(LyricLine(timeSec = t, text = plain, words = words))
         }
         out.sortBy { it.timeSec }
         return out
@@ -1155,12 +1241,14 @@ object VibeApi {
         uploadImageOnce(path, bytes, filename, contentType, bg)
     } catch (e: AuthException) {
         val failed = AuthToken.token
-        val ok = try {
+        val outcome = try {
             trySilentRefresh(failed)
+        } catch (e2: kotlinx.coroutines.CancellationException) {
+            throw e2
         } catch (_: Exception) {
-            false
+            RefreshOutcome.NETWORK_FAIL
         }
-        if (!ok) throw e
+        routeAfterRefresh(outcome, e)
         uploadImageOnce(path, bytes, filename, contentType, bg)
     }
 
@@ -1336,12 +1424,14 @@ object VibeApi {
             parseToggleResult(body)
         } catch (e: AuthException) {
             val failed = AuthToken.token
-            val ok = try {
+            val outcome = try {
                 trySilentRefresh(failed)
+            } catch (e2: kotlinx.coroutines.CancellationException) {
+                throw e2
             } catch (_: Exception) {
-                false
+                RefreshOutcome.NETWORK_FAIL
             }
-            if (!ok) throw e
+            routeAfterRefresh(outcome, e)
             toggleFavorite(song, requestId)
         }
     }

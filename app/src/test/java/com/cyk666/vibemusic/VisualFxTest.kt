@@ -102,4 +102,40 @@ class VisualFxTest {
         assertEquals(0f, shimmerTranslateX(0.5f, 0f), 0.001f)
         assertTrue(abs(shimmerTranslateX(0.7f, -50f)) < 0.001f)
     }
+
+    // ---- vinylAngleDeg (20s/rev rotation math) ----
+
+    @Test
+    fun vinyl_zeroAtStartHalfAtHalfPeriod() {
+        assertEquals(0f, vinylAngleDeg(0), 0.001f)
+        assertEquals(180f, vinylAngleDeg(VINYL_ROTATION_MS / 2), 0.5f)
+    }
+
+    @Test
+    fun vinyl_wrapsAtFullPeriod() {
+        assertEquals(0f, vinylAngleDeg(VINYL_ROTATION_MS), 0.001f)
+        assertEquals(
+            vinylAngleDeg(1_000L),
+            vinylAngleDeg(VINYL_ROTATION_MS + 1_000L),
+            0.001f
+        )
+    }
+
+    @Test
+    fun vinyl_negativeElapsedWrapsPositive() {
+        assertTrue(vinylAngleDeg(-1_000L) > 270f)
+        assertTrue(vinylAngleDeg(-1_000L) < 360f)
+    }
+
+    @Test
+    fun vinyl_nonPositivePeriodNeverNaN() {
+        assertEquals(0f, vinylAngleDeg(5_000L, 0L), 0.001f)
+        assertEquals(0f, vinylAngleDeg(5_000L, -100L), 0.001f)
+    }
+
+    @Test
+    fun vinyl_defaultPeriodIs20s() {
+        assertEquals(20_000L, VINYL_ROTATION_MS)
+        assertEquals(90f, vinylAngleDeg(5_000L), 0.5f)
+    }
 }
