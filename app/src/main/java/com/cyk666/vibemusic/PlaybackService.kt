@@ -70,6 +70,17 @@ fun isServiceMaterializeCommand(playerCommand: Int): Boolean =
 
 class PlaybackService : MediaSessionService() {
 
+    companion object {
+        /**
+         * Latest ExoPlayer audio session id (> 0 once the output is set).
+         * Read by the Activity to attach the spectrum Visualizer (needs only
+         * MODIFY_AUDIO_SETTINGS). Plain volatile — no playback logic depends
+         * on it; 0 means "no session yet, hide the visualizer".
+         */
+        @Volatile
+        var lastAudioSessionId: Int = 0
+    }
+
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
     private var consecFails = 0
@@ -106,6 +117,10 @@ class PlaybackService : MediaSessionService() {
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 if (playing) consecFails = 0
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                lastAudioSessionId = audioSessionId
             }
 
             override fun onPlayerError(error: PlaybackException) {

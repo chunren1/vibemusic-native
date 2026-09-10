@@ -13,8 +13,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -76,7 +80,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +96,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -291,6 +299,13 @@ class MainActivity : ComponentActivity() {
             var discoverRefreshing by remember { mutableStateOf(false) }
             var discoverInitialErrorShown by remember { mutableStateOf(false) }
             var recommendConfirm by remember { mutableStateOf<RecommendPlaylist?>(null) }
+            // Track A SWR: per-section last-loaded timestamps (memory only).
+            // Discover sections 30-min TTL, Mine playlists 5-min TTL.
+            var bannersLastLoaded by remember { mutableLongStateOf(0L) }
+            var dailyLastLoaded by remember { mutableLongStateOf(0L) }
+            var guessLastLoaded by remember { mutableLongStateOf(0L) }
+            var hotLastLoaded by remember { mutableLongStateOf(0L) }
+            var playlistsLastLoaded by remember { mutableLongStateOf(0L) }
 
             // ---- self-update state (dialog only when a newer release is found) ----
             var updateRelease by remember { mutableStateOf<GithubRelease?>(null) }
@@ -891,13 +906,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadPlaylists() {
+            fun loadPlaylists(background: Boolean = false) {
                 if (playlistsLoading) return
                 if (currentUser == null) return
-                playlistsLoading = true
+                if (!background) playlistsLoading = true
                 scope.launch {
                     try {
                         playlists = VibeApi.myPlaylists()
+                        playlistsLastLoaded = System.currentTimeMillis()
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                         scope.launch {
@@ -909,9 +925,13 @@ class MainActivity : ComponentActivity() {
                         currentUser = null
                         playlists = emptyList()
                     } catch (e: Exception) {
-                        showError("歌单加载失败: ${friendlyNetworkMessage(e)}")
+                        // Background refresh failures stay silent when stale
+                        // content keeps showing; foreground loads surface them.
+                        if (!background) {
+                            showError("歌单加载失败: ${friendlyNetworkMessage(e)}")
+                        }
                     } finally {
-                        playlistsLoading = false
+                        if (!background) playlistsLoading = false
                     }
                 }
             }
@@ -948,16 +968,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadDiscoverBanners(markLoading: Boolean = true, onDone: () -> Unit = {}) {
+            fun loadDiscoverBanners(
+                markLoading: Boolean = true,
+                background: Boolean = false,
+                onDone: () -> Unit = {}
+            ) {
                 if (markLoading) discoverBannersLoading = true
-                discoverBannersError = null
+                if (!background) discoverBannersError = null
                 scope.launch {
                     try {
                         discoverBanners = VibeApi.discoverBanners()
                         discoverBannersError = null
+                        bannersLastLoaded = System.currentTimeMillis()
                     } catch (e: Exception) {
-                        discoverBannersError = friendlyNetworkMessage(e)
-                        noteDiscoverInitialFailure(e)
+                        if (!background) {
+                            discoverBannersError = friendlyNetworkMessage(e)
+                            noteDiscoverInitialFailure(e)
+                        }
                     } finally {
                         discoverBannersLoading = false
                         onDone()
@@ -965,18 +992,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadDaily(refresh: Boolean = false, markLoading: Boolean = true, onDone: () -> Unit = {}) {
+            fun loadDaily(
+                refresh: Boolean = false,
+                markLoading: Boolean = true,
+                background: Boolean = false,
+                onDone: () -> Unit = {}
+            ) {
                 if (markLoading) dailyLoading = true
-                dailyError = null
+                if (!background) dailyError = null
                 scope.launch {
                     try {
                         val r = VibeApi.personalized(refresh)
                         dailySongs = r.songs
                         dailyReason = r.reason
                         dailyError = null
+                        dailyLastLoaded = System.currentTimeMillis()
                     } catch (e: Exception) {
-                        dailyError = friendlyNetworkMessage(e)
-                        noteDiscoverInitialFailure(e)
+                        if (!background) {
+                            dailyError = friendlyNetworkMessage(e)
+                            noteDiscoverInitialFailure(e)
+                        }
                     } finally {
                         dailyLoading = false
                         onDone()
@@ -984,16 +1019,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadGuess(markLoading: Boolean = true, onDone: () -> Unit = {}) {
+            fun loadGuess(
+                markLoading: Boolean = true,
+                background: Boolean = false,
+                onDone: () -> Unit = {}
+            ) {
                 if (markLoading) guessLoading = true
-                guessError = null
+                if (!background) guessError = null
                 scope.launch {
                     try {
                         guessSongs = VibeApi.randomSongs(8)
                         guessError = null
+                        guessLastLoaded = System.currentTimeMillis()
                     } catch (e: Exception) {
-                        guessError = friendlyNetworkMessage(e)
-                        noteDiscoverInitialFailure(e)
+                        if (!background) {
+                            guessError = friendlyNetworkMessage(e)
+                            noteDiscoverInitialFailure(e)
+                        }
                     } finally {
                         guessLoading = false
                         onDone()
@@ -1001,16 +1043,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadHot(markLoading: Boolean = true, onDone: () -> Unit = {}) {
+            fun loadHot(
+                markLoading: Boolean = true,
+                background: Boolean = false,
+                onDone: () -> Unit = {}
+            ) {
                 if (markLoading) hotLoading = true
-                hotError = null
+                if (!background) hotError = null
                 scope.launch {
                     try {
                         hotPlaylists = VibeApi.recommendPlaylists()
                         hotError = null
+                        hotLastLoaded = System.currentTimeMillis()
                     } catch (e: Exception) {
-                        hotError = friendlyNetworkMessage(e)
-                        noteDiscoverInitialFailure(e)
+                        if (!background) {
+                            hotError = friendlyNetworkMessage(e)
+                            noteDiscoverInitialFailure(e)
+                        }
                     } finally {
                         hotLoading = false
                         onDone()
@@ -2091,9 +2140,22 @@ class MainActivity : ComponentActivity() {
             }
 
             // Auto-load playlists when entering Mine while logged in.
+            // Track A SWR: empty → blocking load (skeleton); fresh → show
+            // instantly, no reload; stale → show cached + silent refresh.
             LaunchedEffect(screen, currentUser, authChecked) {
-                if (screen is Screen.Mine && currentUser != null && playlists.isEmpty() && !playlistsLoading) {
-                    loadPlaylists()
+                if (screen is Screen.Mine && currentUser != null && !playlistsLoading) {
+                    if (needsBlockingLoad(playlists.isNotEmpty())) {
+                        loadPlaylists()
+                    } else if (
+                        shouldBackgroundRefresh(
+                            true,
+                            playlistsLastLoaded,
+                            hotspotTtlMs(HotspotSection.PLAYLISTS),
+                            System.currentTimeMillis()
+                        )
+                    ) {
+                        loadPlaylists(background = true)
+                    }
                 }
                 if (screen is Screen.Mine && currentUser != null && historyItems.isEmpty() && !historyLoading) {
                     loadHistory()
@@ -2103,14 +2165,50 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Discover auto-load on first visit; revisit reloads only when stale (>10min).
-            LaunchedEffect(screen) {
-                if (screen is Screen.Discover &&
-                    isDiscoverStale(discoverLastLoaded, System.currentTimeMillis()) &&
-                    !discoverBannersLoading && !dailyLoading && !guessLoading && !hotLoading &&
-                    !discoverRefreshing
+            // Discover SWR on tab visit: per-section TTLs (30 min). Fresh cache
+            // shows instantly; stale cache shows immediately + refreshes
+            // silently (no reload flash); skeleton only when nothing cached.
+            // One section helper keeps the four branches identical.
+            fun swrSection(
+                hasCached: Boolean,
+                lastLoaded: Long,
+                section: HotspotSection,
+                busy: Boolean,
+                load: (Boolean, Boolean) -> Unit
+            ) {
+                if (busy) return
+                if (needsBlockingLoad(hasCached)) {
+                    load(true, false)
+                } else if (
+                    shouldBackgroundRefresh(
+                        true,
+                        lastLoaded,
+                        hotspotTtlMs(section),
+                        System.currentTimeMillis()
+                    )
                 ) {
-                    loadDiscover()
+                    load(false, true)
+                }
+            }
+            LaunchedEffect(screen) {
+                if (screen is Screen.Discover && !discoverRefreshing) {
+                    swrSection(
+                        discoverBanners.isNotEmpty(), bannersLastLoaded,
+                        HotspotSection.BANNERS,
+                        discoverBannersLoading
+                    ) { mark, bg -> loadDiscoverBanners(mark, bg) }
+                    swrSection(
+                        dailySongs.isNotEmpty(), dailyLastLoaded,
+                        HotspotSection.DAILY, dailyLoading
+                    ) { mark, bg -> loadDaily(markLoading = mark, background = bg) }
+                    swrSection(
+                        guessSongs.isNotEmpty(), guessLastLoaded,
+                        HotspotSection.GUESS, guessLoading
+                    ) { mark, bg -> loadGuess(mark, bg) }
+                    swrSection(
+                        hotPlaylists.isNotEmpty(), hotLastLoaded,
+                        HotspotSection.HOT, hotLoading
+                    ) { mark, bg -> loadHot(mark, bg) }
                 }
             }
 
@@ -2277,7 +2375,13 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { innerPadding ->
                     Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
-                        when (screen) {
+                        // Track B4: 150ms crossfade on tab content (GPU alpha only).
+                        Crossfade(
+                            targetState = screen,
+                            animationSpec = tween(TAB_CROSSFADE_MS),
+                            label = "tabSwitch"
+                        ) { s ->
+                            when (s) {
                             is Screen.Discover -> DiscoverScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 banners = discoverBanners,
@@ -2499,7 +2603,8 @@ class MainActivity : ComponentActivity() {
                                 onToggleFav = {
                                     queue.getOrNull(currentIndex)?.let(::toggleFav)
                                 },
-                                sleepActive = sleepMinutes > 0
+                                sleepActive = sleepMinutes > 0,
+                                audioSessionId = PlaybackService.lastAudioSessionId
                             )
 
                             is Screen.Queue -> QueueScreen(
@@ -2645,6 +2750,7 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Mine },
                                 onGoSearch = { screen = Screen.Search }
                             )
+                            }
                         }
                     }
                     if (showSleepDialog) {
@@ -2787,28 +2893,13 @@ fun parseSleepMinutes(input: String): Int? {
 
 @Composable
 fun SearchSkeleton() {
-    val transition = rememberInfiniteTransition(label = "searchSkeleton")
-    val pulse by transition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "skeletonPulse"
-    )
     Column(modifier = Modifier.fillMaxWidth()) {
         repeat(5) {
-            Box(
+            ShimmerBox(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
                     .padding(vertical = 4.dp)
-                    .alpha(pulse)
-                    .background(
-                        GrayMuted.copy(alpha = 0.35f),
-                        RoundedCornerShape(8.dp)
-                    )
             )
         }
     }
@@ -3152,7 +3243,8 @@ fun PlayerScreen(
     downloadedCurrent: Boolean = false,
     isFav: Boolean = false,
     onToggleFav: () -> Unit = {},
-    sleepActive: Boolean = false
+    sleepActive: Boolean = false,
+    audioSessionId: Int = 0
 ) {
     val song = queue.getOrNull(currentIndex)
     var dragging by remember { mutableStateOf(false) }
@@ -3166,6 +3258,38 @@ fun PlayerScreen(
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
     val coverUrl = song?.coverUrl?.ifBlank { null }
+    // Track B1: vinyl rotation — 12s infinite spin while playing via
+    // graphicsLayer rotationZ (GPU-cheap). The transition is composed only
+    // while playing, so pause costs zero; the angle freezes on pause and
+    // resumes continuously (SideEffect mirror, no snap-back).
+    var pausedAngle by remember(song?.sourceId) { mutableFloatStateOf(0f) }
+    var vinylAngle by remember(song?.sourceId) { mutableFloatStateOf(0f) }
+    if (isPlaying) {
+        val spinTransition = rememberInfiniteTransition(label = "vinylSpin")
+        val spin by spinTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(12_000, easing = LinearEasing)
+            ),
+            label = "vinylAngle"
+        )
+        SideEffect { vinylAngle = (pausedAngle + spin) % 360f }
+    } else {
+        SideEffect { pausedAngle = vinylAngle }
+    }
+    // Track B4: cover scale/corner animate on view toggle + play state
+    // (GPU layer props; the toggle itself crossfades below).
+    val coverScale by animateFloatAsState(
+        targetValue = if (view == PlayerView.COVER && isPlaying) 1f else 0.92f,
+        animationSpec = tween(300),
+        label = "coverScale"
+    )
+    val coverCornerDp by animateDpAsState(
+        targetValue = if (view == PlayerView.COVER) 160.dp else 24.dp,
+        animationSpec = tween(300),
+        label = "coverCorner"
+    )
 
     LaunchedEffect(currentLine, lines, view) {
         if (view == PlayerView.LYRICS && currentLine >= 0) {
@@ -3190,11 +3314,27 @@ fun PlayerScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(ObsidianBg)) {
+        // Track B1: real blur backdrop on API 31+ (RenderEffect, hw-accelerated);
+        // API 26-30 keeps the existing alpha+scrim path. Runtime gate only —
+        // the RenderEffect branch never loads below 31, so it cannot crash.
+        val backdropModifier = if (supportsRenderEffectBlur()) {
+            Modifier.matchParentSize()
+                .graphicsLayer {
+                    renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                        PLAYER_BACKDROP_BLUR_PX,
+                        PLAYER_BACKDROP_BLUR_PX,
+                        android.graphics.Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                }
+                .alpha(0.35f)
+        } else {
+            Modifier.matchParentSize().alpha(0.25f)
+        }
         AsyncImage(
             model = coverUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize().alpha(0.25f)
+            modifier = backdropModifier
         )
         Box(
             modifier = Modifier.matchParentSize().background(
@@ -3207,7 +3347,13 @@ fun PlayerScreen(
                 )
             )
         )
-        if (view == PlayerView.LYRICS && song != null) {
+        // Track B4: 200ms crossfade between 封面 and 歌词 (GPU alpha only).
+        Crossfade(
+            targetState = view,
+            animationSpec = tween(PLAYER_VIEW_CROSSFADE_MS),
+            label = "playerView"
+        ) { v ->
+            if (v == PlayerView.LYRICS && song != null) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3352,11 +3498,23 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .fillMaxWidth(0.72f)
                                 .aspectRatio(1f)
-                                .shadow(16.dp, RoundedCornerShape(24.dp))
-                                .clip(RoundedCornerShape(24.dp))
+                                .graphicsLayer {
+                                    rotationZ = vinylAngle
+                                    scaleX = coverScale
+                                    scaleY = coverScale
+                                }
+                                .shadow(16.dp, RoundedCornerShape(coverCornerDp))
+                                .clip(RoundedCornerShape(coverCornerDp))
                         )
                     }
                 }
+                // Track B2: spectrum below the cover (hidden when no session).
+                SpectrumVisualizer(
+                    audioSessionId = audioSessionId,
+                    isPlaying = isPlaying,
+                    modifier = Modifier.fillMaxWidth().height(44.dp)
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = song?.name ?: "暂无播放",
                     style = MaterialTheme.typography.titleLarge,
@@ -3520,6 +3678,7 @@ fun PlayerScreen(
                     color = GrayMuted
                 )
             }
+        }
         }
     }
 }

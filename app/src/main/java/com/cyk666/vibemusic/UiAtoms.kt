@@ -1,5 +1,10 @@
 package com.cyk666.vibemusic
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -7,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -33,10 +39,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -44,10 +52,54 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+
+// ---- 0. Diagonal shimmer sweep (Track B3: replaces alpha-pulse placeholders).
+//
+// Pure offset math lives in shimmerTranslateX (VisualFx.kt, unit-tested); this
+// composable measures its own width and sweeps a highlight band diagonally
+// (linearGradient, GPU-cheap brush, no layout animation).
+
+/**
+ * Shimmer placeholder box: muted base with a diagonal highlight band sweeping
+ * left→right on a 1400ms infinite loop. Same layout footprint as the old
+ * pulse boxes — drop-in replacement.
+ */
+@Composable
+fun ShimmerBox(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp),
+    base: Color = UiMuted.copy(alpha = 0.35f),
+    highlight: Color = UiInk.copy(alpha = 0.35f)
+) {
+    BoxWithConstraints(modifier = modifier) {
+        val wPx = with(LocalDensity.current) { maxWidth.toPx() }
+        val sweep = rememberInfiniteTransition(label = "shimmerSweep")
+        val progress by sweep.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1400, easing = LinearEasing)
+            ),
+            label = "shimmerProgress"
+        )
+        val x = shimmerTranslateX(progress, wPx)
+        Box(
+            modifier = Modifier.matchParentSize().background(
+                Brush.linearGradient(
+                    colors = listOf(base, highlight, base),
+                    start = Offset(x - wPx / 4f, 0f),
+                    end = Offset(x + wPx / 4f, wPx / 2f)
+                ),
+                shape = shape
+            )
+        )
+    }
+}
 
 // UI overhaul atoms (P0+P1 batch): zero new dependencies — Canvas-drawn
 // Material-style icons (material-icons-core is runtime-only via material3,

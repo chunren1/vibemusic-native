@@ -86,12 +86,11 @@ fun DiscoverSectionHeader(
 
 @Composable
 fun BannerSkeleton() {
-    Box(
+    ShimmerBox(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(UiMuted.copy(alpha = 0.25f))
+            .height(150.dp),
+        shape = RoundedCornerShape(12.dp)
     )
 }
 
