@@ -18,6 +18,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -28,6 +29,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,8 +50,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -56,11 +57,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -91,10 +94,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -358,7 +363,7 @@ class MainActivity : ComponentActivity() {
             fun runSearch(keyword: String) {
                 val kw = keyword.trim()
                 if (kw.isEmpty()) {
-                    showError("Search failed: keyword is empty")
+                    showError("请输入搜索关键词")
                     return
                 }
                 searchJob?.cancel()
@@ -385,7 +390,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         if (isStaleSearchResult(gen, searchGen)) return@launch
                         searchError = friendlyNetworkMessage(e)
-                        showError("Search failed: ${friendlyNetworkMessage(e)}")
+                        showError("搜索失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         if (!isStaleSearchResult(gen, searchGen)) loading = false
                     }
@@ -437,11 +442,11 @@ class MainActivity : ComponentActivity() {
             fun playAt(list: List<Song>, index: Int) {
                 val c = controller
                 if (c == null) {
-                    showError("Playback failed: player not connected yet")
+                    showError("播放器连接中，请稍候")
                     return
                 }
                 if (list.isEmpty()) {
-                    showError("Playback failed: empty result list")
+                    showError("列表是空的，先搜一首吧")
                     return
                 }
                 val safeIndex = index.coerceIn(list.indices)
@@ -474,7 +479,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    showError("Playback failed: ${e.message ?: e.javaClass.simpleName}")
+                    showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
 
@@ -539,7 +544,7 @@ class MainActivity : ComponentActivity() {
             fun togglePlayPause() {
                 val c = controller
                 if (c == null) {
-                    showError("Playback failed: player not connected yet")
+                    showError("播放器连接中，请稍候")
                     return
                 }
                 try {
@@ -547,7 +552,7 @@ class MainActivity : ComponentActivity() {
                     if (c.playbackState == Player.STATE_IDLE) c.prepare()
                     if (c.isPlaying) c.pause() else c.play()
                 } catch (e: Exception) {
-                    showError("Playback failed: ${e.message ?: e.javaClass.simpleName}")
+                    showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
 
@@ -649,7 +654,7 @@ class MainActivity : ComponentActivity() {
             fun queueSeekTo(index: Int, skipPlayableCheck: Boolean = false) {
                 val c = controller
                 if (c == null) {
-                    showError("Playback failed: player not connected yet")
+                    showError("播放器连接中，请稍候")
                     return
                 }
                 try {
@@ -676,7 +681,7 @@ class MainActivity : ComponentActivity() {
             fun queueRemoveAt(index: Int) {
                 val c = controller
                 if (c == null) {
-                    showError("Playback failed: player not connected yet")
+                    showError("播放器连接中，请稍候")
                     return
                 }
                 val countNow = try {
@@ -716,7 +721,7 @@ class MainActivity : ComponentActivity() {
             fun queueClearKeepCurrent() {
                 val c = controller
                 if (c == null) {
-                    showError("Playback failed: player not connected yet")
+                    showError("播放器连接中，请稍候")
                     return
                 }
                 val countBefore = try {
@@ -904,7 +909,7 @@ class MainActivity : ComponentActivity() {
                         currentUser = null
                         playlists = emptyList()
                     } catch (e: Exception) {
-                        showError("Playlists failed: ${friendlyNetworkMessage(e)}")
+                        showError("歌单加载失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         playlistsLoading = false
                     }
@@ -928,7 +933,7 @@ class MainActivity : ComponentActivity() {
                         }
                         currentUser = null
                     } catch (e: Exception) {
-                        showError("Playlist songs failed: ${friendlyNetworkMessage(e)}")
+                        showError("歌曲加载失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         songsLoading = false
                     }
@@ -1444,7 +1449,7 @@ class MainActivity : ComponentActivity() {
             fun doLogin(username: String, password: String) {
                 if (loginBusy) return
                 if (username.isBlank() || password.isBlank()) {
-                    showError("Login failed: username and password required")
+                    showError("请输入用户名和密码")
                     return
                 }
                 loginBusy = true
@@ -1462,7 +1467,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
-                        showError("Login failed: ${friendlyNetworkMessage(e)}")
+                        showError("登录失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         loginBusy = false
                     }
@@ -1472,11 +1477,11 @@ class MainActivity : ComponentActivity() {
             fun doRegister(username: String, password: String, nickname: String) {
                 if (loginBusy) return
                 if (username.isBlank() || password.isBlank()) {
-                    showError("Register failed: username and password required")
+                    showError("请输入用户名和密码")
                     return
                 }
                 if (password.length < 8) {
-                    showError("Register failed: 密码至少8位")
+                    showError("注册失败: 密码至少8位")
                     return
                 }
                 loginBusy = true
@@ -1499,7 +1504,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
-                        showError("Register failed: ${friendlyNetworkMessage(e)}")
+                        showError("注册失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         loginBusy = false
                     }
@@ -1616,7 +1621,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         AuthStore.clear(context)
                     } catch (e: Exception) {
-                        showError("Logout failed: ${e.message ?: e.javaClass.simpleName}")
+                        showError("退出失败: ${e.message ?: e.javaClass.simpleName}")
                         return@launch
                     }
                     currentUser = null
@@ -1931,7 +1936,7 @@ class MainActivity : ComponentActivity() {
                             }
                         } catch (e: Exception) {
                             showError(
-                                "Player connect failed: ${e.message ?: e.javaClass.simpleName}"
+                                "播放器连接失败: ${e.message ?: e.javaClass.simpleName}"
                             )
                         }
                     },
@@ -2054,7 +2059,7 @@ class MainActivity : ComponentActivity() {
                         } catch (e: Exception) {
                             // Network or server issue: keep token, stay guest for now.
                             currentUser = null
-                            showError("Auth restore failed: ${e.message ?: e.javaClass.simpleName}")
+                            showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
                         }
                     }
                     try {
@@ -2062,7 +2067,7 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Exception) {
                     }
                 } catch (e: Exception) {
-                    showError("Auth restore failed: ${e.message ?: e.javaClass.simpleName}")
+                    showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
                 } finally {
                     authChecked = true
                 }
@@ -2213,7 +2218,9 @@ class MainActivity : ComponentActivity() {
                                         screen = Screen.Player
                                     },
                                     onPlayPause = { togglePlayPause() },
-                                    onDismiss = { miniDismissed = true }
+                                    onDismiss = { miniDismissed = true },
+                                    positionMs = positionMs,
+                                    durationMs = durationMs
                                 )
                             }
                             NavigationBar {
@@ -2221,25 +2228,49 @@ class MainActivity : ComponentActivity() {
                                 selected = selectedTab == 0,
                                 onClick = { screen = Screen.Discover },
                                 label = { Text("发现") },
-                                icon = { Text("✨") }
+                                icon = {
+                                    AppIcon(
+                                        kind = AppIconKind.EXPLORE,
+                                        tint = if (selectedTab == 0) NeonViolet else GrayMuted,
+                                        filled = selectedTab == 0
+                                    )
+                                }
                             )
                             NavigationBarItem(
                                 selected = selectedTab == 1,
                                 onClick = { screen = Screen.Search },
                                 label = { Text("搜索") },
-                                icon = { Text("🔍") }
+                                icon = {
+                                    AppIcon(
+                                        kind = AppIconKind.SEARCH,
+                                        tint = if (selectedTab == 1) NeonViolet else GrayMuted,
+                                        filled = selectedTab == 1
+                                    )
+                                }
                             )
                             NavigationBarItem(
                                 selected = selectedTab == 2,
                                 onClick = { screen = Screen.Player },
                                 label = { Text("播放") },
-                                icon = { Text("▶") }
+                                icon = {
+                                    AppIcon(
+                                        kind = AppIconKind.PLAY_CIRCLE,
+                                        tint = if (selectedTab == 2) NeonViolet else GrayMuted,
+                                        filled = selectedTab == 2
+                                    )
+                                }
                             )
                             NavigationBarItem(
                                 selected = selectedTab == 3,
                                 onClick = { screen = Screen.Mine },
                                 label = { Text("我的") },
-                                icon = { Text("👤") }
+                                icon = {
+                                    AppIcon(
+                                        kind = AppIconKind.PERSON,
+                                        tint = if (selectedTab == 3) NeonViolet else GrayMuted,
+                                        filled = selectedTab == 3
+                                    )
+                                }
                             )
                             }
                         }
@@ -2294,7 +2325,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 refreshing = discoverRefreshing,
-                                onPullRefresh = { loadDiscover(isPullRefresh = true) }
+                                onPullRefresh = { loadDiscover(isPullRefresh = true) },
+                                favIds = favIds,
+                                downloadingKeys = downloadingIds,
+                                downloadedKeys = downloadedKeys,
+                                onToggleFav = ::toggleFav,
+                                onAddToPlaylist = ::openAddSheet,
+                                onDownload = { song -> downloadSong(song, false) }
                             )
 
                             is Screen.Search -> SearchScreen(
@@ -2385,7 +2422,7 @@ class MainActivity : ComponentActivity() {
                                 onNext = {
                                     val c = controller
                                     if (c == null) {
-                                        showError("Playback failed: player not connected yet")
+                                        showError("播放器连接中，请稍候")
                                     } else {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
@@ -2395,7 +2432,7 @@ class MainActivity : ComponentActivity() {
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
-                                                "Next failed: " +
+                                                "切歌失败: " +
                                                     "${e.message ?: e.javaClass.simpleName}"
                                             )
                                         }
@@ -2404,7 +2441,7 @@ class MainActivity : ComponentActivity() {
                                 onPrev = {
                                     val c = controller
                                     if (c == null) {
-                                        showError("Playback failed: player not connected yet")
+                                        showError("播放器连接中，请稍候")
                                     } else {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
@@ -2414,7 +2451,7 @@ class MainActivity : ComponentActivity() {
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
-                                                "Previous failed: " +
+                                                "切歌失败: " +
                                                     "${e.message ?: e.javaClass.simpleName}"
                                             )
                                         }
@@ -2424,14 +2461,14 @@ class MainActivity : ComponentActivity() {
                                     try {
                                         val c = controller
                                         if (c == null) {
-                                            showError("Seek failed: player not connected yet")
+                                            showError("播放器连接中，请稍候")
                                         } else {
                                             ensureTimeline(c, restoreSaved = false)
                                             c.seekTo(targetMs)
                                         }
                                     } catch (e: Exception) {
                                         showError(
-                                            "Seek failed: ${e.message ?: e.javaClass.simpleName}"
+                                            "进度跳转失败: ${e.message ?: e.javaClass.simpleName}"
                                         )
                                     }
                                 },
@@ -2461,7 +2498,8 @@ class MainActivity : ComponentActivity() {
                                 } ?: false,
                                 onToggleFav = {
                                     queue.getOrNull(currentIndex)?.let(::toggleFav)
-                                }
+                                },
+                                sleepActive = sleepMinutes > 0
                             )
 
                             is Screen.Queue -> QueueScreen(
@@ -2478,7 +2516,10 @@ class MainActivity : ComponentActivity() {
                                 onRemove = ::queueRemoveAt,
                                 onClear = ::queueClearKeepCurrent,
                                 onBack = { screen = Screen.Player },
-                                onGoSearch = { screen = Screen.Search }
+                                onGoSearch = { screen = Screen.Search },
+                                favIds = favIds,
+                                onToggleFav = ::toggleFav,
+                                onAddToPlaylist = ::openAddSheet
                             )
 
                             is Screen.Login -> LoginScreen(
@@ -2570,6 +2611,7 @@ class MainActivity : ComponentActivity() {
                                     if (songs.isNotEmpty()) playAt(songs, idx.coerceIn(songs.indices))
                                 },
                                 onToggleFav = ::toggleFav,
+                                onAddToPlaylist = ::openAddSheet,
                                 onDeleteOne = { item ->
                                     doRemoveHistory(listOf(item.song.sourceId), clearAll = false)
                                 },
@@ -2812,23 +2854,29 @@ fun SearchScreen(
     val visible = remember(results, artistFilter, sort) {
         filterAndSortSongs(results, artistFilter, sort)
     }
-    var songMenuFor by remember { mutableStateOf<String?>(null) }
+    var songMenuFor by remember { mutableStateOf<Song?>(null) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                label = { Text("Search songs") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onSearch) {
-                Text("Go")
-            }
-        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = { Text("搜歌名、歌手") },
+            leadingIcon = { AppIcon(AppIconKind.SEARCH, GrayMuted) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.CLOSE, GrayMuted, size = 20.dp)
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+            modifier = Modifier.fillMaxWidth()
+        )
         if (suggestions.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -2840,12 +2888,14 @@ fun SearchScreen(
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = when (s.source) {
-                                SuggestSource.HISTORY -> "🕘"
-                                SuggestSource.HOTWORD -> "🔥"
-                                SuggestSource.LIVE -> "🎵"
-                            }
+                        AppIcon(
+                            kind = when (s.source) {
+                                SuggestSource.HISTORY -> AppIconKind.HISTORY
+                                SuggestSource.HOTWORD -> AppIconKind.TRENDING
+                                SuggestSource.LIVE -> AppIconKind.MUSIC_NOTE
+                            },
+                            tint = GrayMuted,
+                            size = 20.dp
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
@@ -2878,15 +2928,25 @@ fun SearchScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(history, key = { "h-$it" }) { h ->
-                        FilterChip(
+                        InputChip(
                             selected = false,
                             onClick = { onHistorySelect(h) },
                             label = { Text(h) },
+                            modifier = Modifier.heightIn(min = 48.dp),
                             trailingIcon = {
-                                Text(
-                                    text = "×",
-                                    modifier = Modifier.clickable { onHistoryDelete(h) }
-                                )
+                                // Documented nested-clickable fix: the trailing
+                                // dismiss owns a bounded 48dp clickable that
+                                // consumes the tap, so the chip onClick never
+                                // fires on ×. M3 trailingIcon slot keeps a
+                                // single ripple per target.
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clickable { onHistoryDelete(h) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AppIcon(AppIconKind.CLOSE, GrayMuted, size = 18.dp)
+                                }
                             }
                         )
                     }
@@ -2952,7 +3012,7 @@ fun SearchScreen(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Results: $total",
+                text = "共 $total 首",
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(4.dp))
@@ -2975,83 +3035,93 @@ fun SearchScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(visible, key = { _, s -> s.sourceId + s.platform }) { index, song ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPlayAt(visible, index) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AsyncImage(
-                                model = song.coverUrl.ifBlank { null },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(56.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = song.name.ifBlank { "(untitled)" },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = formatDuration(song.durationSec),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            FavHeart(
-                                faved = song.sourceId.isNotBlank() && song.sourceId in favIds,
-                                onClick = { onToggleFav(song) }
-                            )
-                            Box {
-                                IconButton(
-                                    onClick = { songMenuFor = song.platform + ":" + song.sourceId }
-                                ) {
-                                    Text("⋯")
-                                }
-                                DropdownMenu(
-                                    expanded = songMenuFor == song.platform + ":" + song.sourceId,
-                                    onDismissRequest = { songMenuFor = null }
-                                ) {
-                                    val dlKey = offlineBaseName(song)
-                                    val downloading = dlKey in downloadingKeys
-                                    val downloaded = dlKey in downloadedKeys
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                when {
-                                                    downloading -> "下载中…"
-                                                    downloaded -> "已下载"
-                                                    else -> "下载"
-                                                }
-                                            )
-                                        },
-                                        enabled = !downloading,
-                                        onClick = {
-                                            songMenuFor = null
-                                            onDownload(song)
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("加入歌单") },
-                                        onClick = {
-                                            songMenuFor = null
-                                            onAddToPlaylist(song)
-                                        }
-                                    )
-                                }
-                            }
-                        }
+                        SongRow(
+                            model = buildSongRowModel(song),
+                            meta = formatDuration(song.durationSec),
+                            onClick = { onPlayAt(visible, index) },
+                            onOverflow = { songMenuFor = song }
+                        )
                     }
                 }
             }
+        }
+    }
+    songMenuFor?.let { target ->
+        val dlKey = offlineBaseName(target)
+        val downloading = dlKey in downloadingKeys
+        val downloaded = dlKey in downloadedKeys
+        val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
+        SongMenuSheet(
+            title = target.name.ifBlank { "(untitled)" },
+            actions = listOf(
+                SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                SongMenuAction(
+                    "download",
+                    when {
+                        downloading -> "下载中…"
+                        downloaded -> "已下载"
+                        else -> "下载"
+                    },
+                    enabled = !downloading
+                ),
+                SongMenuAction("add", "加入歌单")
+            ),
+            onAction = { id ->
+                when (id) {
+                    "fav" -> onToggleFav(target)
+                    "download" -> onDownload(target)
+                    "add" -> onAddToPlaylist(target)
+                }
+                songMenuFor = null
+            },
+            onDismiss = { songMenuFor = null }
+        )
+    }
+}
+
+@Composable
+fun HeroControls(
+    isPlaying: Boolean,
+    enabled: Boolean,
+    onPrev: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    heroSize: Dp = 64.dp
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onPrev,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp)
+        ) {
+            AppIcon(AppIconKind.PREV, if (enabled) InkOnDark else GrayMuted)
+        }
+        Spacer(Modifier.width(16.dp))
+        Box(
+            modifier = Modifier
+                .size(heroSize)
+                .clip(CircleShape)
+                .background(if (enabled) NeonViolet else GrayMuted.copy(alpha = 0.4f))
+                .clickable(enabled = enabled, onClick = onPlayPause),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(
+                kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
+                tint = Color.White,
+                size = heroSize * 0.45f
+            )
+        }
+        Spacer(Modifier.width(16.dp))
+        IconButton(
+            onClick = onNext,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp)
+        ) {
+            AppIcon(AppIconKind.NEXT, if (enabled) InkOnDark else GrayMuted)
         }
     }
 }
@@ -3081,7 +3151,8 @@ fun PlayerScreen(
     downloadingCurrent: Boolean = false,
     downloadedCurrent: Boolean = false,
     isFav: Boolean = false,
-    onToggleFav: () -> Unit = {}
+    onToggleFav: () -> Unit = {},
+    sleepActive: Boolean = false
 ) {
     val song = queue.getOrNull(currentIndex)
     var dragging by remember { mutableStateOf(false) }
@@ -3091,7 +3162,6 @@ fun PlayerScreen(
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
     val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
     val lyricsListState = rememberLazyListState()
-    val coverScroll = rememberScrollState()
     var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
@@ -3147,7 +3217,8 @@ fun PlayerScreen(
                         onClick = { view = PlayerView.COVER },
                         modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
                     ) {
-                        Text("‹ 封面")
+                        AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                        Text("封面")
                     }
                     Text(
                         text = song.name.ifBlank { "(untitled)" },
@@ -3158,9 +3229,9 @@ fun PlayerScreen(
                     )
                     IconButton(
                         onClick = onClose,
-                        modifier = Modifier.size(MIN_TOUCH_DP.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Text("✕")
+                        AppIcon(AppIconKind.CLOSE, InkOnDark)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -3192,194 +3263,186 @@ fun PlayerScreen(
                                     color = if (active) Champagne else GrayMuted,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = MIN_TOUCH_DP.dp)
-                                        .clickable { view = PlayerView.COVER }
-                                        .padding(vertical = 6.dp, horizontal = 24.dp)
+                                        .padding(vertical = 6.dp, horizontal = 16.dp)
                                 )
                             }
                         }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = onPrev,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text("⏮")
-                    }
-                    Button(
-                        onClick = onPlayPause,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text(if (isPlaying) "⏸" else "▶")
-                    }
-                    Button(
-                        onClick = onNext,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text("⏭")
-                    }
-                }
+                HeroControls(
+                    isPlaying = isPlaying,
+                    enabled = song != null,
+                    onPrev = onPrev,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    heroSize = 56.dp
+                )
             }
         } else {
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(coverScroll).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     IconButton(
                         onClick = onClose,
-                        modifier = Modifier.size(MIN_TOUCH_DP.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Text("✕")
+                        AppIcon(AppIconKind.CLOSE, InkOnDark)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { view = PlayerView.LYRICS },
+                            enabled = song != null,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("词")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = onOpenQueue,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            AppIcon(AppIconKind.QUEUE, InkOnDark)
+                        }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
-                        .pointerInput(song?.sourceId) {
-                            var tx = 0f
-                            var ty = 0f
-                            detectDragGestures(
-                                onDragStart = { tx = 0f; ty = 0f },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    tx += amount.x
-                                    ty += amount.y
-                                },
-                                onDragEnd = {
-                                    val dxDp = with(density) { tx.toDp().value }
-                                    val dyDp = with(density) { ty.toDp().value }
-                                    fireGesture(
-                                        resolvePlayerGesture(
-                                            dxDp,
-                                            dyDp,
-                                            fromCoverZone = true
-                                        )
-                                    )
-                                }
-                            )
-                        }
-                        .clickable { view = togglePlayerView(view) }
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = coverUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                    Box(
                         modifier = Modifier
-                            .size(280.dp)
-                            .shadow(16.dp, RoundedCornerShape(24.dp))
-                            .clip(RoundedCornerShape(24.dp))
-                    )
+                            .pointerInput(song?.sourceId) {
+                                var tx = 0f
+                                var ty = 0f
+                                detectDragGestures(
+                                    onDragStart = { tx = 0f; ty = 0f },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        tx += amount.x
+                                        ty += amount.y
+                                    },
+                                    onDragEnd = {
+                                        val dxDp = with(density) { tx.toDp().value }
+                                        val dyDp = with(density) { ty.toDp().value }
+                                        fireGesture(
+                                            resolvePlayerGesture(
+                                                dxDp,
+                                                dyDp,
+                                                fromCoverZone = true
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                            .clickable { view = togglePlayerView(view) }
+                    ) {
+                        AsyncImage(
+                            model = coverUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth(0.72f)
+                                .aspectRatio(1f)
+                                .shadow(16.dp, RoundedCornerShape(24.dp))
+                                .clip(RoundedCornerShape(24.dp))
+                        )
+                    }
                 }
-                Spacer(Modifier.height(16.dp))
                 Text(
-                    text = song?.name ?: "(nothing playing)",
+                    text = song?.name ?: "暂无播放",
                     style = MaterialTheme.typography.titleLarge,
+                    color = InkOnDark,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = song?.artist ?: "",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = GrayMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(16.dp))
-                Slider(
-                    value = shownMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
-                        .coerceIn(0f, sliderMax),
-                    onValueChange = {
-                        dragging = true
-                        dragValue = it.toLong()
-                    },
-                    onValueChangeFinished = {
-                        dragging = false
-                        onSeek(dragValue.coerceIn(0L, durationMs.coerceAtLeast(0L)))
-                    },
-                    valueRange = 0f..sliderMax,
-                    enabled = song != null && durationMs > 0,
-                    colors = SliderDefaults.colors(
-                        activeTrackColor = NeonViolet,
-                        inactiveTrackColor = GrayMuted,
-                        thumbColor = Champagne
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Spacer(Modifier.height(8.dp))
+                // 5dp custom track drawn under a transparent-track Slider:
+                // the value-based Slider in material3 1.3.0 has no track/thumb
+                // slots (only the experimental SliderState overload does), so
+                // the thick violet track is an overlay and the Slider itself
+                // supplies the drag handling + champagne thumb.
+                val sliderValue = shownMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
+                    .coerceIn(0f, sliderMax)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(GrayMuted.copy(alpha = 0.35f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth((sliderValue / sliderMax).coerceIn(0f, 1f))
+                                .background(NeonViolet)
+                        )
+                    }
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = {
+                            dragging = true
+                            dragValue = it.toLong()
+                        },
+                        onValueChangeFinished = {
+                            dragging = false
+                            onSeek(dragValue.coerceIn(0L, durationMs.coerceAtLeast(0L)))
+                        },
+                        valueRange = 0f..sliderMax,
+                        enabled = song != null && durationMs > 0,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Champagne,
+                            activeTrackColor = Color.Transparent,
+                            inactiveTrackColor = Color.Transparent
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = formatDuration((shownMs / 1000).toInt()),
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = InkOnDark
                     )
                     Text(
                         text = formatDuration((durationMs.coerceAtLeast(0L) / 1000).toInt()),
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = GrayMuted
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(
-                        onClick = onPrev,
-                        enabled = song != null,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text("⏮ Prev")
-                    }
-                    Button(
-                        onClick = onPlayPause,
-                        enabled = song != null,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text(if (isPlaying) "⏸ Pause" else "▶ Play")
-                    }
-                    Button(
-                        onClick = onNext,
-                        enabled = song != null,
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        Text("Next ⏭")
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(onClick = onOpenQueue, enabled = song != null) {
-                        Text("队列")
-                    }
-                    OutlinedButton(onClick = onCycleMode, enabled = song != null) {
-                        Text("模式：$modeLabel")
-                    }
-                    if (isCached && song != null) {
-                        Text(
-                            text = "已缓存",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NeonCyan,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = onAddCurrentToPlaylist,
-                    enabled = song != null
-                ) {
-                    Text("＋ 加入歌单")
-                }
+                HeroControls(
+                    isPlaying = isPlaying,
+                    enabled = song != null,
+                    onPrev = onPrev,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    heroSize = 64.dp
+                )
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3387,24 +3450,70 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
-                    OutlinedButton(
+                    IconButton(
+                        onClick = onAddCurrentToPlaylist,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.ADD, InkOnDark)
+                    }
+                    IconButton(
                         onClick = onDownloadCurrent,
-                        enabled = song != null && !downloadingCurrent
+                        enabled = song != null && !downloadingCurrent,
+                        modifier = Modifier.size(48.dp)
                     ) {
                         if (downloadingCurrent) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("下载中…")
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
                         } else {
-                            Text(if (downloadedCurrent) "已下载" else "下载")
+                            AppIcon(
+                                AppIconKind.DOWNLOAD,
+                                if (downloadedCurrent) NeonCyan else InkOnDark
+                            )
                         }
                     }
+                    IconButton(
+                        onClick = onSleepClick,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(
+                            AppIconKind.TIMER,
+                            if (sleepActive) NeonViolet else InkOnDark
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenQueue,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.QUEUE, InkOnDark)
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onSleepClick) {
-                    Text(sleepLabel)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onCycleMode, enabled = song != null) {
+                        Text("模式：$modeLabel")
+                    }
+                    if (isCached && song != null) {
+                        Text(
+                            text = "已缓存",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeonCyan,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    Text(
+                        text = sleepLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GrayMuted,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
                 }
-                Spacer(Modifier.height(4.dp))
                 Text(
                     text = "点封面看歌词 · 左右滑切歌 · 封面下滑关闭",
                     style = MaterialTheme.typography.bodySmall,
@@ -3435,7 +3544,8 @@ fun LoginScreen(
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
             TextButton(onClick = onBack) {
-                Text("‹ 返回")
+                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                Text("返回")
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -3512,14 +3622,22 @@ fun SettingsEntryRow(onOpen: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = MIN_TOUCH_DP.dp)
+            .heightIn(min = 56.dp)
             .clickable(onClick = onOpen)
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = "设置", style = MaterialTheme.typography.titleMedium)
-        Text(text = "›", style = MaterialTheme.typography.titleLarge)
+        Text(
+            text = "设置",
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted)
+        }
     }
 }
 
@@ -3532,7 +3650,9 @@ fun CacheManageRow(
     onDismissClear: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -3556,16 +3676,12 @@ fun CacheManageRow(
         }
     }
     if (showConfirm) {
-        AlertDialog(
-            onDismissRequest = onDismissClear,
-            title = { Text("清理缓存") },
-            text = { Text("确定清除播放缓存吗？本地下载不受影响； rolling 缓存离线将无法播放，需联网重新缓存。") },
-            confirmButton = {
-                TextButton(onClick = onConfirmClear) { Text("清除") }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissClear) { Text("取消") }
-            }
+        DangerConfirmDialog(
+            title = "清理缓存",
+            text = "确定清除播放缓存吗？本地下载不受影响； rolling 缓存离线将无法播放，需联网重新缓存。",
+            confirmText = "清除",
+            onConfirm = onConfirmClear,
+            onDismiss = onDismissClear
         )
     }
 }
@@ -3577,7 +3693,9 @@ fun VersionRow(
     onCheck: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -3626,8 +3744,9 @@ fun SettingsScreen(
     val aboutRow = rows.first { it.id == "about" }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)) {
-                Text("‹ 我的")
+            TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                Text("我的")
             }
             Text(
                 text = "设置",
@@ -3665,6 +3784,7 @@ fun SettingsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MineScreen(
     modifier: Modifier = Modifier,
@@ -3718,7 +3838,8 @@ fun MineScreen(
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
     var showBatchConfirm by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<Song?>(null) }
-    var menuFor by remember { mutableStateOf<String?>(null) }
+    var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
+    var songSheetFor by remember { mutableStateOf<Song?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         if (!authChecked) {
@@ -3748,46 +3869,38 @@ fun MineScreen(
                 Text("注册新账号")
             }
             Spacer(Modifier.height(16.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenOffline)
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "本地下载",
-                    style = MaterialTheme.typography.titleMedium
+            MineSectionCard {
+                EntryRow(
+                    title = "本地下载",
+                    subtitle = "$offlineCount 首",
+                    coverSize = 0.dp,
+                    onClick = onOpenOffline,
+                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "$offlineCount 首",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(text = "›", style = MaterialTheme.typography.titleLarge)
-                }
             }
-            Spacer(Modifier.height(4.dp))
-            CacheManageRow(
-                cacheSizeLabel = cacheSizeLabel,
-                showConfirm = showClearConfirm,
-                onAskClear = { showClearConfirm = true },
-                onConfirmClear = {
-                    showClearConfirm = false
-                    onClearCache()
-                },
-                onDismissClear = { showClearConfirm = false }
-            )
-            Spacer(Modifier.height(4.dp))
-            VersionRow(
-                versionLabel = versionLabel,
-                checking = checkingUpdate,
-                onCheck = onCheckUpdate
-            )
-            Spacer(Modifier.height(4.dp))
-            SettingsEntryRow(onOpen = onOpenSettings)
+            Spacer(Modifier.height(8.dp))
+            MineSectionCard {
+                CacheManageRow(
+                    cacheSizeLabel = cacheSizeLabel,
+                    showConfirm = showClearConfirm,
+                    onAskClear = { showClearConfirm = true },
+                    onConfirmClear = {
+                        showClearConfirm = false
+                        onClearCache()
+                    },
+                    onDismissClear = { showClearConfirm = false }
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            MineSectionCard {
+                VersionRow(
+                    versionLabel = versionLabel,
+                    checking = checkingUpdate,
+                    onCheck = onCheckUpdate
+                )
+                MineDivider()
+                SettingsEntryRow(onOpen = onOpenSettings)
+            }
             return
         }
         // Logged in header
@@ -3845,7 +3958,11 @@ fun MineScreen(
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .background(NeonViolet),
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(NeonViolet, NeonCyan)
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -3939,117 +4056,48 @@ fun MineScreen(
             )
         }
         Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenHistory)
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "最近播放",
-                style = MaterialTheme.typography.titleMedium
+        MineSectionCard {
+            EntryRow(
+                title = "最近播放",
+                subtitle = "$historyCount 首",
+                coverSize = 0.dp,
+                onClick = onOpenHistory,
+                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$historyCount 首",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(text = "›", style = MaterialTheme.typography.titleLarge)
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenOffline)
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "本地下载",
-                style = MaterialTheme.typography.titleMedium
+            MineDivider()
+            EntryRow(
+                title = "本地下载",
+                subtitle = "$offlineCount 首",
+                coverSize = 0.dp,
+                onClick = onOpenOffline,
+                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$offlineCount 首",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(text = "›", style = MaterialTheme.typography.titleLarge)
-            }
         }
-        Spacer(Modifier.height(4.dp))
-        CacheManageRow(
-            cacheSizeLabel = cacheSizeLabel,
-            showConfirm = showClearConfirm,
-            onAskClear = { showClearConfirm = true },
-            onConfirmClear = {
-                showClearConfirm = false
-                onClearCache()
-            },
-            onDismissClear = { showClearConfirm = false }
-        )
-        Spacer(Modifier.height(4.dp))
-        VersionRow(
-            versionLabel = versionLabel,
-            checking = checkingUpdate,
-            onCheck = onCheckUpdate
-        )
-        Spacer(Modifier.height(4.dp))
-        SettingsEntryRow(onOpen = onOpenSettings)
+        Spacer(Modifier.height(8.dp))
+        MineSectionCard {
+            CacheManageRow(
+                cacheSizeLabel = cacheSizeLabel,
+                showConfirm = showClearConfirm,
+                onAskClear = { showClearConfirm = true },
+                onConfirmClear = {
+                    showClearConfirm = false
+                    onClearCache()
+                },
+                onDismissClear = { showClearConfirm = false }
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        MineSectionCard {
+            VersionRow(
+                versionLabel = versionLabel,
+                checking = checkingUpdate,
+                onCheck = onCheckUpdate
+            )
+            MineDivider()
+            SettingsEntryRow(onOpen = onOpenSettings)
+        }
         Spacer(Modifier.height(12.dp))
         if (selectedPlaylist == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "我的歌单", style = MaterialTheme.typography.titleMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = {
-                            selecting = !selecting
-                            if (!selecting) checkedIds = emptySet()
-                        }
-                    ) {
-                        Text(if (selecting) "取消多选" else "多选")
-                    }
-                    TextButton(onClick = onRetryPlaylists, enabled = !playlistsLoading) {
-                        Text("刷新")
-                    }
-                }
-            }
-            if (selecting) {
-                val allChecked = playlists.isNotEmpty() && checkedIds.size == playlists.size
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = {
-                        checkedIds =
-                            if (allChecked) emptySet()
-                            else playlists.map { it.id }.toSet()
-                    }) {
-                        Text(if (allChecked) "全不选" else "全选")
-                    }
-                    Text(
-                        text = "已选 ${checkedIds.size} 项",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Button(
-                        onClick = { showBatchConfirm = true },
-                        enabled = checkedIds.isNotEmpty()
-                    ) {
-                        Text("删除所选")
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -4061,7 +4109,7 @@ fun MineScreen(
                     Text("导入外部歌单")
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
             if (showCreate) {
                 PlaylistTextDialog(
                     title = "新建歌单",
@@ -4110,41 +4158,33 @@ fun MineScreen(
                 )
             }
             deleteTarget?.let { target ->
-                AlertDialog(
-                    onDismissRequest = { deleteTarget = null },
-                    title = { Text("删除歌单") },
-                    text = { Text("确定删除「${target.name}」吗？组内歌曲一并移除，不可恢复。") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            deleteTarget = null
-                            if (selecting) {
-                                checkedIds = checkedIds - target.id
-                            }
-                            onDeletePlaylist(target)
-                        }) { Text("删除") }
+                DangerConfirmDialog(
+                    title = "删除歌单",
+                    text = "确定删除「${target.name}」吗？组内歌曲一并移除，不可恢复。",
+                    confirmText = "删除",
+                    onConfirm = {
+                        deleteTarget = null
+                        if (selecting) {
+                            checkedIds = checkedIds - target.id
+                        }
+                        onDeletePlaylist(target)
                     },
-                    dismissButton = {
-                        TextButton(onClick = { deleteTarget = null }) { Text("取消") }
-                    }
+                    onDismiss = { deleteTarget = null }
                 )
             }
             if (showBatchConfirm) {
-                AlertDialog(
-                    onDismissRequest = { showBatchConfirm = false },
-                    title = { Text("批量删除") },
-                    text = { Text("确定删除选中的 ${checkedIds.size} 个歌单吗？不可恢复。") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showBatchConfirm = false
-                            selecting = false
-                            val ids = checkedIds.toList()
-                            checkedIds = emptySet()
-                            onBatchDelete(ids)
-                        }) { Text("删除所选") }
+                DangerConfirmDialog(
+                    title = "批量删除",
+                    text = "确定删除选中的 ${checkedIds.size} 个歌单吗？不可恢复。",
+                    confirmText = "删除所选",
+                    onConfirm = {
+                        showBatchConfirm = false
+                        selecting = false
+                        val ids = checkedIds.toList()
+                        checkedIds = emptySet()
+                        onBatchDelete(ids)
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showBatchConfirm = false }) { Text("取消") }
-                    }
+                    onDismiss = { showBatchConfirm = false }
                 )
             }
             Spacer(Modifier.height(4.dp))
@@ -4157,109 +4197,146 @@ fun MineScreen(
                     onAction = onGoSearch
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(playlists, key = { it.id.ifBlank { it.name } }) { pl ->
-                        val checked = pl.id in checkedIds
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (selecting) {
-                                        checkedIds =
-                                            if (checked) checkedIds - pl.id
-                                            else checkedIds + pl.id
-                                    } else {
-                                        onSelectPlaylist(pl)
+                MineSectionCard(modifier = Modifier.weight(1f)) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        stickyHeader(key = "mine-pl-head") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(ObsidianSurface)
+                                    .padding(bottom = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "我的歌单",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(
+                                            onClick = {
+                                                selecting = !selecting
+                                                if (!selecting) checkedIds = emptySet()
+                                            }
+                                        ) {
+                                            Text(if (selecting) "取消多选" else "多选")
+                                        }
+                                        TextButton(
+                                            onClick = onRetryPlaylists,
+                                            enabled = !playlistsLoading
+                                        ) {
+                                            Text("刷新")
+                                        }
                                     }
                                 }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (selecting) {
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = {
-                                        checkedIds =
-                                            if (checked) checkedIds - pl.id
-                                            else checkedIds + pl.id
-                                    }
-                                )
-                            }
-                            AsyncImage(
-                                model = pl.coverUrl.ifBlank { null },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(56.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = pl.name.ifBlank { "(untitled)" },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${pl.songCount} 首",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            if (selecting) {
-                                Text("›", style = MaterialTheme.typography.titleLarge)
-                            } else {
-                                Box {
-                                    IconButton(onClick = { menuFor = pl.id }) {
-                                        Text("⋯")
-                                    }
-                                    DropdownMenu(
-                                        expanded = menuFor == pl.id,
-                                        onDismissRequest = { menuFor = null }
+                                if (selecting) {
+                                    val allChecked = playlists.isNotEmpty() &&
+                                        checkedIds.size == playlists.size
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { Text("重命名") },
-                                            onClick = {
-                                                menuFor = null
-                                                renameTarget = pl
-                                            }
+                                        TextButton(onClick = {
+                                            checkedIds =
+                                                if (allChecked) emptySet()
+                                                else playlists.map { it.id }.toSet()
+                                        }) {
+                                            Text(if (allChecked) "全不选" else "全选")
+                                        }
+                                        Text(
+                                            text = "已选 ${checkedIds.size} 项",
+                                            style = MaterialTheme.typography.bodySmall
                                         )
-                                        DropdownMenuItem(
-                                            text = { Text("改简介") },
-                                            onClick = {
-                                                menuFor = null
-                                                descTarget = pl
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("上移") },
-                                            onClick = {
-                                                menuFor = null
-                                                onMovePlaylist(pl, -1)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("下移") },
-                                            onClick = {
-                                                menuFor = null
-                                                onMovePlaylist(pl, 1)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("删除") },
-                                            onClick = {
-                                                menuFor = null
-                                                deleteTarget = pl
-                                            }
-                                        )
+                                        Spacer(Modifier.weight(1f))
+                                        Button(
+                                            onClick = { showBatchConfirm = true },
+                                            enabled = checkedIds.isNotEmpty()
+                                        ) {
+                                            Text("删除所选")
+                                        }
                                     }
                                 }
+                            }
+                        }
+                        items(playlists, key = { it.id.ifBlank { it.name } }) { pl ->
+                            val checked = pl.id in checkedIds
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (selecting) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = {
+                                            checkedIds =
+                                                if (checked) checkedIds - pl.id
+                                                else checkedIds + pl.id
+                                        }
+                                    )
+                                }
+                                EntryRow(
+                                    modifier = Modifier.weight(1f),
+                                    title = pl.name.ifBlank { "(untitled)" },
+                                    subtitle = "${pl.songCount} 首",
+                                    coverUrl = pl.coverUrl,
+                                    onClick = {
+                                        if (selecting) {
+                                            checkedIds =
+                                                if (checked) checkedIds - pl.id
+                                                else checkedIds + pl.id
+                                        } else {
+                                            onSelectPlaylist(pl)
+                                        }
+                                    },
+                                    trailing = {
+                                        if (selecting) {
+                                            AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted)
+                                        } else {
+                                            IconButton(
+                                                onClick = { menuSheetFor = pl },
+                                                modifier = Modifier.size(48.dp)
+                                            ) {
+                                                AppIcon(AppIconKind.MORE, GrayMuted)
+                                            }
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
+            menuSheetFor?.let { pl ->
+                SongMenuSheet(
+                    title = pl.name.ifBlank { "(untitled)" },
+                    actions = listOf(
+                        SongMenuAction("rename", "重命名"),
+                        SongMenuAction("desc", "改简介"),
+                        SongMenuAction("up", "上移"),
+                        SongMenuAction("down", "下移"),
+                        SongMenuAction("delete", "删除", danger = true)
+                    ),
+                    onAction = { id ->
+                        when (id) {
+                            "rename" -> renameTarget = pl
+                            "desc" -> descTarget = pl
+                            "up" -> onMovePlaylist(pl, -1)
+                            "down" -> onMovePlaylist(pl, 1)
+                            "delete" -> deleteTarget = pl
+                        }
+                        menuSheetFor = null
+                    },
+                    onDismiss = { menuSheetFor = null }
+                )
+            }
         } else {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBackToPlaylists) {
-                    Text("‹ 歌单")
+                    AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                    Text("歌单")
                 }
                 Text(
                     text = selectedPlaylist.name.ifBlank { "(untitled)" },
@@ -4279,67 +4356,56 @@ fun MineScreen(
                     onAction = onGoSearch
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(songs, key = { idx, s -> s.sourceId + s.platform + idx }) { index, song ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPlaySong(index) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AsyncImage(
-                                model = song.coverUrl.ifBlank { null },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(48.dp)
+                MineSectionCard(modifier = Modifier.weight(1f)) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        itemsIndexed(
+                            songs,
+                            key = { idx, s -> s.sourceId + s.platform + idx }
+                        ) { index, song ->
+                            SongRow(
+                                model = buildSongRowModel(song),
+                                meta = if (song.durationSec > 0) {
+                                    formatDuration(song.durationSec)
+                                } else {
+                                    null
+                                },
+                                onClick = { onPlaySong(index) },
+                                onOverflow = { songSheetFor = song }
                             )
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = song.name.ifBlank { "(untitled)" },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (song.durationSec > 0) {
-                                Text(
-                                    text = formatDuration(song.durationSec),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                Spacer(Modifier.width(4.dp))
-                            }
-                            FavHeart(
-                                faved = song.sourceId.isNotBlank() && song.sourceId in favIds,
-                                onClick = { onToggleFav(song) }
-                            )
-                            TextButton(onClick = { confirmRemove = song }) {
-                                Text("移除")
-                            }
                         }
                     }
                 }
             }
-            confirmRemove?.let { target ->
-                AlertDialog(
-                    onDismissRequest = { confirmRemove = null },
-                    title = { Text("从歌单删除") },
-                    text = { Text("确定把《${target.name}》从「${selectedPlaylist.name}」移除吗？") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            confirmRemove = null
-                            onRemoveSong(target)
-                        }) { Text("删除") }
+            songSheetFor?.let { target ->
+                val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
+                SongMenuSheet(
+                    title = target.name.ifBlank { "(untitled)" },
+                    actions = listOf(
+                        SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                        SongMenuAction("add", "加入其他歌单"),
+                        SongMenuAction("remove", "从歌单移除", danger = true)
+                    ),
+                    onAction = { id ->
+                        when (id) {
+                            "fav" -> onToggleFav(target)
+                            "add" -> onAddSongToPlaylist(target)
+                            "remove" -> confirmRemove = target
+                        }
+                        songSheetFor = null
                     },
-                    dismissButton = {
-                        TextButton(onClick = { confirmRemove = null }) { Text("取消") }
-                    }
+                    onDismiss = { songSheetFor = null }
+                )
+            }
+            confirmRemove?.let { target ->
+                DangerConfirmDialog(
+                    title = "从歌单删除",
+                    text = "确定把《${target.name}》从「${selectedPlaylist.name}」移除吗？",
+                    confirmText = "删除",
+                    onConfirm = {
+                        confirmRemove = null
+                        onRemoveSong(target)
+                    },
+                    onDismiss = { confirmRemove = null }
                 )
             }
         }
@@ -4353,18 +4419,38 @@ fun SleepTimerDialog(
     onInvalid: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var selected by remember(current) { mutableStateOf(current) }
     var custom by remember { mutableStateOf("") }
+    val customTrim = custom.trim()
+    val customInvalid = customTrim.isNotEmpty() && parseSleepMinutes(customTrim) == null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("睡眠定时") },
         text = {
             Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SLEEP_PRESETS.forEach { preset ->
-                        FilterChip(
-                            selected = current == preset,
-                            onClick = { onConfirm(preset) },
-                            label = { Text("${preset}分钟") }
+                sleepPresetOptions().forEach { opt ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable {
+                                selected = opt
+                                custom = ""
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selected == opt && customTrim.isEmpty(),
+                            onClick = {
+                                selected = opt
+                                custom = ""
+                            }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = sleepOptionLabel(opt),
+                            style = MaterialTheme.typography.bodyLarge
                         )
                     }
                 }
@@ -4377,20 +4463,23 @@ fun SleepTimerDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(4.dp))
-                TextButton(onClick = { onConfirm(0) }) {
-                    Text("关闭定时")
+                if (customInvalid) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "请输入 ${SLEEP_CUSTOM_MIN}~${SLEEP_CUSTOM_MAX} 的整数",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                if (custom.isBlank()) {
-                    onDismiss()
-                    return@TextButton
+            Button(onClick = {
+                if (customInvalid) {
+                    onInvalid()
+                    return@Button
                 }
-                val parsed = parseSleepMinutes(custom)
-                if (parsed == null) onInvalid() else onConfirm(parsed)
+                onConfirm(resolveSleepChoice(selected, customTrim) ?: 0)
             }) { Text("确定") }
         },
         dismissButton = {
@@ -4412,40 +4501,31 @@ fun PlaylistTextDialog(
     var first by remember(initial) { mutableStateOf(initial) }
     var second by remember { mutableStateOf("") }
     val firstOk = first.trim().isNotEmpty()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = first,
-                    onValueChange = { first = it },
-                    label = { Text(label) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (secondLabel != null) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = second,
-                        onValueChange = { second = it },
-                        label = { Text(secondLabel) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(first.trim(), second.trim()) },
-                enabled = firstOk
-            ) { Text(confirmText) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+    FormDialog(
+        title = title,
+        confirmText = confirmText,
+        confirmEnabled = firstOk,
+        onConfirm = { onConfirm(first.trim(), second.trim()) },
+        onDismiss = onDismiss
+    ) {
+        OutlinedTextField(
+            value = first,
+            onValueChange = { first = it },
+            label = { Text(label) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (secondLabel != null) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = second,
+                onValueChange = { second = it },
+                label = { Text(secondLabel) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
-    )
+    }
 }
 
 @Composable
@@ -4455,45 +4535,36 @@ fun ImportDialog(
 ) {
     var source by remember { mutableStateOf("netease") }
     var id by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("导入外部歌单") },
-        text = {
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = source == "netease",
-                        onClick = { source = "netease" },
-                        label = { Text("网易云") }
-                    )
-                    FilterChip(
-                        selected = source == "qq",
-                        onClick = { source = "qq" },
-                        label = { Text("QQ音乐") }
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = id,
-                    onValueChange = { id = it.trim() },
-                    label = { Text("歌单链接或ID") },
-                    placeholder = { Text("粘贴歌单链接，或填数字ID") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            val parsed = VibeApi.extractPlaylistId(id)
-            TextButton(
-                onClick = { onConfirm(source, parsed) },
-                enabled = parsed.isNotEmpty()
-            ) { Text("导入") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+    val parsed = VibeApi.extractPlaylistId(id)
+    FormDialog(
+        title = "导入外部歌单",
+        confirmText = "导入",
+        confirmEnabled = parsed.isNotEmpty(),
+        onConfirm = { onConfirm(source, parsed) },
+        onDismiss = onDismiss
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = source == "netease",
+                onClick = { source = "netease" },
+                label = { Text("网易云") }
+            )
+            FilterChip(
+                selected = source == "qq",
+                onClick = { source = "qq" },
+                label = { Text("QQ音乐") }
+            )
         }
-    )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = id,
+            onValueChange = { id = it.trim() },
+            label = { Text("歌单链接或ID") },
+            placeholder = { Text("粘贴歌单链接，或填数字ID") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable
@@ -4643,16 +4714,6 @@ fun AddToPlaylistSheet(    song: Song,
     }
 }
 
-@Composable
-fun FavHeart(faved: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
-    IconButton(onClick = onClick, enabled = enabled) {
-        Text(
-            text = if (faved) "❤" else "♡",
-            color = if (faved) Color(0xFFEF4444) else GrayMuted
-        )
-    }
-}
-
 fun absImgUrl(path: String): String {
     val t = path.trim()
     if (t.isBlank()) return ""
@@ -4678,59 +4739,51 @@ fun ChangePasswordDialog(
     var newPwd by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     val ok = oldPwd.isNotBlank() && newPwd.length >= 8 && newPwd == confirm
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("修改密码") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = oldPwd,
-                    onValueChange = { oldPwd = it },
-                    label = { Text("旧密码") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = newPwd,
-                    onValueChange = { newPwd = it },
-                    label = { Text("新密码（至少8位）") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = confirm,
-                    onValueChange = { confirm = it },
-                    label = { Text("确认新密码") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (confirm.isNotEmpty() && newPwd != confirm) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "两次输入不一致",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFEF4444)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(oldPwd, newPwd) }, enabled = ok) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+    FormDialog(
+        title = "修改密码",
+        confirmText = "保存",
+        confirmEnabled = ok,
+        onConfirm = { onConfirm(oldPwd, newPwd) },
+        onDismiss = onDismiss
+    ) {
+        OutlinedTextField(
+            value = oldPwd,
+            onValueChange = { oldPwd = it },
+            label = { Text("旧密码") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = newPwd,
+            onValueChange = { newPwd = it },
+            label = { Text("新密码（至少8位）") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = confirm,
+            onValueChange = { confirm = it },
+            label = { Text("确认新密码") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (confirm.isNotEmpty() && newPwd != confirm) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "两次输入不一致",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFEF4444)
+            )
         }
-    )
+    }
 }
 
 private val PROFILE_GENDERS = listOf("男", "女", "保密")
@@ -4748,62 +4801,53 @@ fun ProfileDialog(
     var gender by remember(initialGender) { mutableStateOf(initialGender) }
     var birthday by remember(initialBirthday) { mutableStateOf(initialBirthday) }
     val birthdayOk = birthday.isBlank() || BIRTHDAY_RE.matches(birthday.trim())
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("改资料") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = nickname,
-                    onValueChange = { nickname = it },
-                    label = { Text("昵称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+    FormDialog(
+        title = "改资料",
+        confirmText = "保存",
+        confirmEnabled = birthdayOk,
+        onConfirm = {
+            val nn = nickname.trim().takeIf { it != initialNickname }
+            val gg = gender.takeIf { it != initialGender && it in PROFILE_GENDERS }
+            val bb = birthday.trim().takeIf { it != initialBirthday.trim() }
+            onConfirm(nn, gg, bb)
+        },
+        onDismiss = onDismiss
+    ) {
+        OutlinedTextField(
+            value = nickname,
+            onValueChange = { nickname = it },
+            label = { Text("昵称") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PROFILE_GENDERS.forEach { g ->
+                FilterChip(
+                    selected = gender == g,
+                    onClick = { gender = if (gender == g) "" else g },
+                    label = { Text(g) }
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PROFILE_GENDERS.forEach { g ->
-                        FilterChip(
-                            selected = gender == g,
-                            onClick = { gender = if (gender == g) "" else g },
-                            label = { Text(g) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = birthday,
-                    onValueChange = { birthday = it.trim() },
-                    label = { Text("生日（YYYY-MM-DD，可空）") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (!birthdayOk) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "生日格式应为 YYYY-MM-DD",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFEF4444)
-                    )
-                }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val nn = nickname.trim().takeIf { it != initialNickname }
-                    val gg = gender.takeIf { it != initialGender && it in PROFILE_GENDERS }
-                    val bb = birthday.trim().takeIf { it != initialBirthday.trim() }
-                    onConfirm(nn, gg, bb)
-                },
-                enabled = birthdayOk
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
         }
-    )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = birthday,
+            onValueChange = { birthday = it.trim() },
+            label = { Text("生日（YYYY-MM-DD，可空）") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (!birthdayOk) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "生日格式应为 YYYY-MM-DD",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFEF4444)
+            )
+        }
+    }
 }
 
 @Composable
@@ -4814,6 +4858,7 @@ fun HistoryScreen(
     favIds: Set<String> = emptySet(),
     onPlayAt: (Int) -> Unit,
     onToggleFav: (Song) -> Unit = {},
+    onAddToPlaylist: (Song) -> Unit = {},
     onDeleteOne: (VibeApi.HistoryItem) -> Unit = {},
     onClearAll: () -> Unit = {},
     onRetry: () -> Unit = {},
@@ -4821,10 +4866,12 @@ fun HistoryScreen(
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<VibeApi.HistoryItem?>(null) }
+    var sheetFor by remember { mutableStateOf<VibeApi.HistoryItem?>(null) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) {
-                Text("‹ 我的")
+                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                Text("我的")
             }
             Text(
                 text = "最近播放",
@@ -4854,78 +4901,63 @@ fun HistoryScreen(
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(items, key = { idx, h -> h.song.sourceId + h.song.platform + idx }) { index, item ->
                 val song = item.song
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onPlayAt(index) }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AsyncImage(
-                        model = song.coverUrl.ifBlank { null },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = song.name.ifBlank { "(untitled)" },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = if (item.playedAt.isNotBlank()) {
-                                item.playedAt.replace("T", " ").take(16) + " · " + song.artist
-                            } else {
-                                "第${index + 1}首 · " + song.artist
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    FavHeart(
-                        faved = song.sourceId.isNotBlank() && song.sourceId in favIds,
-                        onClick = { onToggleFav(song) }
-                    )
-                    TextButton(onClick = { confirmDelete = item }) {
-                        Text("删除")
-                    }
-                }
+                SongRow(
+                    model = buildSongRowModel(
+                        song,
+                        subtitleOverride = if (item.playedAt.isNotBlank()) {
+                            item.playedAt.replace("T", " ").take(16) + " · " + song.artist
+                        } else {
+                            "第${index + 1}首 · " + song.artist
+                        }
+                    ),
+                    onClick = { onPlayAt(index) },
+                    onOverflow = { sheetFor = item }
+                )
             }
         }
     }
-    if (showClearConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirm = false },
-            title = { Text("清空历史") },
-            text = { Text("确定清空全部 ${items.size} 条播放记录吗？不可恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showClearConfirm = false
-                    onClearAll()
-                }) { Text("清空") }
+    sheetFor?.let { target ->
+        val faved = target.song.sourceId.isNotBlank() && target.song.sourceId in favIds
+        SongMenuSheet(
+            title = target.song.name.ifBlank { "(untitled)" },
+            actions = listOf(
+                SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                SongMenuAction("add", "加入歌单"),
+                SongMenuAction("delete", "删除记录", danger = true)
+            ),
+            onAction = { id ->
+                when (id) {
+                    "fav" -> onToggleFav(target.song)
+                    "add" -> onAddToPlaylist(target.song)
+                    "delete" -> confirmDelete = target
+                }
+                sheetFor = null
             },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
-            }
+            onDismiss = { sheetFor = null }
+        )
+    }
+    if (showClearConfirm) {
+        DangerConfirmDialog(
+            title = "清空历史",
+            text = "确定清空全部 ${items.size} 条播放记录吗？不可恢复。",
+            confirmText = "清空",
+            onConfirm = {
+                showClearConfirm = false
+                onClearAll()
+            },
+            onDismiss = { showClearConfirm = false }
         )
     }
     confirmDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("删除记录") },
-            text = { Text("确定删除《${target.song.name.ifBlank { "(untitled)" }}》的播放记录吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = null
-                    onDeleteOne(target)
-                }) { Text("删除") }
+        DangerConfirmDialog(
+            title = "删除记录",
+            text = "确定删除《${target.song.name.ifBlank { "(untitled)" }}》的播放记录吗？",
+            confirmText = "删除",
+            onConfirm = {
+                confirmDelete = null
+                onDeleteOne(target)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("取消") }
-            }
+            onDismiss = { confirmDelete = null }
         )
     }
 }

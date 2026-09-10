@@ -24,15 +24,16 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,22 +76,23 @@ fun DiscoverSectionHeader(
     actionBusy: Boolean = false,
     onAction: (() -> Unit)? = null
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = title, style = MaterialTheme.typography.titleMedium)
-        if (actionLabel != null && onAction != null) {
-            if (actionBusy) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp))
-            } else {
-                TextButton(onClick = onAction) {
-                    Text(actionLabel)
-                }
-            }
-        }
-    }
+    SectionHeader(
+        title = title,
+        actionLabel = actionLabel,
+        actionBusy = actionBusy,
+        onAction = onAction
+    )
+}
+
+@Composable
+fun BannerSkeleton() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(UiMuted.copy(alpha = 0.25f))
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -165,10 +167,20 @@ fun BannerCarousel(
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 3.dp)
-                        .size(if (selected) 8.dp else 6.dp)
-                        .clip(CircleShape)
+                        .then(
+                            if (selected) {
+                                Modifier
+                                    .width(16.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                            } else {
+                                Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                            }
+                        )
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primary
+                            if (selected) UiViolet
                             else MaterialTheme.colorScheme.surfaceVariant
                         )
                 )
@@ -183,53 +195,46 @@ fun RecommendImportDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("导入歌单") },
-        text = {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
-                        model = playlist.picUrl.ifBlank { null },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = playlist.name.ifBlank { "(untitled)" },
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "网易云 · ID ${playlist.id.ifBlank { "?" }}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (playlist.copywriter.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = playlist.copywriter,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+    FormDialog(
+        title = "导入歌单",
+        confirmText = "导入",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = playlist.picUrl.ifBlank { null },
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = playlist.name.ifBlank { "(untitled)" },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "网易云 · ID ${playlist.id.ifBlank { "?" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text("导入") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
         }
-    )
+        if (playlist.copywriter.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = playlist.copywriter,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -259,8 +264,15 @@ fun DiscoverScreen(
     onRetryHot: () -> Unit,
     onPlaylistTap: (RecommendPlaylist) -> Unit,
     refreshing: Boolean,
-    onPullRefresh: () -> Unit
+    onPullRefresh: () -> Unit,
+    favIds: Set<String> = emptySet(),
+    downloadingKeys: Set<String> = emptySet(),
+    downloadedKeys: Set<String> = emptySet(),
+    onToggleFav: (Song) -> Unit = {},
+    onAddToPlaylist: (Song) -> Unit = {},
+    onDownload: (Song) -> Unit = {}
 ) {
+    var guessSheetFor by remember { mutableStateOf<Song?>(null) }
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onPullRefresh,
@@ -269,15 +281,16 @@ fun DiscoverScreen(
         LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             item(key = "discover-title") {
                 Text(text = "发现", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
             }
             when {
                 bannersLoading && banners.isEmpty() -> item(key = "banner-loading") {
-                    SearchSkeleton()
+                    BannerSkeleton()
+                    Spacer(Modifier.height(24.dp))
                 }
                 banners.isNotEmpty() -> item(key = "banner") {
                     BannerCarousel(banners = banners, onTap = onBannerTap)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(24.dp))
                 }
                 bannersError != null -> item(key = "banner-error") {
                     DiscoverRetryRow(message = bannersError, onRetry = onRetryBanners)
@@ -291,7 +304,6 @@ fun DiscoverScreen(
                 }
             }
             item(key = "daily-head") {
-                Spacer(Modifier.height(12.dp))
                 DiscoverSectionHeader(
                     title = "每日推荐",
                     actionLabel = "换一批",
@@ -299,6 +311,7 @@ fun DiscoverScreen(
                     onAction = onRefreshDaily
                 )
                 if (dailyReason.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = dailyReason,
                         style = MaterialTheme.typography.bodySmall,
@@ -307,7 +320,7 @@ fun DiscoverScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
             }
             when {
                 dailyLoading && dailySongs.isEmpty() -> item(key = "daily-loading") {
@@ -365,9 +378,9 @@ fun DiscoverScreen(
                 }
             }
             item(key = "guess-head") {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(24.dp))
                 DiscoverSectionHeader(title = "猜你喜欢")
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
             }
             when {
                 guessLoading && guessSongs.isEmpty() -> item(key = "guess-loading") {
@@ -378,42 +391,15 @@ fun DiscoverScreen(
                         guessSongs,
                         key = { _, s -> "guess-" + s.sourceId + s.platform }
                     ) { index, song ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPlayGuess(index) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AsyncImage(
-                                model = song.coverUrl.ifBlank { null },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = song.name.ifBlank { "(untitled)" },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = formatDuration(song.durationSec),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        SongRow(
+                            model = buildSongRowModel(song),
+                            meta = formatDuration(song.durationSec),
+                            onClick = { onPlayGuess(index) },
+                            onOverflow = { guessSheetFor = song }
+                        )
+                    }
+                    item(key = "guess-gap") {
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
                 guessError != null -> item(key = "guess-error") {
@@ -428,9 +414,8 @@ fun DiscoverScreen(
                 }
             }
             item(key = "hot-head") {
-                Spacer(Modifier.height(12.dp))
                 DiscoverSectionHeader(title = "热门歌单")
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
             }
             when {
                 hotLoading && hotPlaylists.isEmpty() -> item(key = "hot-loading") {
@@ -496,5 +481,34 @@ fun DiscoverScreen(
                 }
             }
         }
+    }
+    guessSheetFor?.let { target ->
+        val dlKey = offlineBaseName(target)
+        val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
+        SongMenuSheet(
+            title = target.name.ifBlank { "(untitled)" },
+            actions = listOf(
+                SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                SongMenuAction(
+                    "download",
+                    when {
+                        dlKey in downloadingKeys -> "下载中…"
+                        dlKey in downloadedKeys -> "已下载"
+                        else -> "下载"
+                    },
+                    enabled = dlKey !in downloadingKeys
+                ),
+                SongMenuAction("add", "加入歌单")
+            ),
+            onAction = { id ->
+                when (id) {
+                    "fav" -> onToggleFav(target)
+                    "download" -> onDownload(target)
+                    "add" -> onAddToPlaylist(target)
+                }
+                guessSheetFor = null
+            },
+            onDismiss = { guessSheetFor = null }
+        )
     }
 }

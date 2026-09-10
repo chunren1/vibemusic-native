@@ -1,9 +1,8 @@
 package com.cyk666.vibemusic
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,15 +14,21 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -59,7 +64,8 @@ data class QueueRowDisplay(
     val durationText: String,
     val isCurrent: Boolean,
     val livePositionMs: Long = 0L,
-    val liveDurationMs: Long = 0L
+    val liveDurationMs: Long = 0L,
+    val coverUrl: String = ""
 )
 
 /**
@@ -89,7 +95,8 @@ fun resolveQueueRowDisplay(
         durationText = if (secs != null) formatDuration(secs) else "--:--",
         isCurrent = isCurrent,
         livePositionMs = if (isCurrent) livePositionMs.coerceAtLeast(0L) else 0L,
-        liveDurationMs = if (isCurrent) liveDurationMs.coerceAtLeast(0L) else 0L
+        liveDurationMs = if (isCurrent) liveDurationMs.coerceAtLeast(0L) else 0L,
+        coverUrl = match?.coverUrl ?: timelineSong.coverUrl
     )
 }
 
@@ -139,7 +146,6 @@ fun nextIndexAfterRemove(size: Int, removedIdx: Int, currentIdx: Int): Int {
 /** True when the removed row was the playing one → caller must re-seek + play. */
 fun removedPlayingItem(removedIdx: Int, currentIdx: Int): Boolean = removedIdx == currentIdx
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QueueScreen(
     modifier: Modifier = Modifier,
@@ -149,10 +155,14 @@ fun QueueScreen(
     onRemove: (Int) -> Unit,
     onClear: () -> Unit,
     onBack: () -> Unit,
-    onGoSearch: () -> Unit = {}
+    onGoSearch: () -> Unit = {},
+    favIds: Set<String> = emptySet(),
+    onToggleFav: (Song) -> Unit = {},
+    onAddToPlaylist: (Song) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val currentPos = rows.indexOfFirst { it.isCurrent }
+    var sheetFor by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(currentPos) {
         if (currentPos >= 0) {
             try {
@@ -168,7 +178,8 @@ fun QueueScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             TextButton(onClick = onBack) {
-                Text("‹ 返回播放")
+                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, size = 20.dp)
+                Text("返回播放")
             }
             Text(
                 text = "播放队列 (${rows.size})",
@@ -202,63 +213,82 @@ fun QueueScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = { onPlayAt(index) },
-                                onLongClick = { onRemove(index) }
-                            )
                             .background(
                                 if (row.isCurrent) {
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                 } else {
                                     MaterialTheme.colorScheme.surface
-                                }
+                                },
+                                RoundedCornerShape(12.dp)
                             )
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                            .clip(RoundedCornerShape(12.dp))
+                            .padding(start = 0.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (row.isCurrent) "▶ " else "${index + 1}. ",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.width(32.dp)
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = row.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = if (row.isCurrent) {
-                                    MaterialTheme.typography.titleMedium
-                                } else {
-                                    MaterialTheme.typography.bodyMedium
-                                }
-                            )
-                            Text(
-                                text = row.artist,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = row.durationText,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            if (row.isCurrent && row.liveDurationMs > 0) {
-                                Text(
-                                    text = formatDuration((row.livePositionMs / 1000).toInt()) +
-                                        " / " +
-                                        formatDuration((row.liveDurationMs / 1000).toInt()),
-                                    style = MaterialTheme.typography.bodySmall
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(56.dp)
+                                .background(
+                                    if (row.isCurrent) UiViolet else Color.Transparent,
+                                    RoundedCornerShape(2.dp)
                                 )
-                            }
-                        }
-                        IconButton(onClick = { onRemove(index) }) {
-                            Text("✕")
-                        }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        SongRow(
+                            model = SongRowModel(
+                                title = row.title,
+                                subtitle = row.artist,
+                                coverUrl = row.coverUrl
+                            ),
+                            meta = if (row.isCurrent && row.liveDurationMs > 0) {
+                                formatDuration((row.livePositionMs / 1000).toInt()) +
+                                    " / " +
+                                    formatDuration((row.liveDurationMs / 1000).toInt())
+                            } else {
+                                row.durationText
+                            },
+                            onClick = { onPlayAt(index) },
+                            onLongClick = { sheetFor = index },
+                            onOverflow = { sheetFor = index }
+                        )
                     }
                 }
             }
+        }
+    }
+    sheetFor?.let { idx ->
+        val row = rows.getOrNull(idx)
+        if (row != null) {
+            val faved = row.sourceId.isNotBlank() && row.sourceId in favIds
+            SongMenuSheet(
+                title = row.title,
+                actions = listOf(
+                    SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                    SongMenuAction("add", "加入歌单"),
+                    SongMenuAction("remove", "从队列删除", danger = true)
+                ),
+                onAction = { id ->
+                    val target = Song(
+                        sourceId = row.sourceId,
+                        name = row.title,
+                        artist = row.artist,
+                        album = "",
+                        coverUrl = row.coverUrl,
+                        durationSec = 0,
+                        platform = "netease"
+                    )
+                    when (id) {
+                        "fav" -> onToggleFav(target)
+                        "add" -> onAddToPlaylist(target)
+                        "remove" -> onRemove(idx)
+                    }
+                    sheetFor = null
+                },
+                onDismiss = { sheetFor = null }
+            )
+        } else {
+            sheetFor = null
         }
     }
 }
