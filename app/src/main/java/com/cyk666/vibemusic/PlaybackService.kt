@@ -1,5 +1,8 @@
 package com.cyk666.vibemusic
 
+import android.media.AudioManager
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
@@ -68,6 +71,51 @@ val SERVICE_MATERIALIZE_COMMANDS: Set<Int> = setOf(
 fun isServiceMaterializeCommand(playerCommand: Int): Boolean =
     playerCommand in SERVICE_MATERIALIZE_COMMANDS
 
+/**
+ * Audio-focus / becoming-noisy config applied to the service ExoPlayer
+ * (pure, unit-tested). Verified against the media3 1.5.1 jars via javap:
+ * - `ExoPlayer$Builder.setAudioAttributes(AudioAttributes, boolean)` (two-arg)
+ * - `ExoPlayer$Builder.setHandleAudioBecomingNoisy(boolean)` (exists, idiomatic —
+ *   no manual ACTION_AUDIO_BECOMING_NOISY receiver needed)
+ * Resulting behavior (all handled inside ExoPlayer's AudioFocusManager /
+ * AudioBecomingNoisyManager, no extra permissions — phone-call pause comes free
+ * via transient/permanent focus loss, do NOT add READ_PHONE_STATE):
+ * - permanent loss (other music/video app, phone call) → pause, stays paused;
+ * - transient loss → pause, stays paused (no auto-resume, see listener below);
+ * - transient-can-duck → native volume duck (VOLUME_MULTIPLIER_DUCK);
+ * - Bluetooth disconnect / wired-headset unplug → pause;
+ * - MediaSession + notification follow player state automatically (no manual
+ *   setPlaybackState anywhere in the codebase — verified by grep, truthful icon).
+ */
+data class AudioFocusConfig(
+    val usage: Int,
+    val contentType: Int,
+    val handleAudioFocus: Boolean,
+    val handleAudioBecomingNoisy: Boolean
+)
+
+fun audioFocusConfig(): AudioFocusConfig = AudioFocusConfig(
+    usage = C.USAGE_MEDIA,
+    // AUDIO_CONTENT_TYPE_MUSIC == CONTENT_TYPE_MUSIC == 2; the CONTENT_TYPE_*
+    // alias is deprecated in 1.5.1, so use the canonical AUDIO_ name.
+    contentType = C.AUDIO_CONTENT_TYPE_MUSIC,
+    handleAudioFocus = true,
+    handleAudioBecomingNoisy = true
+)
+
+/** Player action for an Android audio-focus change. Only can-duck ducks. */
+enum class FocusLossAction { PAUSE, DUCK }
+
+/**
+ * Pure policy mirror of the ExoPlayer wiring above: every focus change except
+ * [AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK] pauses (and regain never
+ * auto-resumes — user taps play); can-duck natively ducks the volume.
+ */
+fun focusLossAction(focusChange: Int): FocusLossAction = when (focusChange) {
+    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> FocusLossAction.DUCK
+    else -> FocusLossAction.PAUSE
+}
+
 class PlaybackService : MediaSessionService() {
 
     companion object {
@@ -112,11 +160,36 @@ class PlaybackService : MediaSessionService() {
             .setDataSourceFactory(schemeFactory)
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(audioFocusConfig().usage)
+                    .setContentType(audioFocusConfig().contentType)
+                    .build(),
+                audioFocusConfig().handleAudioFocus
+            )
+            .setHandleAudioBecomingNoisy(audioFocusConfig().handleAudioBecomingNoisy)
             .build()
         player = exo
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 if (playing) consecFails = 0
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // ExoPlayer auto-resumes (playWhenReady=true, reason AUDIO_FOCUS_LOSS)
+                // on focus regain after a transient loss; music-app policy is no
+                // auto-resume — user taps play. Re-pause exactly those resumes.
+                // Loss/noisy pauses arrive with playWhenReady=false (untouched);
+                // user taps arrive as USER_REQUEST (untouched); ducking changes no
+                // playWhenReady (untouched).
+                if (playWhenReady &&
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                ) {
+                    try {
+                        exo.pause()
+                    } catch (_: Exception) {
+                    }
+                }
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
