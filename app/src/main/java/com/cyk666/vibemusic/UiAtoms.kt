@@ -122,7 +122,8 @@ enum class AppIconKind {
     PLAY, PAUSE, PREV, NEXT,
     CLOSE, MORE, HEART, DOWNLOAD, ADD, TIMER, QUEUE,
     CHECK, CHEVRON_RIGHT, CHEVRON_LEFT,
-    HISTORY, TRENDING, MUSIC_NOTE
+    HISTORY, TRENDING, MUSIC_NOTE,
+    INFO, MODE_SEQUENTIAL, MODE_LOOP, MODE_SINGLE, MODE_SHUFFLE
 }
 
 private fun DrawScope.line(a: Offset, b: Offset, w: Float, c: Color) =
@@ -272,6 +273,46 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
             line(pt(9f, 18.5f), pt(9f, 6f), w, c)
             line(pt(19.4f, 16.5f), pt(19.4f, 4f), w, c)
             line(pt(9f, 6f), pt(19.4f, 4f), w, c)
+        }
+        AppIconKind.INFO -> {
+            drawCircle(color = c, radius = 9f * s, center = pt(12f, 12f), style = Stroke(w))
+            drawCircle(color = c, radius = 1.5f * s, center = pt(12f, 8f), style = Fill)
+            line(pt(12f, 11f), pt(12f, 16.5f), w, c)
+        }
+        AppIconKind.MODE_SEQUENTIAL -> {
+            line(pt(4f, 12f), pt(19f, 12f), w, c)
+            line(pt(15f, 8.5f), pt(19f, 12f), w, c)
+            line(pt(15f, 15.5f), pt(19f, 12f), w, c)
+        }
+        AppIconKind.MODE_LOOP -> {
+            line(pt(7f, 8f), pt(17f, 8f), w, c)
+            line(pt(14f, 5.5f), pt(17f, 8f), w, c)
+            line(pt(14f, 10.5f), pt(17f, 8f), w, c)
+            line(pt(17f, 8f), pt(17f, 16f), w, c)
+            line(pt(17f, 16f), pt(7f, 16f), w, c)
+            line(pt(10f, 13.5f), pt(7f, 16f), w, c)
+            line(pt(10f, 18.5f), pt(7f, 16f), w, c)
+            line(pt(7f, 16f), pt(7f, 8f), w, c)
+        }
+        AppIconKind.MODE_SINGLE -> {
+            line(pt(7f, 8f), pt(17f, 8f), w, c)
+            line(pt(14f, 5.5f), pt(17f, 8f), w, c)
+            line(pt(14f, 10.5f), pt(17f, 8f), w, c)
+            line(pt(17f, 8f), pt(17f, 16f), w, c)
+            line(pt(17f, 16f), pt(7f, 16f), w, c)
+            line(pt(10f, 13.5f), pt(7f, 16f), w, c)
+            line(pt(10f, 18.5f), pt(7f, 16f), w, c)
+            line(pt(7f, 16f), pt(7f, 8f), w, c)
+            line(pt(10.8f, 11.5f), pt(12f, 10.5f), w, c)
+            line(pt(12f, 10.5f), pt(12f, 14.5f), w, c)
+        }
+        AppIconKind.MODE_SHUFFLE -> {
+            line(pt(4f, 7f), pt(20f, 17f), w, c)
+            line(pt(16.8f, 17f), pt(20f, 17f), w, c)
+            line(pt(18.6f, 13.8f), pt(20f, 17f), w, c)
+            line(pt(4f, 17f), pt(20f, 7f), w, c)
+            line(pt(16.8f, 7f), pt(20f, 7f), w, c)
+            line(pt(18.6f, 10.2f), pt(20f, 7f), w, c)
         }
     }
 }

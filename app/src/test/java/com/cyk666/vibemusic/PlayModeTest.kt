@@ -88,6 +88,39 @@ class PlayModeTest {
         assertTrue(labels.all { it.isNotBlank() })
     }
 
+    @Test
+    fun iconKinds_areDistinctPerMode() {
+        val kinds = PlayMode.entries.map { playModeIconKind(it) }
+        assertEquals(4, kinds.toSet().size)
+    }
+
+    @Test
+    fun announcements_embedModeLabel() {
+        for (m in PlayMode.entries) {
+            val text = playModeAnnouncement(m)
+            assertTrue(text.contains(m.label))
+            assertTrue(text.isNotBlank())
+        }
+        assertEquals("已切换到：随机播放", playModeAnnouncement(PlayMode.SHUFFLE))
+    }
+
+    @Test
+    fun metaLine_emptyWhenNothingToShow() {
+        assertEquals(null, buildPlayerMetaLine(false, false, "睡眠定时：关闭"))
+    }
+
+    @Test
+    fun metaLine_cachedOnly() {
+        assertEquals("已缓存", buildPlayerMetaLine(true, false, "睡眠定时：关闭"))
+    }
+
+    @Test
+    fun metaLine_sleepOnlyWhenActive() {
+        val sleep = "睡眠定时：25分钟 (剩 12:00)"
+        assertEquals(sleep, buildPlayerMetaLine(false, true, sleep))
+        assertEquals("已缓存 · $sleep", buildPlayerMetaLine(true, true, sleep))
+    }
+
     private fun context(): Context = RuntimeEnvironment.getApplication()
 
     @Test

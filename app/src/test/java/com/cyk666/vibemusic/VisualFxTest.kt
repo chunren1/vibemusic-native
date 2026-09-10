@@ -138,4 +138,50 @@ class VisualFxTest {
         assertEquals(20_000L, VINYL_ROTATION_MS)
         assertEquals(90f, vinylAngleDeg(5_000L), 0.5f)
     }
+
+    // ---- vinylShouldSpin (play-state gating predicate) ----
+
+    @Test
+    fun vinylSpin_runsOnlyWhilePlayingWithTrack() {
+        assertTrue(vinylShouldSpin(isPlaying = true, hasTrack = true))
+    }
+
+    @Test
+    fun vinylSpin_pausedOrTracklessFreezes() {
+        assertFalse(vinylShouldSpin(isPlaying = false, hasTrack = true))
+        assertFalse(vinylShouldSpin(isPlaying = true, hasTrack = false))
+        assertFalse(vinylShouldSpin(isPlaying = false, hasTrack = false))
+    }
+
+    // ---- vinylSpinAngle (pause-freeze / resume-continue math) ----
+
+    @Test
+    fun vinylSpinAngle_advancesWithClock() {
+        assertEquals(30f, vinylSpinAngle(0f, 30f, 0f), 0.001f)
+        assertEquals(100f, vinylSpinAngle(90f, 30f, 20f), 0.001f)
+    }
+
+    @Test
+    fun vinylSpinAngle_wrapsPositive() {
+        assertEquals(10f, vinylSpinAngle(350f, 20f, 0f), 0.001f)
+        assertEquals(0f, vinylSpinAngle(0f, 360f, 0f), 0.001f)
+    }
+
+    @Test
+    fun vinylSpinAngle_neverNegative() {
+        val a = vinylSpinAngle(10f, 5f, 350f)
+        assertTrue(a >= 0f && a < 360f)
+        assertEquals(25f, a, 0.001f)
+    }
+
+    @Test
+    fun vinylSpinAngle_resumeFromFrozenBaseIsContinuous() {
+        // Pause froze the cover at 90 (base); clock kept ticking and now
+        // reads 200. Re-anchor must render exactly the base — no jump.
+        val frozenBase = 90f
+        val spinNow = 200f
+        assertEquals(frozenBase, vinylSpinAngle(frozenBase, spinNow, spinNow), 0.001f)
+        // …and 10 clock-degrees later the cover advanced exactly 10.
+        assertEquals(100f, vinylSpinAngle(frozenBase, spinNow + 10f, spinNow), 0.001f)
+    }
 }

@@ -40,3 +40,31 @@ fun playModeFrom(repeatMode: Int, shuffleOn: Boolean): PlayMode = when {
     repeatMode == Player.REPEAT_MODE_ALL -> PlayMode.LIST_LOOP
     else -> PlayMode.SEQUENTIAL
 }
+
+/** Icon-only mode button glyph per mode (player action row, no text label). */
+fun playModeIconKind(mode: PlayMode): AppIconKind = when (mode) {
+    PlayMode.SEQUENTIAL -> AppIconKind.MODE_SEQUENTIAL
+    PlayMode.LIST_LOOP -> AppIconKind.MODE_LOOP
+    PlayMode.SINGLE_LOOP -> AppIconKind.MODE_SINGLE
+    PlayMode.SHUFFLE -> AppIconKind.MODE_SHUFFLE
+}
+
+/** Transient Snackbar text on mode change ("已切换到：随机播放"). */
+fun playModeAnnouncement(mode: PlayMode): String = "已切换到：" + mode.label + "播放"
+
+/**
+ * Slim meta line under the player controls: cache badge + active sleep
+ * timer as muted text (no buttons). Null when there is nothing to show so
+ * callers emit no dead whitespace.
+ */
+fun buildPlayerMetaLine(
+    isCached: Boolean,
+    sleepActive: Boolean,
+    sleepLabel: String
+): String? {
+    val parts = buildList {
+        if (isCached) add("已缓存")
+        if (sleepActive) add(sleepLabel)
+    }
+    return if (parts.isEmpty()) null else parts.joinToString(" · ")
+}

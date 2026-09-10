@@ -99,6 +99,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -636,6 +639,7 @@ class MainActivity : ComponentActivity() {
                         c.shuffleModeEnabled = rs.shuffleOn
                     }
                     playMode = next
+                    showError(playModeAnnouncement(next))
                     scope.launch {
                         try {
                             val rs = next.toRepeatShuffle()
@@ -2631,7 +2635,7 @@ class MainActivity : ComponentActivity() {
                                     queue.getOrNull(currentIndex)?.let(::openAddSheet)
                                 },
                                 onOpenQueue = { screen = Screen.Queue },
-                                modeLabel = playMode.label,
+                                playMode = playMode,
                                 onCycleMode = ::cyclePlayMode,
                                 isCached = cachedBadge,
                                 onDownloadCurrent = {
@@ -3281,7 +3285,7 @@ fun PlayerScreen(
     onClose: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit = {},
     onOpenQueue: () -> Unit = {},
-    modeLabel: String = "",
+    playMode: PlayMode = PlayMode.SEQUENTIAL,
     onCycleMode: () -> Unit = {},
     isCached: Boolean = false,
     onDownloadCurrent: () -> Unit = {},
@@ -3301,6 +3305,7 @@ fun PlayerScreen(
     val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
     val lyricsListState = rememberLazyListState()
     var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
+    var showHints by remember { mutableStateOf(false) }
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
     val coverUrl = song?.coverUrl?.ifBlank { null }
@@ -3448,7 +3453,7 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -3467,6 +3472,12 @@ fun PlayerScreen(
                             Text("词")
                         }
                         Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = { showHints = true },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            AppIcon(AppIconKind.INFO, GrayMuted)
+                        }
                         IconButton(
                             onClick = onOpenQueue,
                             modifier = Modifier.size(48.dp)
@@ -3523,22 +3534,26 @@ fun PlayerScreen(
                     isPlaying = isPlaying,
                     modifier = Modifier.fillMaxWidth().height(44.dp)
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
                     text = song?.name ?: "暂无播放",
                     style = MaterialTheme.typography.titleLarge,
                     color = InkOnDark,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Text(
                     text = song?.artist ?: "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GrayMuted,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 // 5dp custom track drawn under a transparent-track Slider:
                 // the value-based Slider in material3 1.3.0 has no track/thumb
                 // slots (only the experimental SliderState overload does), so
@@ -3601,7 +3616,7 @@ fun PlayerScreen(
                         color = GrayMuted
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 HeroControls(
                     isPlaying = isPlaying,
                     enabled = song != null,
@@ -3610,12 +3625,22 @@ fun PlayerScreen(
                     onNext = onNext,
                     heroSize = 64.dp
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(
+                        onClick = onCycleMode,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp).semantics {
+                            contentDescription = "播放模式：" +
+                                playMode.label + "，点击切换"
+                        }
+                    ) {
+                        AppIcon(playModeIconKind(playMode), InkOnDark)
+                    }
                     FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
                     IconButton(
                         onClick = onAddCurrentToPlaylist,
@@ -3658,34 +3683,36 @@ fun PlayerScreen(
                         AppIcon(AppIconKind.QUEUE, InkOnDark)
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onCycleMode, enabled = song != null) {
-                        Text("模式：$modeLabel")
-                    }
-                    if (isCached && song != null) {
-                        Text(
-                            text = "已缓存",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NeonCyan,
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
+                buildPlayerMetaLine(
+                    isCached = isCached && song != null,
+                    sleepActive = sleepActive,
+                    sleepLabel = sleepLabel
+                )?.let { meta ->
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        text = sleepLabel,
+                        text = meta,
                         style = MaterialTheme.typography.bodySmall,
                         color = GrayMuted,
-                        modifier = Modifier.padding(start = 8.dp)
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                Text(
-                    text = "点封面看歌词 · 左右滑切歌 · 封面下滑关闭",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GrayMuted
-                )
+                if (showHints) {
+                    AlertDialog(
+                        onDismissRequest = { showHints = false },
+                        title = { Text("操作提示") },
+                        text = {
+                            Text("点封面看歌词\n左右滑动切换歌曲\n封面下滑关闭播放页")
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showHints = false }) {
+                                Text("知道了")
+                            }
+                        }
+                    )
+                }
             }
         }
         }
@@ -4375,7 +4402,7 @@ fun MineScreen(
                                     .padding(bottom = 4.dp)
                             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {

@@ -184,13 +184,15 @@ fun BoxScope.PlayerBackdrop(coverUrl: String?) {
 }
 
 /**
- * Rotating vinyl cover. The infinite transition (and therefore the
- * per-frame recomposition) lives INSIDE this composable: the parent
- * PlayerScreen never reads the angle, so backdrop / title / slider /
- * controls do not recompose while spinning. Sized Coil request
- * (VINYL_COVER_REQ_PX) instead of the full source bitmap; rotation +
- * scale stay on the GPU graphicsLayer. Angle freezes on pause (mirrored
- * into pausedAngle) and resumes without snap-back; resets per song.
+ * Rotating vinyl cover. The infinite clock is created UNCONDITIONALLY so a
+ * play-state flap or a Crossfade branch switch can never dispose it mid-spin
+ * (the 1.0.23 regression: the clock lived inside `if (isPlaying)` and its
+ * SideEffect mirror starved, freezing the cover). Only the ANGLE is gated:
+ * the live clock value is read during composition solely while
+ * [vinylShouldSpin] holds, so the parent never recomposes per frame and a
+ * paused cover costs no recomposition. Pause folds the current visual angle
+ * into [baseAngle] (freeze, no snap); resume re-anchors the clock to that
+ * base (continue, no jump); a new [spinKey] resets everything per song.
  */
 @Composable
 fun VinylCover(
@@ -201,21 +203,34 @@ fun VinylCover(
     cornerDp: Dp = 160.dp,
     modifier: Modifier = Modifier
 ) {
-    var pausedAngle by remember(spinKey) { mutableFloatStateOf(0f) }
-    var vinylAngle by remember(spinKey) { mutableFloatStateOf(0f) }
-    if (isPlaying) {
-        val spinTransition = rememberInfiniteTransition(label = "vinylSpin")
-        val spin by spinTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(VINYL_ROTATION_MS.toInt(), easing = LinearEasing)
-            ),
-            label = "vinylAngle"
-        )
-        SideEffect { vinylAngle = (pausedAngle + spin) % 360f }
+    val running = vinylShouldSpin(isPlaying, spinKey != null)
+    val spinTransition = rememberInfiniteTransition(label = "vinylSpin")
+    val spinState = spinTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(VINYL_ROTATION_MS.toInt(), easing = LinearEasing)
+        ),
+        label = "vinylAngle"
+    )
+    var baseAngle by remember(spinKey) { mutableFloatStateOf(0f) }
+    var anchorSpin by remember(spinKey) { mutableFloatStateOf(0f) }
+    var wasRunning by remember(spinKey) { mutableStateOf(false) }
+    val angle: Float = if (running) {
+        val spin by spinState
+        if (!wasRunning) {
+            anchorSpin = spin
+        }
+        SideEffect { wasRunning = true }
+        vinylSpinAngle(baseAngle, spin, anchorSpin)
     } else {
-        SideEffect { pausedAngle = vinylAngle }
+        SideEffect {
+            if (wasRunning) {
+                baseAngle = vinylSpinAngle(baseAngle, spinState.value, anchorSpin)
+                wasRunning = false
+            }
+        }
+        baseAngle
     }
     val ctx = LocalContext.current
     val request = remember(coverUrl, ctx) {
@@ -233,7 +248,7 @@ fun VinylCover(
             .fillMaxWidth(0.72f)
             .aspectRatio(1f)
             .graphicsLayer {
-                rotationZ = vinylAngle
+                rotationZ = angle
                 scaleX = scale
                 scaleY = scale
             }

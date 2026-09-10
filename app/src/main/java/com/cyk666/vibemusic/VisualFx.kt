@@ -47,6 +47,24 @@ fun vinylAngleDeg(elapsedMs: Long, periodMs: Long = VINYL_ROTATION_MS): Float {
     return (m.toFloat() / periodMs.toFloat()) * 360f
 }
 
+/**
+ * Pure run predicate for the vinyl cover: spins ONLY while actually playing
+ * a track. Single source of truth for VinylCover's play-state gating —
+ * pausing, empty queue, and missing track all freeze the cover.
+ */
+fun vinylShouldSpin(isPlaying: Boolean, hasTrack: Boolean): Boolean =
+    isPlaying && hasTrack
+
+/**
+ * Pure: compose the displayed vinyl angle from a frozen base, the live
+ * infinite-clock value, and the clock value captured at the last resume.
+ * Positive-mod 360 so pause/resume mirrors never snap or go negative.
+ */
+fun vinylSpinAngle(baseDeg: Float, spinDeg: Float, anchorDeg: Float): Float {
+    val v = (baseDeg + spinDeg - anchorDeg) % 360f
+    return if (v < 0f) v + 360f else v
+}
+
 /** Tab-switch crossfade duration (ms). */
 const val TAB_CROSSFADE_MS = 150
 

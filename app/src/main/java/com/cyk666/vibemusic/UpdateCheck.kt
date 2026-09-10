@@ -13,6 +13,12 @@ const val UPDATE_REPO_NAME = "vibemusic-native"
 const val UPDATE_LATEST_URL =
     "https://api.github.com/repos/chunren1/vibemusic-native/releases/latest"
 
+/** Gitee mirror (primary update source; GitHub is the fallback). */
+const val UPDATE_GITEE_OWNER = "green-leavesQAQ"
+const val UPDATE_GITEE_REPO = "vibemusic-native"
+const val UPDATE_GITEE_LATEST_URL =
+    "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases/latest"
+
 /** Minimum gap between automatic update checks. */
 const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
@@ -49,9 +55,12 @@ fun isNewerVersion(current: String, latestTag: String): Boolean {
 }
 
 /**
- * Pure: parse a GET /repos/{owner}/{repo}/releases/latest response, picking
- * the first `.apk` browser_download_url asset. Throws descriptive
- * RuntimeException on missing tag / missing assets / no apk asset / malformed.
+ * Pure: parse a GET .../releases/latest response, picking the first `.apk`
+ * asset. Accepts both GitHub and Gitee shapes: the asset download field is
+ * `browser_download_url` on both (Gitee mirrors the GitHub field name);
+ * `download_url` / plain `url` ending in `.apk` are accepted defensively.
+ * Throws descriptive RuntimeException on missing tag / missing assets /
+ * no apk asset / malformed.
  */
 fun parseLatestRelease(json: String): GithubRelease {
     val root = try {
@@ -66,8 +75,13 @@ fun parseLatestRelease(json: String): GithubRelease {
     var apkUrl = ""
     for (i in 0 until assets.length()) {
         val o = assets.optJSONObject(i) ?: continue
-        val url = o.optString("browser_download_url")
-        if (url.isNotBlank() && url.lowercase().endsWith(".apk")) {
+        val candidates = listOf(
+            o.optString("browser_download_url"),
+            o.optString("download_url"),
+            o.optString("url")
+        )
+        val url = candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
+        if (url != null) {
             apkUrl = url
             break
         }
@@ -135,20 +149,56 @@ private val updateHttp = OkHttpClient.Builder()
     .followRedirects(true)
     .build()
 
-/** Suspend: fetch latest GitHub release (throws on HTTP/parse failure; caller stays silent). */
-suspend fun fetchLatestRelease(): GithubRelease = withContext(Dispatchers.IO) {
-    val req = Request.Builder()
-        .url(UPDATE_LATEST_URL)
-        .header("Accept", "application/vnd.github+json")
-        .get()
-        .build()
-    updateHttp.newCall(req).execute().use { res ->
-        if (!res.isSuccessful) {
-            throw RuntimeException("Update check failed: HTTP ${res.code} ${res.message}")
+/** Update source that served the release. FIRST successful source wins. */
+enum class UpdateSource {
+    GITEE,
+    GITHUB
+}
+
+/**
+ * Pure: pick the winning update source. Gitee is primary, GitHub is the
+ * fallback: the FIRST successful source wins, so a stale-but-reachable
+ * Gitee release is used as-is (no cross-source version merge — keeps the
+ * check to one round trip and the behavior predictable). Both failed →
+ * null (caller maps to CHECK_FAILED).
+ */
+fun resolveUpdateSource(giteeOk: Boolean, githubOk: Boolean): UpdateSource? =
+    if (giteeOk) UpdateSource.GITEE else if (githubOk) UpdateSource.GITHUB else null
+
+private suspend fun fetchReleaseJson(url: String, accept: String?): GithubRelease =
+    withContext(Dispatchers.IO) {
+        val builder = Request.Builder().url(url).get()
+        if (!accept.isNullOrBlank()) builder.header("Accept", accept)
+        updateHttp.newCall(builder.build()).execute().use { res ->
+            if (!res.isSuccessful) {
+                throw RuntimeException("Update check failed: HTTP ${res.code} ${res.message}")
+            }
+            val body = res.body?.string().orEmpty()
+            if (body.isBlank()) throw RuntimeException("Update check failed: empty body")
+            parseLatestRelease(body)
         }
-        val body = res.body?.string().orEmpty()
-        if (body.isBlank()) throw RuntimeException("Update check failed: empty body")
-        parseLatestRelease(body)
+    }
+
+/**
+ * Suspend: fetch latest release, Gitee first, GitHub fallback on ANY
+ * Gitee failure (network / non-200 / unparseable — silent). Throws only
+ * when both sources fail (caller stays silent / snackbars once).
+ */
+suspend fun fetchLatestRelease(): GithubRelease {
+    var giteeError: Exception? = null
+    try {
+        val rel = fetchReleaseJson(UPDATE_GITEE_LATEST_URL, null)
+        android.util.Log.d("UpdateCheck", "update source=gitee tag=${rel.tag}")
+        return rel
+    } catch (e: Exception) {
+        giteeError = e
+    }
+    try {
+        val rel = fetchReleaseJson(UPDATE_LATEST_URL, "application/vnd.github+json")
+        android.util.Log.d("UpdateCheck", "update source=github tag=${rel.tag} (gitee failed: ${giteeError?.message})")
+        return rel
+    } catch (e: Exception) {
+        throw RuntimeException("Update check failed: gitee (${giteeError?.message}) + github (${e.message})")
     }
 }
 
