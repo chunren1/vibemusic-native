@@ -48,6 +48,23 @@ data class RecommendPlaylist(
 /** In-memory TTL: reload on tab revisit only when older than 10 min. */
 const val DISCOVER_CACHE_TTL_MS = 10 * 60 * 1000L
 
+/**
+ * Banner width/height ratio (NetEase web-banner ratio 2.35:1). Fixed ratio
+ * by design: measuring Coil intrinsic sizes per image would relayout the
+ * carousel on every load (jank + per-region skeleton mismatch), so the
+ * skeleton and the pager share this constant. If a measured ratio is ever
+ * available, [selectBannerAspect] prefers it with this as fallback.
+ */
+const val BANNER_ASPECT_RATIO = 2.35f
+
+/** Pure: measured width/height wins when finite and positive, else [BANNER_ASPECT_RATIO]. */
+fun selectBannerAspect(measuredRatio: Float?): Float =
+    if (measuredRatio != null && measuredRatio.isFinite() && measuredRatio > 0f) {
+        measuredRatio
+    } else {
+        BANNER_ASPECT_RATIO
+    }
+
 /** Pure: true when never loaded or older than [DISCOVER_CACHE_TTL_MS]. */
 fun isDiscoverStale(lastLoadedMs: Long, nowMs: Long): Boolean {
     if (lastLoadedMs <= 0L) return true

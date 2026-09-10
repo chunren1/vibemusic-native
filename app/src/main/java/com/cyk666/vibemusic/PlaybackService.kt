@@ -3,6 +3,7 @@ package com.cyk666.vibemusic
 import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
@@ -14,6 +15,13 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /** Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
 fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
@@ -50,26 +58,50 @@ fun selectNextOfflineIndex(
 }
 
 /**
- * Notification-path commands with audible intent (verified against the
+ * Notification-path command with audible intent (verified against the
  * media3-session 1.5.1 API jar: MediaSession.Callback.onPlayerCommandRequest
- * receives each controller command for approval). Arriving on an empty
- * timeline after a cold start, they first materialize the persisted queue.
+ * receives each controller command for approval as
+ * `int onPlayerCommandRequest(MediaSession, ControllerInfo, int)` — echo the
+ * command to allow it). NARROW (post-1.0.11-ai rollback): ONLY
+ * [Player.COMMAND_PLAY_PAUSE] may materialize the timeline. The 1.0.11-ai set
+ * intercepted 9 command types and once surfaced a stale song, so every other
+ * command — seeks and transport especially — passes through untouched.
  */
 val SERVICE_MATERIALIZE_COMMANDS: Set<Int> = setOf(
-    Player.COMMAND_PLAY_PAUSE,
-    Player.COMMAND_PREPARE,
-    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-    Player.COMMAND_SEEK_TO_NEXT,
-    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-    Player.COMMAND_SEEK_TO_PREVIOUS,
-    Player.COMMAND_SEEK_TO_MEDIA_ITEM,
-    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
-    Player.COMMAND_SEEK_TO_DEFAULT_POSITION
+    Player.COMMAND_PLAY_PAUSE
 )
 
 /** Pure: a session player command needs service-side timeline materialization. */
 fun isServiceMaterializeCommand(playerCommand: Int): Boolean =
     playerCommand in SERVICE_MATERIALIZE_COMMANDS
+
+/**
+ * Retry key for the signed-URL single-retry: mediaId + player error code, so
+ * the same dead item with a new failure mode gets its one retry, while a
+ * repeat of the identical failure falls through to auto-skip.
+ */
+fun streamRetryKey(mediaId: String, errorCode: Int): String = "$mediaId|$errorCode"
+
+/**
+ * Pure: retry the SAME index once with a rebuilt MediaItem before auto-skip.
+ * NetEase/Migu upstream URLs are time-signed; resuming a hours-old paused
+ * item replays a dead URL → error. Exactly one retry per item per error
+ * episode: local (downloaded-file) items never retry here — they are owned by
+ * the Activity self-heal path — and an identical repeat (same key, same
+ * index) means the fresh URL failed too, so fall through to auto-skip.
+ */
+fun shouldRetrySameItem(
+    mediaId: String,
+    errorCode: Int,
+    currentIndex: Int,
+    lastRetriedKey: String?,
+    lastRetriedIndex: Int
+): Boolean {
+    if (mediaId.isBlank() || mediaId.startsWith("local:")) return false
+    if (currentIndex < 0) return false
+    return lastRetriedKey != streamRetryKey(mediaId, errorCode) ||
+        lastRetriedIndex != currentIndex
+}
 
 /**
  * Audio-focus / becoming-noisy config applied to the service ExoPlayer
@@ -132,6 +164,81 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
     private var consecFails = 0
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    // Persisted-queue snapshot for the narrow PLAY_PAUSE materializer below
+    // (preloaded in onCreate so the session callback stays synchronous).
+    @Volatile
+    private var snapshotSongs: List<Song> = emptyList()
+
+    @Volatile
+    private var snapshotIndex: Int = 0
+
+    // Signed-URL single-retry state: exactly one same-index retry per item
+    // per error episode. Reset on successful play + on index change.
+    private var lastStreamRetryKey: String? = null
+    private var lastStreamRetryIndex: Int = -1
+
+    /**
+     * NARROW service-side recovery (post-1.0.11-ai): after long idle the OS
+     * kills the process; a notification tap restarts the service with an
+     * EMPTY timeline. ONLY Player.COMMAND_PLAY_PAUSE (see
+     * [isServiceMaterializeCommand]) refills the timeline from the persisted
+     * [QueueStore] snapshot at the saved index + prepare(), PAUSED — the
+     * allowed command itself then flips to play. All other commands pass
+     * through untouched (seeks never intercepted, so no stale-song surface).
+     */
+    private val sessionCallback = object : MediaSession.Callback {
+        override fun onPlayerCommandRequest(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            playerCommand: Int
+        ): Int {
+            if (!isServiceMaterializeCommand(playerCommand)) return playerCommand
+            try {
+                val exo = player ?: return playerCommand
+                val empty = try {
+                    exo.mediaItemCount == 0
+                } catch (_: Exception) {
+                    false
+                }
+                if (!empty) return playerCommand
+                val cached = snapshotSongs
+                if (cached.isNotEmpty()) {
+                    materializeFromSnapshot(exo, cached, snapshotIndex)
+                } else {
+                    // Preload lost the race (tap arrived right after process
+                    // start): bounded blocking fallback, then give up silently.
+                    val loaded = try {
+                        runBlocking {
+                            withTimeout(2000L) {
+                                QueueStore.loadQueue(this@PlaybackService)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (loaded != null && loaded.first.isNotEmpty()) {
+                        snapshotSongs = loaded.first
+                        snapshotIndex = loaded.second
+                        materializeFromSnapshot(exo, loaded.first, loaded.second)
+                    }
+                }
+            } catch (_: Exception) {
+            }
+            return playerCommand
+        }
+    }
+
+    private fun materializeFromSnapshot(exo: ExoPlayer, songs: List<Song>, index: Int) {
+        try {
+            val idx = index.coerceIn(songs.indices)
+            exo.setMediaItems(songs.map { it.toPlayMediaItem(this) }, idx, 0L)
+            exo.prepare()
+            exo.pause()
+        } catch (_: Exception) {
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -172,7 +279,26 @@ class PlaybackService : MediaSessionService() {
         player = exo
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
-                if (playing) consecFails = 0
+                if (playing) {
+                    consecFails = 0
+                    lastStreamRetryKey = null
+                    lastStreamRetryIndex = -1
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // A new window starts a new error episode; the same-index
+                // retry replace keeps its record so a second identical
+                // failure falls through to auto-skip instead of looping.
+                val idx = try {
+                    exo.currentMediaItemIndex
+                } catch (_: Exception) {
+                    -1
+                }
+                if (idx != lastStreamRetryIndex) {
+                    lastStreamRetryKey = null
+                    lastStreamRetryIndex = -1
+                }
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -266,6 +392,44 @@ class PlaybackService : MediaSessionService() {
                     }
                     return
                 }
+                // Signed stream URL expiry: netease/migu upstreams are
+                // time-signed, so resuming a hours-old paused item replays a
+                // dead URL. Retry the SAME index ONCE with a rebuilt MediaItem
+                // (fresh backend URL resolution on prepare) before the
+                // auto-skip below. Local items stay untouched (Activity heal).
+                val errIndex = try {
+                    exo.currentMediaItemIndex
+                } catch (_: Exception) {
+                    -1
+                }
+                val errItem = try {
+                    exo.currentMediaItem
+                } catch (_: Exception) {
+                    null
+                }
+                val errMediaId = errItem?.mediaId.orEmpty()
+                if (errIndex >= 0 && errItem != null &&
+                    shouldRetrySameItem(
+                        errMediaId,
+                        error.errorCode,
+                        errIndex,
+                        lastStreamRetryKey,
+                        lastStreamRetryIndex
+                    )
+                ) {
+                    lastStreamRetryKey = streamRetryKey(errMediaId, error.errorCode)
+                    lastStreamRetryIndex = errIndex
+                    try {
+                        exo.replaceMediaItem(
+                            errIndex,
+                            songFromMediaItem(errItem).toCachedMediaItem()
+                        )
+                        exo.prepare()
+                        exo.play()
+                    } catch (_: Exception) {
+                    }
+                    return
+                }
                 // 单首源坏了自动跳下一首；连续坏 3 次就停手（大概率没网，别把队列一口气烧光）
                 if (shouldAutoSkip(consecFails, exo.hasNextMediaItem())) {
                     consecFails++
@@ -275,11 +439,22 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
-        // NOTE (1.0.11-ai rollback): a session-callback materializer lived here and
-        // poisoned every transport path (stale snapshot surfaced as wrong song in
-        // notifications, fresh players went silent). Removed; Activity-side
-        // ensureTimeline remains the single recovery path. See lessons.
-        mediaSession = MediaSession.Builder(this, exo).build()
+        // NOTE (post-1.0.11-ai): the rolled-back materializer intercepted 9
+        // command types and once surfaced a stale song. The narrow successor
+        // above ([sessionCallback]) handles ONLY COMMAND_PLAY_PAUSE on an
+        // empty timeline; Activity-side ensureTimeline stays the recovery path
+        // for every other transport action. See lessons.
+        mediaSession = MediaSession.Builder(this, exo).setCallback(sessionCallback).build()
+        // Preload the persisted queue so the session callback can refill the
+        // timeline synchronously after process death (notification tap path).
+        serviceScope.launch {
+            try {
+                val (songs, index) = QueueStore.loadQueue(this@PlaybackService)
+                snapshotSongs = songs
+                snapshotIndex = index
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun playQueue(songs: List<Song>, index: Int) {
@@ -311,6 +486,7 @@ class PlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
+        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()

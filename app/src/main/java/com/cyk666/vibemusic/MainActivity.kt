@@ -224,7 +224,9 @@ class MainActivity : ComponentActivity() {
             // Phase 10: session-only collapse of the mini-player bar (X button).
             // UI state only — queue/playback untouched; reset on next playAt.
             var miniDismissed by remember { mutableStateOf(false) }
-            var query by remember { mutableStateOf("予以") }
+            // Blank on launch: no auto-search (see shouldAutoSearchOnLaunch);
+            // the empty state shows history chips + hotwords + 猜你喜欢.
+            var query by remember { mutableStateOf("") }
             var results by remember { mutableStateOf<List<Song>>(emptyList()) }
             var total by remember { mutableIntStateOf(0) }
             var loading by remember { mutableStateOf(false) }
@@ -241,6 +243,9 @@ class MainActivity : ComponentActivity() {
             var searchHistory by remember { mutableStateOf<List<String>>(emptyList()) }
             var searchSort by remember { mutableStateOf(SearchSort.RELEVANCE) }
             var artistFilter by remember { mutableStateOf<String?>(null) }
+            var searchGuessSongs by remember { mutableStateOf(listOf<Song>()) }
+            var searchGuessLoading by remember { mutableStateOf(false) }
+            var searchGuessError by remember { mutableStateOf<String?>(null) }
             var queue by remember { mutableStateOf<List<Song>>(emptyList()) }
             var currentIndex by remember { mutableIntStateOf(0) }
             // Raw controller timeline (durations unknown); durations resolve from
@@ -470,6 +475,22 @@ class MainActivity : ComponentActivity() {
                     delay(500)
                     runSearch(snapshot)
                     debounceJob = null
+                }
+            }
+
+            fun loadSearchGuess() {
+                if (searchGuessLoading) return
+                searchGuessLoading = true
+                searchGuessError = null
+                scope.launch {
+                    try {
+                        searchGuessSongs = VibeApi.randomSongs(6)
+                        searchGuessError = null
+                    } catch (e: Exception) {
+                        searchGuessError = friendlyNetworkMessage(e)
+                    } finally {
+                        searchGuessLoading = false
+                    }
                 }
             }
 
@@ -2123,7 +2144,8 @@ class MainActivity : ComponentActivity() {
                     searchHistory = SearchStore.loadHistory(context)
                 } catch (_: Exception) {
                 }
-                runSearch(query)
+                if (shouldAutoSearchOnLaunch(query)) runSearch(query)
+                loadSearchGuess()
                 // Self-update: once per cold start + 24h throttle; silent unless newer.
                 scope.launch {
                     try {
@@ -2618,6 +2640,11 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 history = searchHistory,
+                                guessSongs = searchGuessSongs,
+                                guessLoading = searchGuessLoading,
+                                guessError = searchGuessError,
+                                onRetryGuess = { loadSearchGuess() },
+                                onPlayGuessAt = ::playAt,
                                 onHistorySelect = { h ->
                                     debounceJob?.cancel()
                                     query = h
@@ -3096,6 +3123,11 @@ fun SearchScreen(
     history: List<String> = emptyList(),
     onHistorySelect: (String) -> Unit = {},
     onHistoryDelete: (String) -> Unit = {},
+    guessSongs: List<Song> = emptyList(),
+    guessLoading: Boolean = false,
+    guessError: String? = null,
+    onRetryGuess: () -> Unit = {},
+    onPlayGuessAt: (List<Song>, Int) -> Unit = { _, _ -> },
     onAddToPlaylist: (Song) -> Unit = {},
     onDownload: (Song) -> Unit = {},
     downloadingKeys: Set<String> = emptySet(),
@@ -3224,6 +3256,39 @@ fun SearchScreen(
                         label = { Text(w) }
                     )
                 }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "猜你喜欢",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(4.dp))
+            when {
+                guessLoading && guessSongs.isEmpty() -> SearchSkeleton()
+                guessSongs.isNotEmpty() -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        guessSongs.forEachIndexed { index, song ->
+                            SongRow(
+                                model = buildSongRowModel(song),
+                                meta = formatDuration(song.durationSec),
+                                onClick = { onPlayGuessAt(guessSongs, index) },
+                                onOverflow = { songMenuFor = song }
+                            )
+                        }
+                    }
+                }
+                guessError != null -> DiscoverRetryRow(
+                    message = guessError,
+                    onRetry = onRetryGuess
+                )
+                else -> Text(
+                    text = "暂无推荐，下拉刷新试试",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         } else if (searched) {
             if (artists.isNotEmpty()) {
@@ -3494,9 +3559,16 @@ fun PlayerScreen(
             label = "playerView"
         ) { v ->
             if (v == PlayerView.LYRICS && song != null) {
-            Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+            // Player rhythm (NetEase order: cover/title-artist/progress/
+            // controls/action row): single statusBarsPadding at the Column
+            // so COVER and LYRICS share one top inset (was: per-Row inset
+            // inside different Column paddings per view).
+            Column(
+                modifier = Modifier.fillMaxSize().statusBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
@@ -3603,12 +3675,14 @@ fun PlayerScreen(
                 )
             }
         } else {
+            // Same unified top inset as the LYRICS branch above.
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxSize().statusBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -3699,6 +3773,8 @@ fun PlayerScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+                // 8/16/24 rhythm: 8dp title↔artist gap (was: 0, lines glued).
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = song?.artist ?: "",
                     style = MaterialTheme.typography.bodyMedium,

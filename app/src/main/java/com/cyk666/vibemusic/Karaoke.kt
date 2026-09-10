@@ -100,6 +100,34 @@ fun parseEnhancedLrcLine(line: String): List<WordTimed> {
     return out.sortedBy { it.startMs }
 }
 
+/**
+ * Pure: backend credit/promo line detector. Matches ONLY at line start,
+ * followed by whitespace, ':'/'：', or end-of-line — so a real lyric like
+ * "编曲的故事" (prefix glued to lyric text) never matches. Credits never
+ * appear mid-song in practice, hence filtered ANYWHERE, not just leading
+ * lines. Case-insensitive for the OP/SP/ED Latin tags.
+ */
+private val CREDIT_PREFIX = Regex(
+    "^(作词|作曲|编曲|制作人|出品|主题曲|片头|片尾|OP|SP|ED)(?=\\s|:|：|$)",
+    RegexOption.IGNORE_CASE
+)
+
+fun isCreditLine(text: String): Boolean = CREDIT_PREFIX.containsMatchIn(text.trimStart())
+
+/**
+ * Pure: strip transport noise from a backend lyric line — carriage
+ * returns, XML-escaped entities, surrounding whitespace. Tag syntax
+ * ([...]/<...>) is preserved for the word-timing parsers downstream.
+ */
+fun stripLyricNoise(text: String): String = text
+    .replace("\r", "")
+    .replace("&amp;", "&")
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&quot;", "\"")
+    .replace("&#39;", "'")
+    .trim()
+
 /** Pure: strip valid [...] line tags and <...> word tags; malformed kept. */
 fun stripInlineTags(text: String): String {
     var rest = text

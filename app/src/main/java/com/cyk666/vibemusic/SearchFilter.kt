@@ -58,6 +58,15 @@ fun filterAndSortSongs(
 fun isStaleSearchResult(completedGen: Int, latestGen: Int): Boolean =
     completedGen != latestGen
 
+/**
+ * Launch rule: the search screen starts with a BLANK query and never
+ * auto-searches on cold start. Only a non-blank user-entered query may
+ * trigger a search (manual IME action, history/hotword tap, or the 500ms
+ * debounce on keystrokes). Blank input keeps history chips + hotwords +
+ * the search-tab 猜你喜欢 section instead.
+ */
+fun shouldAutoSearchOnLaunch(query: String): Boolean = query.trim().isNotEmpty()
+
 /** Suggestion source tag for the 联想 dropdown (history first, then hotwords, then live). */
 enum class SuggestSource(val label: String) {
     HISTORY("历史"),

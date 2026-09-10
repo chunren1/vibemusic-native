@@ -734,16 +734,18 @@ object VibeApi {
                 else -> continue
             }
             val rawText = o.optString("text")
+            val cleaned = stripLyricNoise(rawText)
+            if (isCreditLine(cleaned)) continue
             // Word timing is optional: "words" array wins; else inline
             // <mm:ss.xx> tags inside the text; else null → Mode B fallback.
             val tagged = parseWordsJson(o.optJSONArray("words"))
             val inline = if (tagged == null) {
-                parseEnhancedLrcLine(rawText).ifEmpty { null }
+                parseEnhancedLrcLine(cleaned).ifEmpty { null }
             } else {
                 null
             }
             val words = tagged ?: inline
-            val plain = if (inline != null) stripInlineTags(rawText) else rawText
+            val plain = if (inline != null) stripInlineTags(cleaned) else cleaned
             out.add(LyricLine(timeSec = t, text = plain, words = words))
         }
         out.sortBy { it.timeSec }

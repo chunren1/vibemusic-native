@@ -89,7 +89,7 @@ fun BannerSkeleton() {
     ShimmerBox(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp),
+            .aspectRatio(selectBannerAspect(null)),
         shape = RoundedCornerShape(12.dp)
     )
 }
@@ -107,7 +107,7 @@ fun BannerCarousel(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(150.dp)
+                .aspectRatio(selectBannerAspect(null))
                 .clip(RoundedCornerShape(12.dp))
         ) { page ->
             val b = banners[page]

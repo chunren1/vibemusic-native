@@ -175,6 +175,23 @@ class DiscoverTest {
         assertEquals(0L, pls[0].playCount)
     }
 
+    // ---- banner aspect ----
+
+    @Test
+    fun bannerAspectRatio_isNetEaseWebRatio() {
+        assertEquals(2.35f, BANNER_ASPECT_RATIO)
+    }
+
+    @Test
+    fun selectBannerAspect_measuredWinsWhenValid() {
+        assertEquals(1.78f, selectBannerAspect(1.78f))
+        assertEquals(2.35f, selectBannerAspect(null))
+        assertEquals(2.35f, selectBannerAspect(Float.NaN))
+        assertEquals(2.35f, selectBannerAspect(Float.POSITIVE_INFINITY))
+        assertEquals(2.35f, selectBannerAspect(0f))
+        assertEquals(2.35f, selectBannerAspect(-1f))
+    }
+
     // ---- URL builders ----
 
     @Test

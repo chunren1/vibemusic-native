@@ -7,28 +7,38 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+/**
+ * NARROW post-1.0.11-ai contract: ONLY COMMAND_PLAY_PAUSE materializes the
+ * service timeline on an empty player. Every other command — transport,
+ * seeks, prepare — passes through untouched (the broad 9-command set once
+ * surfaced a stale song, hence the rollback).
+ */
 @RunWith(RobolectricTestRunner::class)
 class ServiceMaterializeTest {
 
     @Test
-    fun playCommands_materialize() {
+    fun playPause_materializes() {
         assertTrue(isServiceMaterializeCommand(Player.COMMAND_PLAY_PAUSE))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_PREPARE))
     }
 
     @Test
-    fun transportCommands_materialize() {
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_NEXT))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_PREVIOUS))
+    fun prepare_passesThrough() {
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_PREPARE))
     }
 
     @Test
-    fun seekCommands_materialize() {
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_MEDIA_ITEM))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM))
-        assertTrue(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_DEFAULT_POSITION))
+    fun transportCommands_passThrough() {
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM))
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_NEXT))
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM))
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_PREVIOUS))
+    }
+
+    @Test
+    fun seekCommands_passThrough() {
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_MEDIA_ITEM))
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM))
+        assertFalse(isServiceMaterializeCommand(Player.COMMAND_SEEK_TO_DEFAULT_POSITION))
     }
 
     @Test
