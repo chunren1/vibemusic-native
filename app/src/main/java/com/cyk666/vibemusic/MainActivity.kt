@@ -183,6 +183,21 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
             val snackbar = remember { SnackbarHostState() }
+            // Transient top announcements (mode switch first); errors keep the
+            // bottom Snackbar. Generation-guarded so a re-announce restarts
+            // the 1.5s timer instead of being cut off by the previous one.
+            var topToast by remember { mutableStateOf<String?>(null) }
+            var topToastGen by remember { mutableIntStateOf(0) }
+            fun announceTop(message: String) {
+                topToast = message
+                topToastGen += 1
+            }
+            LaunchedEffect(topToastGen) {
+                if (topToastGen == 0) return@LaunchedEffect
+                val gen = topToastGen
+                delay(TOP_TOAST_DISMISS_MS)
+                if (topToastGen == gen) topToast = null
+            }
             // Media3 posts playback state to a notification; on SDK 33+ that needs
             // a runtime grant, requested once on launch.
             val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -263,12 +278,31 @@ class MainActivity : ComponentActivity() {
             var redownloadedKeys by remember { mutableStateOf(setOf<String>()) }
             // Throttled position persistence: at most one write per 10s.
             var lastSavedMs by remember { mutableLongStateOf(0L) }
+            // One-shot: Player next/prev transport seeks resolve their target
+            // index async, so the saved-position restore runs on the next
+            // MEDIA_ITEM_TRANSITION instead of guessing the index up front.
+            var pendingRestoreAfterSeek by remember { mutableStateOf(false) }
 
             // ---- auth state ----
             var currentUser by remember { mutableStateOf<LoggedInUser?>(null) }
             var authChecked by remember { mutableStateOf(false) }
             var loginBusy by remember { mutableStateOf(false) }
             var loginInitialRegister by remember { mutableStateOf(false) }
+            // Settings 登录诊断 row: code + timestamps from "playback".
+            var authDiagCode by remember { mutableStateOf("") }
+            var authDiagTimeMs by remember { mutableLongStateOf(0L) }
+            var positionSaveTimeMs by remember { mutableLongStateOf(0L) }
+            LaunchedEffect(screen) {
+                if (screen is Screen.Settings) {
+                    try {
+                        val (code, ts) = QueueStore.loadAuthDiag(context)
+                        authDiagCode = code
+                        authDiagTimeMs = ts
+                        positionSaveTimeMs = QueueStore.loadLastPositionSaveTs(context)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
 
             // ---- Phase 8: favorites + history ----
             var favIds by remember { mutableStateOf(setOf<String>()) }
@@ -377,6 +411,15 @@ class MainActivity : ComponentActivity() {
 
             fun showError(reason: String) {
                 scope.launch { snackbar.showSnackbar(reason) }
+            }
+
+            fun recordAuthDiag(code: String) {
+                scope.launch {
+                    try {
+                        QueueStore.saveAuthDiag(context, code)
+                    } catch (_: Exception) {
+                    }
+                }
             }
 
             fun runSearch(keyword: String) {
@@ -639,7 +682,7 @@ class MainActivity : ComponentActivity() {
                         c.shuffleModeEnabled = rs.shuffleOn
                     }
                     playMode = next
-                    showError(playModeAnnouncement(next))
+                    announceTop(playModeAnnouncement(next))
                     scope.launch {
                         try {
                             val rs = next.toRepeatShuffle()
@@ -691,8 +734,11 @@ class MainActivity : ComponentActivity() {
                     c.seekTo(safeIndex, 0L)
                     if (c.playbackState == Player.STATE_IDLE) c.prepare()
                     c.play()
-                    currentIndex = c.currentMediaItemIndex
-                    queue.getOrNull(currentIndex)?.let { restorePosition(it) }
+                    // Restore the REQUESTED song: currentMediaItemIndex is still
+                    // the old window here (seekTo is async), so resolving the
+                    // target from it restores the wrong song's position.
+                    currentIndex = safeIndex
+                    selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it) }
                 } catch (e: Exception) {
                     showError("切歌失败: ${e.message ?: e.javaClass.simpleName}")
                 }
@@ -1098,6 +1144,10 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         AuthStore.clear(context)
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        QueueStore.saveAuthDiag(context, "ME_401_INVALID")
                     } catch (_: Exception) {
                     }
                 }
@@ -1717,6 +1767,7 @@ class MainActivity : ComponentActivity() {
                         showError("退出失败: ${e.message ?: e.javaClass.simpleName}")
                         return@launch
                     }
+                    recordAuthDiag("USER_LOGOUT")
                     currentUser = null
                     playlists = emptyList()
                     selectedPlaylist = null
@@ -1817,6 +1868,10 @@ class MainActivity : ComponentActivity() {
                         }
                         positionMs = c.currentPosition
                         durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                        if (pendingRestoreAfterSeek) {
+                            pendingRestoreAfterSeek = false
+                            queue.getOrNull(currentIndex)?.let { restorePosition(it) }
+                        }
                         if (queue.isNotEmpty()) {
                             val snapshot = queue
                             val snapshotIndex = currentIndex
@@ -2130,29 +2185,74 @@ class MainActivity : ComponentActivity() {
                         StartRoute.SEARCH_GUEST -> screen = Screen.Search
                         StartRoute.RESTORE -> Unit
                     }
-                    if (snap.token.isNotBlank()) {
-                        try {
-                            val restored = VibeApi.me()
-                            if (restored != null) {
-                                currentUser = restored
-                                loadFavIds()
-                                loadHistory()
-                            } else {
-                                // Guest-null: transient guest response, keep stored
-                                // token; only 401/AuthException owns clearing.
-                                currentUser = null
-                            }
-                        } catch (e: AuthException) {
+                    if (snap.token.isBlank()) {
+                        recordAuthDiag("NO_TOKEN")
+                    } else {
+                        var restored: LoggedInUser? = null
+                        var settledError: Exception? = null
+                        var invalidCredential = false
+                        var retried = false
+                        while (true) {
                             try {
-                                AuthStore.clear(context)
-                            } catch (_: Exception) {
+                                restored = VibeApi.me()
+                                settledError = null
+                                break
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: AuthException) {
+                                invalidCredential = true
+                                settledError = e
+                                break
+                            } catch (e: Exception) {
+                                settledError = e
+                                val networkFail = e is NetworkAuthException ||
+                                    mapAuthFailureToCode(e) == "ME_NETWORK"
+                                if (!retried && networkFail) {
+                                    retried = true
+                                    try {
+                                        delay(3000)
+                                    } catch (ce: CancellationException) {
+                                        throw ce
+                                    }
+                                    continue
+                                }
+                                break
                             }
-                            currentUser = null
-                            showError(e.message ?: "密码错/登录过期，请重登")
-                        } catch (e: Exception) {
-                            // Network or server issue: keep token, stay guest for now.
-                            currentUser = null
-                            showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
+                        }
+                        when {
+                            invalidCredential -> {
+                                try {
+                                    AuthStore.clear(context)
+                                } catch (_: Exception) {
+                                }
+                                currentUser = null
+                                showError(
+                                    settledError?.message ?: "密码错/登录过期，请重登"
+                                )
+                                recordAuthDiag("ME_401_INVALID")
+                            }
+                            settledError == null -> {
+                                if (restored != null) {
+                                    currentUser = restored
+                                    loadFavIds()
+                                    loadHistory()
+                                    recordAuthDiag("OK")
+                                } else {
+                                    // Guest-null: transient guest response, keep stored
+                                    // token; only 401/AuthException owns clearing.
+                                    currentUser = null
+                                    recordAuthDiag("ME_GUEST")
+                                }
+                            }
+                            else -> {
+                                // Network or server issue: keep token, stay guest for now.
+                                currentUser = null
+                                showError(
+                                    "登录态恢复失败: " +
+                                        "${settledError.message ?: settledError.javaClass.simpleName}"
+                                )
+                                recordAuthDiag(mapAuthFailureToCode(settledError))
+                            }
                         }
                     }
                     try {
@@ -2161,6 +2261,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } catch (e: Exception) {
                     showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
+                    recordAuthDiag("RESTORE_EXCEPTION:" + e.javaClass.simpleName)
                 } finally {
                     authChecked = true
                 }
@@ -2419,6 +2520,7 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { innerPadding ->
                     Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
+                        Box(modifier = Modifier.fillMaxSize()) {
                         // Track B4: 150ms crossfade on tab content (GPU alpha only).
                         Crossfade(
                             targetState = screen,
@@ -2581,8 +2683,10 @@ class MainActivity : ComponentActivity() {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            if (c.hasNextMediaItem()) c.seekToNextMediaItem()
-                                            else c.seekTo(0L)
+                                            if (c.hasNextMediaItem()) {
+                                                pendingRestoreAfterSeek = true
+                                                c.seekToNextMediaItem()
+                                            } else c.seekTo(0L)
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
@@ -2600,8 +2704,10 @@ class MainActivity : ComponentActivity() {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            if (c.hasPreviousMediaItem()) c.seekToPreviousMediaItem()
-                                            else c.seekTo(0L)
+                                            if (c.hasPreviousMediaItem()) {
+                                                pendingRestoreAfterSeek = true
+                                                c.seekToPreviousMediaItem()
+                                            } else c.seekTo(0L)
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
@@ -2785,7 +2891,10 @@ class MainActivity : ComponentActivity() {
                                 checkingUpdate = manualChecking,
                                 onCheckUpdate = ::runManualUpdateCheck,
                                 onClearCache = ::clearMediaCache,
-                                onBack = { screen = Screen.Mine }
+                                onBack = { screen = Screen.Mine },
+                                authDiagCode = authDiagCode,
+                                authDiagTimeMs = authDiagTimeMs,
+                                positionSaveTimeMs = positionSaveTimeMs
                             )
 
                             is Screen.Offline -> OfflineScreen(
@@ -2801,6 +2910,11 @@ class MainActivity : ComponentActivity() {
                                 onGoSearch = { screen = Screen.Search }
                             )
                             }
+                        }
+                            TopToast(
+                                message = topToast,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
                         }
                     }
                     if (showSleepDialog) {
@@ -3309,6 +3423,18 @@ fun PlayerScreen(
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
     val coverUrl = song?.coverUrl?.ifBlank { null }
+    // 100ms lyric ticker for the ACTIVE-line fraction only (gated to
+    // lyrics-visible; everything else stays on the 500ms activity ticker).
+    // The authoritative 500ms positionMs snaps correct any drift.
+    var lyricNowMs by remember(song?.sourceId) { mutableLongStateOf(positionMs) }
+    LaunchedEffect(positionMs, song?.sourceId) { lyricNowMs = positionMs }
+    LaunchedEffect(view, isPlaying, song?.sourceId) {
+        if (view != PlayerView.LYRICS || !isPlaying) return@LaunchedEffect
+        while (true) {
+            delay(LYRIC_FAST_TICK_MS)
+            lyricNowMs = advanceLyricTicker(lyricNowMs, LYRIC_FAST_TICK_MS, true)
+        }
+    }
     // Vinyl rotation state lives inside VinylCover (PlayerFx.kt): the angle
     // is read only there, so the rest of PlayerScreen does not recompose
     // per frame. Scale/corner stay here — they animate on toggle/play only.
@@ -3424,15 +3550,44 @@ fun PlayerScreen(
                                     durationMs > 0 -> durationMs
                                     else -> positionMs.coerceAtLeast(lineStartMs) + 4_000L
                                 }
-                                KaraokeLine(
-                                    line = line,
-                                    positionMs = positionMs,
-                                    lineEndMs = lineEndMs,
-                                    isActive = active,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 6.dp, horizontal = 16.dp)
-                                )
+                                if (active) {
+                                    // Smooth the 500ms/100ms poll steps: animate the
+                                    // line fraction toward its target (120ms tween)
+                                    // and render from the smoothed position.
+                                    val target = karaokeLineFraction(
+                                        lyricNowMs,
+                                        lineStartMs,
+                                        lineEndMs
+                                    )
+                                    val smooth by animateFloatAsState(
+                                        targetValue = target,
+                                        animationSpec = tween(KARAOKE_SMOOTH_MS),
+                                        label = "karaokeActive"
+                                    )
+                                    KaraokeLine(
+                                        line = line,
+                                        positionMs = smoothLyricPosition(
+                                            lineStartMs,
+                                            lineEndMs,
+                                            smooth
+                                        ),
+                                        lineEndMs = lineEndMs,
+                                        isActive = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp, horizontal = 16.dp)
+                                    )
+                                } else {
+                                    KaraokeLine(
+                                        line = line,
+                                        positionMs = positionMs,
+                                        lineEndMs = lineEndMs,
+                                        isActive = false,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp, horizontal = 16.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -3924,7 +4079,10 @@ fun SettingsScreen(
     checkingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
     onClearCache: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    authDiagCode: String = "",
+    authDiagTimeMs: Long = 0L,
+    positionSaveTimeMs: Long = 0L
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     val rows = remember(cacheSizeLabel, storageLabel, versionLabel) {
@@ -3966,6 +4124,13 @@ fun SettingsScreen(
             onDismissClear = { showClearConfirm = false }
         )
         SettingsRowShell(title = storageRow.title, subtitle = storageRow.subtitle)
+        SettingsRowShell(
+            title = "登录诊断",
+            subtitle = remember(authDiagCode, authDiagTimeMs, positionSaveTimeMs) {
+                formatAuthDiag(authDiagCode, authDiagTimeMs, positionSaveTimeMs)
+            },
+            showChevron = false
+        )
         SettingsRowShell(
             title = aboutRow.title,
             subtitle = "${aboutRow.subtitle}\n$SETTINGS_GITHUB_URL\n开源致谢：感谢每一位贡献者"
@@ -4062,6 +4227,10 @@ fun MineScreen(
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onRegisterClick, modifier = Modifier.fillMaxWidth()) {
                 Text("注册新账号")
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
+                Text("登录后查看收藏与歌单")
             }
             Spacer(Modifier.height(16.dp))
             MineSectionCard {

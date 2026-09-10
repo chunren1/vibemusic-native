@@ -170,6 +170,37 @@ fun proportionalSplit(text: String, lineStartMs: Long, lineEndMs: Long): List<Wo
     }
 }
 
+/** Active-line smoothing: animateFloatAsState tween toward the target fraction. */
+const val KARAOKE_SMOOTH_MS = 120
+
+/** Fast lyric ticker interval (active line only, lyrics-visible only). */
+const val LYRIC_FAST_TICK_MS = 100L
+
+/**
+ * Pure: fraction of [lineStartMs, lineEndMs) covered at [positionMs],
+ * clamped to 0..1. Degenerate windows (end <= start) snap to 0/1 by side.
+ */
+fun karaokeLineFraction(positionMs: Long, lineStartMs: Long, lineEndMs: Long): Float {
+    if (lineEndMs <= lineStartMs) return if (positionMs >= lineStartMs) 1f else 0f
+    return ((positionMs - lineStartMs).toFloat() / (lineEndMs - lineStartMs).toFloat())
+        .coerceIn(0f, 1f)
+}
+
+/**
+ * Pure: advance the local 100ms lyric ticker by [elapsedMs] while playing;
+ * paused (or non-positive elapsed) leaves the value untouched, never negative.
+ */
+fun advanceLyricTicker(currentMs: Long, elapsedMs: Long, playing: Boolean): Long {
+    if (!playing || elapsedMs <= 0L) return currentMs.coerceAtLeast(0L)
+    return (currentMs + elapsedMs).coerceAtLeast(0L)
+}
+
+/** Pure: effective lyric position from a smoothed fraction (inverse of fraction). */
+fun smoothLyricPosition(lineStartMs: Long, lineEndMs: Long, fraction: Float): Long {
+    val f = fraction.coerceIn(0f, 1f)
+    return lineStartMs + ((lineEndMs - lineStartMs).toDouble() * f).toLong()
+}
+
 /**
  * Dual-mode karaoke line. Inactive lines render fully muted (matches the old
  * lyric list look); the active line lights words/chars champagne up to

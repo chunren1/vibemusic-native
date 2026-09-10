@@ -33,6 +33,100 @@ fun shouldRestorePosition(savedMs: Long, durationMs: Long): Boolean {
 fun shouldSavePositionTick(nowMs: Long, lastSavedMs: Long): Boolean =
     nowMs - lastSavedMs >= POSITION_SAVE_INTERVAL_MS
 
+/**
+ * Pure: queue-tap restore must use the REQUESTED index (known synchronously),
+ * never the controller's currentMediaItemIndex — MediaController.seekTo is
+ * async over binder, so currentMediaItemIndex still points at the OLD window
+ * right after the seek and restore would load the wrong song's position
+ * (root cause of dead queue-tap restore; see queueSeekTo).
+ */
+fun selectSeekRestoreTarget(queue: List<Song>, requestedIndex: Int): Song? =
+    queue.getOrNull(requestedIndex)
+
+// ---- Auth diagnostic (Issue 1: mystery-logout instrumentation) ----
+
+/**
+ * Pure: map a cold-start /me failure to a stable diagnostic code persisted in
+ * the "playback" DataStore (never the "auth" store). Only a decisive 401
+ * (AuthException) means the credential is dead; NetworkAuthException and
+ * transport-level blips keep the token; HTTP 5xx is server-side; anything
+ * else is recorded with its exception simple name for later triage.
+ */
+fun mapAuthFailureToCode(t: Throwable): String {
+    if (t is AuthException) return "ME_401_INVALID"
+    if (t is NetworkAuthException) return "ME_NETWORK"
+    val chain = generateSequence(t as Throwable?) { it.cause }
+        .joinToString(" | ") { it.message.orEmpty() + " " + it.javaClass.simpleName }
+    val status = Regex("HTTP\\s+(\\d{3})").find(chain)
+        ?.groupValues?.getOrNull(1)?.toIntOrNull()
+    if (status != null && status in 500..599) return "ME_500"
+    val lower = chain.lowercase()
+    val offlineHints = listOf(
+        "connection closed",
+        "timeout",
+        "timed out",
+        "unable to resolve host",
+        "unknownhostexception",
+        "connectexception",
+        "sockettimeoutexception",
+        "network is unreachable",
+        "no address associated",
+        "ehostunreach"
+    )
+    if (offlineHints.any { it in lower }) return "ME_NETWORK"
+    return "RESTORE_EXCEPTION:" + t.javaClass.simpleName
+}
+
+/** Pure: Chinese label for an auth diagnostic code (Settings 登录诊断 row). */
+fun authDiagLabel(code: String): String = when {
+    code.isBlank() -> "暂无记录"
+    code == "OK" -> "正常"
+    code == "NO_TOKEN" -> "未登录（无 token）"
+    code == "ME_401_INVALID" -> "登录过期（401）"
+    code == "ME_NETWORK" -> "网络失败（登录态保留）"
+    code == "ME_GUEST" -> "访客态（token 保留）"
+    code == "ME_500" -> "服务器异常"
+    code == "USER_LOGOUT" -> "用户主动退出"
+    code.startsWith("RESTORE_EXCEPTION:") ->
+        "恢复异常（${code.removePrefix("RESTORE_EXCEPTION:").ifBlank { "?" }}）"
+    else -> code
+}
+
+/** Pure: Chinese relative time (刚刚 / N分钟前 / N小时前 / M月d日 HH:mm). */
+fun formatDiagTime(tsMs: Long, nowMs: Long): String {
+    if (tsMs <= 0L) return "未知时间"
+    val ago = nowMs - tsMs
+    if (ago < 0L) return "未知时间"
+    if (ago < 60_000L) return "刚刚"
+    if (ago < 3_600_000L) return "${ago / 60_000L}分钟前"
+    if (ago < 86_400_000L) return "${ago / 3_600_000L}小时前"
+    return try {
+        java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA)
+            .format(java.util.Date(tsMs))
+    } catch (_: Exception) {
+        "未知时间"
+    }
+}
+
+/**
+ * Pure: two-line Settings 登录诊断 subtitle — auth code + timestamp in
+ * Chinese, plus the saved-position timestamp as proof-of-save.
+ */
+fun formatAuthDiag(
+    code: String,
+    authTsMs: Long,
+    posSaveTsMs: Long,
+    nowMs: Long = System.currentTimeMillis()
+): String {
+    val authLine = "登录态：${authDiagLabel(code)} · ${formatDiagTime(authTsMs, nowMs)}"
+    val posLine = if (posSaveTsMs > 0L) {
+        "进度已保存：${formatDiagTime(posSaveTsMs, nowMs)}"
+    } else {
+        "进度已保存：暂无记录"
+    }
+    return "$authLine\n$posLine"
+}
+
 fun parsePositions(json: String): Map<String, Long> {
     if (json.isBlank()) return emptyMap()
     return try {
@@ -79,6 +173,9 @@ object QueueStore {
     private val KEY_POSITIONS = stringPreferencesKey("positions_json")
     private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_ms")
     private val KEY_HAS_LAUNCHED = booleanPreferencesKey("has_launched_before")
+    private val KEY_LAST_AUTH_FAIL = stringPreferencesKey("last_auth_fail")
+    private val KEY_LAST_AUTH_FAIL_TS = longPreferencesKey("last_auth_fail_ts_ms")
+    private val KEY_LAST_POSITION_SAVE_TS = longPreferencesKey("last_position_save_ts_ms")
 
     suspend fun saveQueue(context: Context, songs: List<Song>, index: Int) {
         val arr = JSONArray()
@@ -187,6 +284,8 @@ object QueueStore {
                 val updated = parsePositions(p[KEY_POSITIONS].orEmpty()).toMutableMap()
                 updated[key] = positionMs
                 p[KEY_POSITIONS] = renderPositions(updated)
+                // Proof-of-save for the Settings 登录诊断 row (Issue 2).
+                p[KEY_LAST_POSITION_SAVE_TS] = System.currentTimeMillis()
             }
         } catch (_: Exception) {
         }
@@ -253,6 +352,36 @@ object QueueStore {
                 p[KEY_HAS_LAUNCHED] = true
             }
         } catch (_: Exception) {
+        }
+    }
+
+    suspend fun saveAuthDiag(context: Context, code: String) {
+        try {
+            context.playbackDataStore.edit { p ->
+                p[KEY_LAST_AUTH_FAIL] = code
+                p[KEY_LAST_AUTH_FAIL_TS] = System.currentTimeMillis()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadAuthDiag(context: Context): Pair<String, Long> {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                Pair(p[KEY_LAST_AUTH_FAIL].orEmpty(), p[KEY_LAST_AUTH_FAIL_TS] ?: 0L)
+            }.first()
+        } catch (_: Exception) {
+            Pair("", 0L)
+        }
+    }
+
+    suspend fun loadLastPositionSaveTs(context: Context): Long {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                p[KEY_LAST_POSITION_SAVE_TS] ?: 0L
+            }.first().coerceAtLeast(0L)
+        } catch (_: Exception) {
+            0L
         }
     }
 }

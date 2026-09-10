@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,5 +78,14 @@ class UiAtomsTest {
     fun confirmStyle_dangerVsPlain() {
         assertEquals(ConfirmStyle.DANGER, selectConfirmStyle(true))
         assertEquals(ConfirmStyle.PLAIN, selectConfirmStyle(false))
+    }
+
+    @Test
+    fun topToast_dismissConstAndVisibility() {
+        assertEquals(1500L, TOP_TOAST_DISMISS_MS)
+        assertTrue(isTopToastVisible("已切换到：随机播放"))
+        assertFalse(isTopToastVisible(null))
+        assertFalse(isTopToastVisible(""))
+        assertFalse(isTopToastVisible("   "))
     }
 }

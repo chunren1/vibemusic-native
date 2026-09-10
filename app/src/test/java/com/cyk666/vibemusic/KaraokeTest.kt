@@ -157,4 +157,46 @@ class KaraokeTest {
         val words = proportionalSplit("啊", 2_000L, 6_000L)
         assertEquals(listOf(WordTimed(2_000L, 6_000L, "啊")), words)
     }
+
+    // ---- smooth active-line fraction (Issue 3) ----
+
+    @Test
+    fun fraction_midLineAndClamps() {
+        assertEquals(0.5f, karaokeLineFraction(15_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(0f, karaokeLineFraction(10_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(1f, karaokeLineFraction(20_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(0f, karaokeLineFraction(5_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(1f, karaokeLineFraction(25_000L, 10_000L, 20_000L), 1e-6f)
+    }
+
+    @Test
+    fun fraction_degenerateWindowSnapsBySide() {
+        assertEquals(1f, karaokeLineFraction(10_000L, 10_000L, 10_000L), 1e-6f)
+        assertEquals(0f, karaokeLineFraction(9_000L, 10_000L, 10_000L), 1e-6f)
+        assertEquals(0f, karaokeLineFraction(5_000L, 10_000L, 5_000L), 1e-6f)
+    }
+
+    @Test
+    fun ticker_advancesOnlyWhilePlaying() {
+        assertEquals(1_100L, advanceLyricTicker(1_000L, 100L, true))
+        assertEquals(1_000L, advanceLyricTicker(1_000L, 100L, false))
+        assertEquals(1_000L, advanceLyricTicker(1_000L, 0L, true))
+        assertEquals(1_000L, advanceLyricTicker(1_000L, -50L, true))
+        assertEquals(0L, advanceLyricTicker(-5L, 0L, false))
+    }
+
+    @Test
+    fun smoothPosition_invertsFraction() {
+        assertEquals(15_000L, smoothLyricPosition(10_000L, 20_000L, 0.5f))
+        assertEquals(10_000L, smoothLyricPosition(10_000L, 20_000L, 0f))
+        assertEquals(20_000L, smoothLyricPosition(10_000L, 20_000L, 1f))
+        assertEquals(10_000L, smoothLyricPosition(10_000L, 20_000L, -2f))
+        assertEquals(20_000L, smoothLyricPosition(10_000L, 20_000L, 9f))
+    }
+
+    @Test
+    fun karaokeTimingConsts() {
+        assertEquals(120, KARAOKE_SMOOTH_MS)
+        assertEquals(100L, LYRIC_FAST_TICK_MS)
+    }
 }

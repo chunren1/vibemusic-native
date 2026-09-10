@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -673,5 +674,37 @@ fun SectionHeader(
                 }
             }
         }
+    }
+}
+
+// ---- 10. Top toast (transient announcements; errors keep the bottom Snackbar) ----
+
+/** Auto-dismiss delay for the top toast (mode switch first). */
+const val TOP_TOAST_DISMISS_MS = 1500L
+
+/** Pure: the top toast shows only for non-blank messages. */
+fun isTopToastVisible(message: String?): Boolean = !message.isNullOrBlank()
+
+/**
+ * Transient announcement pill pinned below the status bar (top-center
+ * overlay; caller aligns it inside a full-size Box). Null/blank renders
+ * nothing. Dismissal timing is owned by the caller (TOP_TOAST_DISMISS_MS).
+ */
+@Composable
+fun TopToast(message: String?, modifier: Modifier = Modifier) {
+    if (!isTopToastVisible(message)) return
+    Box(
+        modifier = modifier.fillMaxWidth().statusBarsPadding()
+            .padding(top = 8.dp, start = 16.dp, end = 16.dp),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Text(
+            text = message.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = UiInk,
+            modifier = Modifier
+                .background(UiSurface.copy(alpha = 0.94f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        )
     }
 }

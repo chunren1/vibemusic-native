@@ -92,4 +92,28 @@ class PositionTest {
         QueueStore.savePosition(ctx, "", 999L)
         assertEquals(0L, QueueStore.loadPosition(ctx, ""))
     }
+
+    @Test
+    fun materialize_knownDurationDefersToWindow() {
+        assertEquals(60_000L, resolveMaterializePosition(60_000L, 231_000L))
+        assertEquals(0L, resolveMaterializePosition(2_000L, 231_000L))
+        assertEquals(0L, resolveMaterializePosition(225_000L, 231_000L))
+    }
+
+    @Test
+    fun materialize_unknownDurationRestoresPastIntro() {
+        // Duration unknown pre-prepare (TIME_UNSET + no metadata): restore when
+        // past the 5s intro and let the player clamp at the real duration.
+        assertEquals(60_000L, resolveMaterializePosition(60_000L, 0L))
+        assertEquals(60_000L, resolveMaterializePosition(60_000L, -1L))
+        assertEquals(0L, resolveMaterializePosition(5_000L, 0L))
+        assertEquals(0L, resolveMaterializePosition(0L, 0L))
+    }
+
+    @Test
+    fun store_positionSaveTimestampProof(): Unit = runBlocking {
+        val ctx = context()
+        QueueStore.savePosition(ctx, "netease:ts-probe", 61_000L)
+        assertTrue(QueueStore.loadLastPositionSaveTs(ctx) > 0L)
+    }
 }
