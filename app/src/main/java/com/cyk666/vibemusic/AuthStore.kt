@@ -7,7 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.authDataStore by preferencesDataStore(name = "auth")
+private val Context.authDataStore by preferencesDataStore(name = AuthStore.DATASTORE_NAME)
 
 /** Synchronous in-memory holder read by the OkHttp interceptor. Never log its content. */
 object AuthToken {
@@ -18,6 +18,8 @@ object AuthToken {
 
 /** Token-only persistence. Password is never stored. */
 object AuthStore {
+    /** Preferences DataStore name; file is datastore/<name>.preferences_pb. Mirrored in backup rules. */
+    const val DATASTORE_NAME = "auth"
     private val KEY_TOKEN = stringPreferencesKey("token")
     private val KEY_REFRESH = stringPreferencesKey("refresh_token")
     private val KEY_USERNAME = stringPreferencesKey("username")
