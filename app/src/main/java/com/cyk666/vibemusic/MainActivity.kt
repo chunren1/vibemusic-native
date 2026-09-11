@@ -138,6 +138,7 @@ sealed interface Screen {
     data object History : Screen
     data object Favorites : Screen
     data object Settings : Screen
+    data class PlaylistDetail(val playlist: Playlist) : Screen
 }
 
 private val ObsidianBg = Color(0xFF0A0A0F)
@@ -219,7 +220,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             var controller by remember { mutableStateOf<MediaController?>(null) }
-            var screen by remember { mutableStateOf<Screen>(Screen.Search) }
+            var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
             // Phase 10: where the user came from before entering Player, so
             // swipe-down-close returns to the previous tab (default Search).
             var playerOrigin by remember { mutableStateOf<Screen>(Screen.Search) }
@@ -327,6 +328,7 @@ class MainActivity : ComponentActivity() {
             var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
             var playlistSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
             var songsLoading by remember { mutableStateOf(false) }
+            var playlistSongsError by remember { mutableStateOf<String?>(null) }
 
             // ---- discover state (memory only; 10-min TTL via discoverLastLoaded) ----
             var discoverBanners by remember { mutableStateOf(listOf<DiscoverBanner>()) }
@@ -1017,9 +1019,11 @@ class MainActivity : ComponentActivity() {
                 selectedPlaylist = pl
                 playlistSongs = emptyList()
                 songsLoading = true
+                playlistSongsError = null
                 scope.launch {
                     try {
                         playlistSongs = VibeApi.playlistSongs(pl.id)
+                        playlistSongsError = null
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                         scope.launch {
@@ -1030,6 +1034,7 @@ class MainActivity : ComponentActivity() {
                         }
                         currentUser = null
                     } catch (e: Exception) {
+                        playlistSongsError = diagnosableError("歌曲加载失败", e)
                         showError(diagnosableError("歌曲加载失败", e))
                     } finally {
                         songsLoading = false
@@ -1370,6 +1375,8 @@ class MainActivity : ComponentActivity() {
                         if (selectedPlaylist?.id == pl.id) {
                             selectedPlaylist = null
                             playlistSongs = emptyList()
+                            playlistSongsError = null
+                            if (screen is Screen.PlaylistDetail) screen = Screen.Mine
                         }
                         showError("已删除「${pl.name}」")
                         loadPlaylists()
@@ -1395,6 +1402,8 @@ class MainActivity : ComponentActivity() {
                         if (selectedPlaylist?.id in ids) {
                             selectedPlaylist = null
                             playlistSongs = emptyList()
+                            playlistSongsError = null
+                            if (screen is Screen.PlaylistDetail) screen = Screen.Mine
                         }
                         showError("已删除 $n 个歌单")
                         loadPlaylists()
@@ -1478,6 +1487,18 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         showError("导入失败: ${friendlyNetworkMessage(e)}")
                     }
+                }
+            }
+
+            fun sharePlaylistText(text: String) {
+                try {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "分享歌单"))
+                } catch (e: Exception) {
+                    showError("分享失败: ${friendlyNetworkMessage(e)}")
                 }
             }
 
@@ -1645,6 +1666,7 @@ class MainActivity : ComponentActivity() {
                         currentUser = r.user
                         selectedPlaylist = null
                         playlistSongs = emptyList()
+                        playlistSongsError = null
                         screen = Screen.Mine
                         loadPlaylists()
                         loadFavIds()
@@ -1681,6 +1703,7 @@ class MainActivity : ComponentActivity() {
                         currentUser = r.user
                         selectedPlaylist = null
                         playlistSongs = emptyList()
+                        playlistSongsError = null
                         screen = Screen.Mine
                         showError("注册成功，已自动登录")
                         loadPlaylists()
@@ -1824,6 +1847,7 @@ class MainActivity : ComponentActivity() {
                     playlists = emptyList()
                     selectedPlaylist = null
                     playlistSongs = emptyList()
+                    playlistSongsError = null
                     favIds = emptySet()
                     favBusy = emptySet()
                     favSongs = emptyList()
@@ -2237,7 +2261,7 @@ class MainActivity : ComponentActivity() {
                     }
                     when (decideStartRoute(snap.token.isBlank(), launchedBefore)) {
                         StartRoute.LOGIN -> screen = Screen.Login
-                        StartRoute.SEARCH_GUEST -> screen = Screen.Search
+                        StartRoute.SEARCH_GUEST -> screen = Screen.Discover
                         StartRoute.RESTORE -> Unit
                     }
                     if (snap.token.isBlank()) {
@@ -2500,7 +2524,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.Search -> 1
                 is Screen.Player, is Screen.Queue -> 2
                 is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History,
-                is Screen.Favorites, is Screen.Settings -> 3
+                is Screen.Favorites, is Screen.Settings, is Screen.PlaylistDetail -> 3
             }
 
             MaterialTheme(colorScheme = ObsidianScheme) {
@@ -2528,7 +2552,7 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = selectedTab == 0,
                                 onClick = { screen = Screen.Discover },
-                                label = { Text("发现") },
+                                label = { Text("首页") },
                                 icon = {
                                     AppIcon(
                                         kind = AppIconKind.EXPLORE,
@@ -2852,7 +2876,7 @@ class MainActivity : ComponentActivity() {
                                 initialRegister = loginInitialRegister,
                                 onLogin = ::doLogin,
                                 onRegister = ::doRegister,
-                                onBrowseAsGuest = { screen = Screen.Search },
+                                onBrowseAsGuest = { screen = Screen.Discover },
                                 onBack = { screen = Screen.Mine }
                             )
 
@@ -2862,9 +2886,6 @@ class MainActivity : ComponentActivity() {
                                 authChecked = authChecked,
                                 playlists = playlists,
                                 playlistsLoading = playlistsLoading,
-                                selectedPlaylist = selectedPlaylist,
-                                songs = playlistSongs,
-                                songsLoading = songsLoading,
                                 onLoginClick = {
                                     loginInitialRegister = false
                                     screen = Screen.Login
@@ -2878,12 +2899,8 @@ class MainActivity : ComponentActivity() {
                                     val name = pl.name.ifBlank { "(untitled)" }
                                     announceTop("正在打开「$name」…")
                                     loadSongs(pl)
+                                    screen = Screen.PlaylistDetail(pl)
                                 },
-                                onBackToPlaylists = {
-                                    selectedPlaylist = null
-                                    playlistSongs = emptyList()
-                                },
-                                onPlaySong = { idx -> playAt(playlistSongs, idx) },
                                 onCreatePlaylist = ::createPlaylistAction,
                                 onRenamePlaylist = ::renamePlaylistAction,
                                 onUpdateDescription = ::updateDescAction,
@@ -2891,12 +2908,8 @@ class MainActivity : ComponentActivity() {
                                 onBatchDelete = ::batchDeleteAction,
                                 onMovePlaylist = ::movePlaylistAction,
                                 onImportPlaylist = ::importAction,
-                                onRemoveSong = ::removeSongAction,
-                                onAddSongToPlaylist = ::openAddSheet,
                                 offlineCount = offlineCount,
                                 onOpenOffline = { screen = Screen.Offline },
-                                favIds = favIds,
-                                onToggleFav = ::toggleFav,
                                 historyCount = historyItems.size,
                                 onOpenHistory = { screen = Screen.History },
                                 favCount = favIds.size,
@@ -2909,8 +2922,36 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onGoSearch = { screen = Screen.Search },
+                                onBrowse = { screen = Screen.Discover },
                                 onOpenSettings = { screen = Screen.Settings },
                                 onOpenPlaylists = { announceTop("我的歌单") }
+                            )
+
+                            is Screen.PlaylistDetail -> PlaylistDetailScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                playlist = s.playlist,
+                                songs = playlistSongs,
+                                songsLoading = songsLoading,
+                                songsError = playlistSongsError,
+                                onRetry = { loadSongs(s.playlist) },
+                                onBack = { screen = Screen.Mine },
+                                onGoSearch = { screen = Screen.Search },
+                                onPlayAll = {
+                                    if (playlistSongs.isNotEmpty()) playAt(playlistSongs, 0)
+                                },
+                                onPlaySong = { idx -> playAt(playlistSongs, idx) },
+                                favIds = favIds,
+                                downloadingKeys = downloadingIds,
+                                downloadedKeys = downloadedKeys,
+                                onToggleFav = ::toggleFav,
+                                onAddToPlaylist = ::openAddSheet,
+                                onDownload = { song -> downloadSong(song, false) },
+                                onRemoveSong = ::removeSongAction,
+                                onShare = ::sharePlaylistText,
+                                onRenamePlaylist = ::renamePlaylistAction,
+                                onUpdateDescription = ::updateDescAction,
+                                onDeletePlaylist = ::deletePlaylistAction,
+                                onImportPlaylist = ::importAction
                             )
 
                             is Screen.History -> HistoryScreen(
@@ -4446,14 +4487,9 @@ fun MineScreen(
     authChecked: Boolean,
     playlists: List<Playlist>,
     playlistsLoading: Boolean,
-    selectedPlaylist: Playlist?,
-    songs: List<Song>,
-    songsLoading: Boolean,
     onLoginClick: () -> Unit,
     onRetryPlaylists: () -> Unit,
     onSelectPlaylist: (Playlist) -> Unit,
-    onBackToPlaylists: () -> Unit,
-    onPlaySong: (Int) -> Unit,
     onCreatePlaylist: (String, String) -> Unit = { _, _ -> },
     onRenamePlaylist: (Playlist, String) -> Unit = { _, _ -> },
     onUpdateDescription: (Playlist, String) -> Unit = { _, _ -> },
@@ -4461,18 +4497,15 @@ fun MineScreen(
     onBatchDelete: (List<String>) -> Unit = {},
     onMovePlaylist: (Playlist, Int) -> Unit = { _, _ -> },
     onImportPlaylist: (String, String) -> Unit = { _, _ -> },
-    onRemoveSong: (Song) -> Unit = {},
-    onAddSongToPlaylist: (Song) -> Unit = {},
     offlineCount: Int = 0,
     onOpenOffline: () -> Unit = {},
     onRegisterClick: () -> Unit = {},
-    favIds: Set<String> = emptySet(),
-    onToggleFav: (Song) -> Unit = {},
     historyCount: Int = 0,
     onOpenHistory: () -> Unit = {},
     favCount: Int = 0,
     onOpenFavorites: () -> Unit = {},
     onGoSearch: () -> Unit = {},
+    onBrowse: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenPlaylists: () -> Unit = {}
 ) {
@@ -4487,15 +4520,12 @@ fun MineScreen(
     var descTarget by remember { mutableStateOf<Playlist?>(null) }
     var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
     var showBatchConfirm by remember { mutableStateOf(false) }
-    var confirmRemove by remember { mutableStateOf<Song?>(null) }
     var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
-    var songSheetFor by remember { mutableStateOf<Song?>(null) }
-    // Overview (logged-in, no playlist selected) scrolls as one page so the
-    // 我的歌单 section stays reachable on small phones. The detail branch
-    // keeps its own inner LazyColumn, so the outer scroll stays off there
-    // (a LazyColumn with weight inside a verticalScroll would never settle).
+    // Overview (logged-in) scrolls as one page so the 我的歌单 section stays
+    // reachable on small phones. Playlist songs live on the standalone
+    // PlaylistDetail screen now (no nested detail branch here).
     val overviewScroll = rememberScrollState()
-    val overviewScrollable = user != null && selectedPlaylist == null
+    val overviewScrollable = user != null
     Column(
         modifier = modifier.fillMaxSize().padding(16.dp)
             .then(if (overviewScrollable) Modifier.verticalScroll(overviewScroll) else Modifier)
@@ -4538,7 +4568,7 @@ fun MineScreen(
             TextButton(onClick = onRegisterClick, modifier = Modifier.fillMaxWidth()) {
                 Text("注册新账号")
             }
-            TextButton(onClick = onGoSearch, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onBrowse, modifier = Modifier.fillMaxWidth()) {
                 Text("先逛逛")
             }
             Spacer(Modifier.height(12.dp))
@@ -4693,7 +4723,7 @@ fun MineScreen(
                 onDismiss = { showProfileView = false }
             )
         }
-        if (selectedPlaylist == null && !showPlaylists) {
+        if (!showPlaylists) {
             MineSectionCard {
                 buildMineEntries(
                     favCount = favCount,
@@ -4726,8 +4756,7 @@ fun MineScreen(
             return
         }
         Spacer(Modifier.height(12.dp))
-        if (selectedPlaylist == null) {
-            Row(
+        Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4980,83 +5009,6 @@ fun MineScreen(
                     onDismiss = { showListMenu = false }
                 )
             }
-        } else {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBackToPlaylists) {
-                    AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                    Text("歌单")
-                }
-                Text(
-                    text = selectedPlaylist.name.ifBlank { "(untitled)" },
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            if (songsLoading) {
-                SearchSkeleton()
-            } else if (songs.isEmpty()) {
-                EmptyStateLine(
-                    text = "歌单是空的，去搜索页把喜欢的歌加进来吧",
-                    actionLabel = "去搜索",
-                    onAction = onGoSearch
-                )
-            } else {
-                MineSectionCard(modifier = Modifier.weight(1f)) {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        itemsIndexed(
-                            songs,
-                            key = { idx, s -> s.sourceId + s.platform + idx }
-                        ) { index, song ->
-                            SongRow(
-                                model = buildSongRowModel(song),
-                                meta = if (song.durationSec > 0) {
-                                    formatDuration(song.durationSec)
-                                } else {
-                                    null
-                                },
-                                onClick = { onPlaySong(index) },
-                                onOverflow = { songSheetFor = song }
-                            )
-                        }
-                    }
-                }
-            }
-            songSheetFor?.let { target ->
-                val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
-                SongMenuSheet(
-                    title = target.name.ifBlank { "(untitled)" },
-                    actions = listOf(
-                        SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
-                        SongMenuAction("add", "加入其他歌单"),
-                        SongMenuAction("remove", "从歌单移除", danger = true)
-                    ),
-                    onAction = { id ->
-                        when (id) {
-                            "fav" -> onToggleFav(target)
-                            "add" -> onAddSongToPlaylist(target)
-                            "remove" -> confirmRemove = target
-                        }
-                        songSheetFor = null
-                    },
-                    onDismiss = { songSheetFor = null }
-                )
-            }
-            confirmRemove?.let { target ->
-                DangerConfirmDialog(
-                    title = "从歌单删除",
-                    text = "确定把《${target.name}》从「${selectedPlaylist.name}」移除吗？",
-                    confirmText = "删除",
-                    onConfirm = {
-                        confirmRemove = null
-                        onRemoveSong(target)
-                    },
-                    onDismiss = { confirmRemove = null }
-                )
-            }
-        }
     }
 }
 

@@ -96,7 +96,11 @@ data class Playlist(
     val id: String,
     val name: String,
     val coverUrl: String,
-    val songCount: Int
+    val songCount: Int,
+    // Optional metadata: the list endpoint may omit these (blank = hide in
+    // UI, never invented). Parsed defensively in myPlaylists.
+    val description: String = "",
+    val creator: String = ""
 )
 
 class AuthException(message: String) : RuntimeException(message)
@@ -433,7 +437,8 @@ object VibeApi {
                         album = o.optString("album"),
                         coverUrl = o.optString("coverUrl"),
                         durationSec = o.optInt("duration", o.optInt("durationSec", 0)),
-                        platform = o.optString("platform")
+                        platform = o.optString("platform"),
+                        vip = parseVipFlag(o)
                     )
                 )
             }
@@ -724,7 +729,12 @@ object VibeApi {
                     id = jsonId(o, "id", "playlistId"),
                     name = o.optString("name").ifBlank { o.optString("title", "(untitled)") },
                     coverUrl = o.optString("coverUrl").ifBlank { o.optString("cover", "") },
-                    songCount = o.optInt("songCount", o.optInt("count", o.optInt("total", 0)))
+                    songCount = o.optInt("songCount", o.optInt("count", o.optInt("total", 0))),
+                    description = o.optString("description").ifBlank { o.optString("desc", "") },
+                    creator = o.optString("creator")
+                        .ifBlank { o.optString("creatorName") }
+                        .ifBlank { o.optString("nickname") }
+                        .ifBlank { o.optString("username") }
                 )
             )
         }
@@ -798,8 +808,21 @@ object VibeApi {
         album = o.optString("album"),
         coverUrl = o.optString("coverUrl").ifBlank { o.optString("cover", "") },
         durationSec = o.optInt("duration", o.optInt("durationSec", 0)),
-        platform = o.optString("platform").ifBlank { "netease" }
+        platform = o.optString("platform").ifBlank { "netease" },
+        vip = parseVipFlag(o)
     )
+
+    // VIP flag parsing (pure): true only when the backend explicitly marks
+    // the song — boolean vip/paywall, numeric fee==1, or string "1"/"true".
+    // Absent/unknown shapes stay false (never invented).
+    fun parseVipFlag(o: JSONObject): Boolean {
+        if (o.optBoolean("vip", false)) return true
+        if (o.optBoolean("paywall", false)) return true
+        val fee = o.opt("fee")
+        if (fee is Number && fee.toInt() == 1) return true
+        if (fee is String && (fee == "1" || fee.equals("true", ignoreCase = true))) return true
+        return false
+    }
 
     // ---- Phase 6: playlist management (all auth-required) ----
 

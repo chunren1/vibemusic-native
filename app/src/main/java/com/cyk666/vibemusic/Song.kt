@@ -11,7 +11,10 @@ data class Song(
     val album: String,
     val coverUrl: String,
     val durationSec: Int,
-    val platform: String
+    val platform: String,
+    // VIP flag: backend SongDTOs may omit it (defaults false — never
+    // invented). Parsed defensively in VibeApi.parsePlaylistSong.
+    val vip: Boolean = false
 ) {
     fun streamUrl(): String = Uri.Builder()
         .scheme("https")

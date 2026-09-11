@@ -3,6 +3,7 @@ package com.cyk666.vibemusic
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -236,6 +237,43 @@ fun RecommendImportDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SongCard(
+    song: Song,
+    onPlay: () -> Unit,
+    onOverflow: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(120.dp)
+            .combinedClickable(onClick = onPlay, onLongClick = onOverflow)
+    ) {
+        AsyncImage(
+            model = song.coverUrl.ifBlank { null },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(120.dp)
+                .clip(RoundedCornerShape(12.dp))
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = song.name.ifBlank { "(untitled)" },
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = song.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverScreen(
@@ -271,7 +309,7 @@ fun DiscoverScreen(
     onAddToPlaylist: (Song) -> Unit = {},
     onDownload: (Song) -> Unit = {}
 ) {
-    var guessSheetFor by remember { mutableStateOf<Song?>(null) }
+    var cardSheetFor by remember { mutableStateOf<Song?>(null) }
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onPullRefresh,
@@ -279,7 +317,7 @@ fun DiscoverScreen(
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             item(key = "discover-title") {
-                Text(text = "发现", style = MaterialTheme.typography.titleLarge)
+                Text(text = "首页", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(16.dp))
             }
             when {
@@ -334,34 +372,11 @@ fun DiscoverScreen(
                             dailySongs,
                             key = { _, s -> "daily-" + s.sourceId + s.platform }
                         ) { index, song ->
-                            Column(
-                                modifier = Modifier
-                                    .width(120.dp)
-                                    .clickable { onPlayDaily(index) }
-                            ) {
-                                AsyncImage(
-                                    model = song.coverUrl.ifBlank { null },
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(120.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = song.name.ifBlank { "(untitled)" },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                            SongCard(
+                                song = song,
+                                onPlay = { onPlayDaily(index) },
+                                onOverflow = { cardSheetFor = song }
+                            )
                         }
                     }
                 }
@@ -385,21 +400,23 @@ fun DiscoverScreen(
                 guessLoading && guessSongs.isEmpty() -> item(key = "guess-loading") {
                     SearchSkeleton()
                 }
-                guessSongs.isNotEmpty() -> {
-                    itemsIndexed(
-                        guessSongs,
-                        key = { _, s -> "guess-" + s.sourceId + s.platform }
-                    ) { index, song ->
-                        SongRow(
-                            model = buildSongRowModel(song),
-                            meta = formatDuration(song.durationSec),
-                            onClick = { onPlayGuess(index) },
-                            onOverflow = { guessSheetFor = song }
-                        )
+                guessSongs.isNotEmpty() -> item(key = "guess-list") {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(
+                            guessSongs,
+                            key = { _, s -> "guess-" + s.sourceId + s.platform }
+                        ) { index, song ->
+                            SongCard(
+                                song = song,
+                                onPlay = { onPlayGuess(index) },
+                                onOverflow = { cardSheetFor = song }
+                            )
+                        }
                     }
-                    item(key = "guess-gap") {
-                        Spacer(Modifier.height(24.dp))
-                    }
+                    Spacer(Modifier.height(24.dp))
                 }
                 guessError != null -> item(key = "guess-error") {
                     DiscoverRetryRow(message = guessError, onRetry = onRetryGuess)
@@ -413,59 +430,52 @@ fun DiscoverScreen(
                 }
             }
             item(key = "hot-head") {
-                DiscoverSectionHeader(title = "热门歌单")
+                DiscoverSectionHeader(title = "推荐歌单")
                 Spacer(Modifier.height(8.dp))
             }
             when {
                 hotLoading && hotPlaylists.isEmpty() -> item(key = "hot-loading") {
                     SearchSkeleton()
                 }
-                hotPlaylists.isNotEmpty() -> {
-                    items(
-                        hotPlaylists.chunked(2),
-                        key = { row -> "hot-row-" + row.firstOrNull()?.id + row.firstOrNull()?.name }
-                    ) { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            row.forEach { pl ->
-                                Column(
+                hotPlaylists.isNotEmpty() -> item(key = "hot-list") {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            hotPlaylists,
+                            key = { pl -> "hot-" + pl.id + pl.name }
+                        ) { pl ->
+                            Column(
+                                modifier = Modifier
+                                    .width(140.dp)
+                                    .clickable { onPlaylistTap(pl) }
+                            ) {
+                                AsyncImage(
+                                    model = pl.picUrl.ifBlank { null },
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { onPlaylistTap(pl) }
-                                ) {
-                                    AsyncImage(
-                                        model = pl.picUrl.ifBlank { null },
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(1f)
-                                            .clip(RoundedCornerShape(12.dp))
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        text = pl.name.ifBlank { "(untitled)" },
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = if (pl.copywriter.isNotBlank()) pl.copywriter
-                                        else "播放 " + formatPlayCount(pl.playCount),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            if (row.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
+                                        .size(140.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = pl.name.ifBlank { "(untitled)" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (pl.copywriter.isNotBlank()) pl.copywriter
+                                    else "播放 " + formatPlayCount(pl.playCount),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
                 hotError != null -> item(key = "hot-error") {
@@ -481,7 +491,7 @@ fun DiscoverScreen(
             }
         }
     }
-    guessSheetFor?.let { target ->
+    cardSheetFor?.let { target ->
         val dlKey = offlineBaseName(target)
         val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
         SongMenuSheet(
@@ -505,9 +515,9 @@ fun DiscoverScreen(
                     "download" -> onDownload(target)
                     "add" -> onAddToPlaylist(target)
                 }
-                guessSheetFor = null
+                cardSheetFor = null
             },
-            onDismiss = { guessSheetFor = null }
+            onDismiss = { cardSheetFor = null }
         )
     }
 }

@@ -189,6 +189,7 @@ object QueueStore {
                     .put("coverUrl", s.coverUrl)
                     .put("durationSec", s.durationSec)
                     .put("platform", s.platform)
+                    .put("vip", s.vip)
             )
         }
         context.playbackDataStore.edit { p ->
@@ -215,7 +216,8 @@ object QueueStore {
                         album = o.optString("album"),
                         coverUrl = o.optString("coverUrl"),
                         durationSec = o.optInt("durationSec"),
-                        platform = o.optString("platform").ifBlank { "netease" }
+                        platform = o.optString("platform").ifBlank { "netease" },
+                        vip = o.optBoolean("vip", false)
                     )
                 )
             }
