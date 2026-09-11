@@ -26,6 +26,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -307,7 +308,8 @@ fun DiscoverScreen(
     downloadedKeys: Set<String> = emptySet(),
     onToggleFav: (Song) -> Unit = {},
     onAddToPlaylist: (Song) -> Unit = {},
-    onDownload: (Song) -> Unit = {}
+    onDownload: (Song) -> Unit = {},
+    onGoSearch: () -> Unit = {}
 ) {
     var cardSheetFor by remember { mutableStateOf<Song?>(null) }
     PullToRefreshBox(
@@ -317,7 +319,19 @@ fun DiscoverScreen(
     ) {
         LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             item(key = "discover-title") {
-                Text(text = "首页", style = MaterialTheme.typography.titleLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "首页",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onGoSearch, modifier = Modifier.size(48.dp)) {
+                        AppIcon(AppIconKind.SEARCH, UiMuted)
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
             }
             when {

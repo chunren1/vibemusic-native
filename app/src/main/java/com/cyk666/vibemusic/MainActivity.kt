@@ -138,6 +138,7 @@ sealed interface Screen {
     data object History : Screen
     data object Favorites : Screen
     data object Settings : Screen
+    data object Playlists : Screen
     data class PlaylistDetail(val playlist: Playlist) : Screen
 }
 
@@ -2367,7 +2368,8 @@ class MainActivity : ComponentActivity() {
             // Track A SWR: empty → blocking load (skeleton); fresh → show
             // instantly, no reload; stale → show cached + silent refresh.
             LaunchedEffect(screen, currentUser, authChecked) {
-                if (screen is Screen.Mine && currentUser != null && !playlistsLoading) {
+                if ((screen is Screen.Mine || screen is Screen.Playlists) &&
+                    currentUser != null && !playlistsLoading) {
                     if (needsBlockingLoad(playlists.isNotEmpty())) {
                         loadPlaylists()
                     } else if (
@@ -2524,7 +2526,8 @@ class MainActivity : ComponentActivity() {
                 is Screen.Search -> 1
                 is Screen.Player, is Screen.Queue -> 2
                 is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History,
-                is Screen.Favorites, is Screen.Settings, is Screen.PlaylistDetail -> 3
+                is Screen.Favorites, is Screen.Settings, is Screen.Playlists,
+                is Screen.PlaylistDetail -> 3
             }
 
             MaterialTheme(colorScheme = ObsidianScheme) {
@@ -2663,7 +2666,8 @@ class MainActivity : ComponentActivity() {
                                 downloadedKeys = downloadedKeys,
                                 onToggleFav = ::toggleFav,
                                 onAddToPlaylist = ::openAddSheet,
-                                onDownload = { song -> downloadSong(song, false) }
+                                onDownload = { song -> downloadSong(song, false) },
+                                onGoSearch = { screen = Screen.Search }
                             )
 
                             is Screen.Search -> SearchScreen(
@@ -2924,7 +2928,32 @@ class MainActivity : ComponentActivity() {
                                 onGoSearch = { screen = Screen.Search },
                                 onBrowse = { screen = Screen.Discover },
                                 onOpenSettings = { screen = Screen.Settings },
-                                onOpenPlaylists = { announceTop("我的歌单") }
+                                onOpenPlaylists = {
+                                    announceTop("正在打开我的歌单…")
+                                    screen = Screen.Playlists
+                                }
+                            )
+
+                            is Screen.Playlists -> PlaylistsScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                playlists = playlists,
+                                playlistsLoading = playlistsLoading,
+                                onBack = { screen = Screen.Mine },
+                                onSelectPlaylist = { pl ->
+                                    val name = pl.name.ifBlank { "(untitled)" }
+                                    announceTop("正在打开「$name」…")
+                                    loadSongs(pl)
+                                    screen = Screen.PlaylistDetail(pl)
+                                },
+                                onCreatePlaylist = ::createPlaylistAction,
+                                onRenamePlaylist = ::renamePlaylistAction,
+                                onUpdateDescription = ::updateDescAction,
+                                onDeletePlaylist = ::deletePlaylistAction,
+                                onBatchDelete = ::batchDeleteAction,
+                                onMovePlaylist = ::movePlaylistAction,
+                                onImportPlaylist = ::importAction,
+                                onRetryPlaylists = { loadPlaylists() },
+                                onGoSearch = { screen = Screen.Search }
                             )
 
                             is Screen.PlaylistDetail -> PlaylistDetailScreen(
@@ -2934,7 +2963,7 @@ class MainActivity : ComponentActivity() {
                                 songsLoading = songsLoading,
                                 songsError = playlistSongsError,
                                 onRetry = { loadSongs(s.playlist) },
-                                onBack = { screen = Screen.Mine },
+                                onBack = { screen = Screen.Playlists },
                                 onGoSearch = { screen = Screen.Search },
                                 onPlayAll = {
                                     if (playlistSongs.isNotEmpty()) playAt(playlistSongs, 0)
@@ -4509,18 +4538,7 @@ fun MineScreen(
     onOpenSettings: () -> Unit = {},
     onOpenPlaylists: () -> Unit = {}
 ) {
-    var selecting by remember { mutableStateOf(false) }
-    var showPlaylists by remember(user?.username) { mutableStateOf(false) }
     var showProfileView by remember { mutableStateOf(false) }
-    var showListMenu by remember { mutableStateOf(false) }
-    var checkedIds by remember { mutableStateOf(setOf<String>()) }
-    var showCreate by remember { mutableStateOf(false) }
-    var showImport by remember { mutableStateOf(false) }
-    var renameTarget by remember { mutableStateOf<Playlist?>(null) }
-    var descTarget by remember { mutableStateOf<Playlist?>(null) }
-    var deleteTarget by remember { mutableStateOf<Playlist?>(null) }
-    var showBatchConfirm by remember { mutableStateOf(false) }
-    var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
     // Overview (logged-in) scrolls as one page so the 我的歌单 section stays
     // reachable on small phones. Playlist songs live on the standalone
     // PlaylistDetail screen now (no nested detail branch here).
@@ -4723,292 +4741,32 @@ fun MineScreen(
                 onDismiss = { showProfileView = false }
             )
         }
-        if (!showPlaylists) {
-            MineSectionCard {
-                buildMineEntries(
-                    favCount = favCount,
-                    playlistCount = playlists.size,
-                    historyCount = historyCount,
-                    offlineCount = offlineCount,
-                    loggedIn = true
-                ).forEachIndexed { index, entry ->
-                    if (index > 0) MineDivider()
-                    EntryRow(
-                        modifier = Modifier.heightIn(min = 56.dp),
-                        title = entry.title,
-                        subtitle = entry.subtitle,
-                        coverSize = 0.dp,
-                        onClick = {
-                            when (entry.id) {
-                                "favorites" -> onOpenFavorites()
-                                "playlists" -> {
-                                    showPlaylists = true
-                                    onOpenPlaylists()
-                                }
-                                "history" -> onOpenHistory()
-                                else -> onOpenOffline()
-                            }
-                        },
-                        trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-                    )
-                }
+        MineSectionCard {
+            buildMineEntries(
+                favCount = favCount,
+                playlistCount = playlists.size,
+                historyCount = historyCount,
+                offlineCount = offlineCount,
+                loggedIn = true
+            ).forEachIndexed { index, entry ->
+                if (index > 0) MineDivider()
+                EntryRow(
+                    modifier = Modifier.heightIn(min = 56.dp),
+                    title = entry.title,
+                    subtitle = entry.subtitle,
+                    coverSize = 0.dp,
+                    onClick = {
+                        when (entry.id) {
+                            "favorites" -> onOpenFavorites()
+                            "playlists" -> onOpenPlaylists()
+                            "history" -> onOpenHistory()
+                            else -> onOpenOffline()
+                        }
+                    },
+                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+                )
             }
-            return
         }
-        Spacer(Modifier.height(12.dp))
-        Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    onClick = { showPlaylists = false },
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) {
-                    AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                    Text("我的")
-                }
-                Text(
-                    text = "我的歌单 (${playlists.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Button(
-                onClick = { showCreate = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("新建歌单")
-            }
-            Spacer(Modifier.height(8.dp))
-            if (showCreate) {
-                PlaylistTextDialog(
-                    title = "新建歌单",
-                    label = "歌单名",
-                    secondLabel = "简介（可选）",
-                    confirmText = "创建",
-                    onConfirm = { name, desc ->
-                        showCreate = false
-                        onCreatePlaylist(name, desc)
-                    },
-                    onDismiss = { showCreate = false }
-                )
-            }
-            if (showImport) {
-                ImportDialog(
-                    onConfirm = { source, id ->
-                        showImport = false
-                        onImportPlaylist(source, id)
-                    },
-                    onDismiss = { showImport = false }
-                )
-            }
-            renameTarget?.let { target ->
-                PlaylistTextDialog(
-                    title = "重命名",
-                    initial = target.name,
-                    label = "新歌单名",
-                    confirmText = "保存",
-                    onConfirm = { name, _ ->
-                        renameTarget = null
-                        onRenamePlaylist(target, name)
-                    },
-                    onDismiss = { renameTarget = null }
-                )
-            }
-            descTarget?.let { target ->
-                PlaylistTextDialog(
-                    title = "改简介",
-                    label = "简介",
-                    confirmText = "保存",
-                    onConfirm = { desc, _ ->
-                        descTarget = null
-                        onUpdateDescription(target, desc)
-                    },
-                    onDismiss = { descTarget = null }
-                )
-            }
-            deleteTarget?.let { target ->
-                DangerConfirmDialog(
-                    title = "删除歌单",
-                    text = "确定删除「${target.name}」吗？组内歌曲一并移除，不可恢复。",
-                    confirmText = "删除",
-                    onConfirm = {
-                        deleteTarget = null
-                        if (selecting) {
-                            checkedIds = checkedIds - target.id
-                        }
-                        onDeletePlaylist(target)
-                    },
-                    onDismiss = { deleteTarget = null }
-                )
-            }
-            if (showBatchConfirm) {
-                DangerConfirmDialog(
-                    title = "批量删除",
-                    text = "确定删除选中的 ${checkedIds.size} 个歌单吗？不可恢复。",
-                    confirmText = "删除所选",
-                    onConfirm = {
-                        showBatchConfirm = false
-                        selecting = false
-                        val ids = checkedIds.toList()
-                        checkedIds = emptySet()
-                        onBatchDelete(ids)
-                    },
-                    onDismiss = { showBatchConfirm = false }
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            if (playlistsLoading) {
-                SearchSkeleton()
-            } else if (playlists.isEmpty()) {
-                EmptyStateLine(
-                    text = "还没有歌单，新建一个开始收藏吧",
-                    actionLabel = "去搜索",
-                    onAction = onGoSearch
-                )
-            } else {
-                MineSectionCard {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                                    Text(
-                                        text = "全部歌单",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    IconButton(
-                                        onClick = { showListMenu = true },
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        AppIcon(AppIconKind.MORE, GrayMuted)
-                                    }
-                                }
-                                if (selecting) {
-                                    val allChecked = playlists.isNotEmpty() &&
-                                        checkedIds.size == playlists.size
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        TextButton(onClick = {
-                                            checkedIds =
-                                                if (allChecked) emptySet()
-                                                else playlists.map { it.id }.toSet()
-                                        }) {
-                                            Text(if (allChecked) "全不选" else "全选")
-                                        }
-                                        Text(
-                                            text = "已选 ${checkedIds.size} 项",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                        Spacer(Modifier.weight(1f))
-                                        Button(
-                                            onClick = { showBatchConfirm = true },
-                                            enabled = checkedIds.isNotEmpty()
-                                        ) {
-                                            Text("删除所选")
-                                        }
-                                    }
-                                }
-                                playlists.forEach { pl ->
-                            val checked = pl.id in checkedIds
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (selecting) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = {
-                                            checkedIds =
-                                                if (checked) checkedIds - pl.id
-                                                else checkedIds + pl.id
-                                        }
-                                    )
-                                }
-                                EntryRow(
-                                    modifier = Modifier.weight(1f),
-                                    title = pl.name.ifBlank { "(untitled)" },
-                                    subtitle = "${pl.songCount} 首",
-                                    coverUrl = pl.coverUrl,
-                                    onClick = {
-                                        if (selecting) {
-                                            checkedIds =
-                                                if (checked) checkedIds - pl.id
-                                                else checkedIds + pl.id
-                                        } else {
-                                            onSelectPlaylist(pl)
-                                        }
-                                    },
-                                    trailing = {
-                                        if (selecting) {
-                                            AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted)
-                                        } else {
-                                            IconButton(
-                                                onClick = { menuSheetFor = pl },
-                                                modifier = Modifier.size(48.dp)
-                                            ) {
-                                                AppIcon(AppIconKind.MORE, GrayMuted)
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            menuSheetFor?.let { pl ->
-                SongMenuSheet(
-                    title = pl.name.ifBlank { "(untitled)" },
-                    actions = listOf(
-                        SongMenuAction("rename", "重命名"),
-                        SongMenuAction("desc", "改简介"),
-                        SongMenuAction("up", "上移"),
-                        SongMenuAction("down", "下移"),
-                        SongMenuAction("delete", "删除", danger = true)
-                    ),
-                    onAction = { id ->
-                        when (id) {
-                            "rename" -> renameTarget = pl
-                            "desc" -> descTarget = pl
-                            "up" -> onMovePlaylist(pl, -1)
-                            "down" -> onMovePlaylist(pl, 1)
-                            "delete" -> deleteTarget = pl
-                        }
-                        menuSheetFor = null
-                    },
-                    onDismiss = { menuSheetFor = null }
-                )
-            }
-            if (showListMenu) {
-                SongMenuSheet(
-                    title = "我的歌单",
-                    actions = listOf(
-                        SongMenuAction("import", "导入外部歌单"),
-                        SongMenuAction("select", if (selecting) "取消多选" else "多选"),
-                        SongMenuAction("refresh", "刷新")
-                    ),
-                    onAction = { id ->
-                        when (id) {
-                            "import" -> showImport = true
-                            "select" -> {
-                                selecting = !selecting
-                                if (!selecting) checkedIds = emptySet()
-                            }
-                            "refresh" -> onRetryPlaylists()
-                        }
-                        showListMenu = false
-                    },
-                    onDismiss = { showListMenu = false }
-                )
-            }
     }
 }
 

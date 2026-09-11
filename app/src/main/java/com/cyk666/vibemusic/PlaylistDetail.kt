@@ -27,7 +27,6 @@ fun resolveDetailSongCount(
 
 /** Max songs listed by name in the share text (keeps the sheet short). */
 const val SHARE_SONG_PREVIEW_MAX = 5
-
 /**
  * Pure: system share-sheet text — playlist name plus the first songs as
  * "name - artist" lines. No counts/stats beyond the real list.
@@ -41,4 +40,18 @@ fun buildShareText(playlistName: String, songs: List<Song>): String {
         }
     return if (preview.isBlank()) "分享歌单「$title」"
     else "分享歌单「$title」：\n$preview"
+}
+
+/**
+ * Pure: in-playlist filter — matches already-loaded songs by name/artist,
+ * case-insensitive substring. Blank query restores the full list (same
+ * instance order, no copy). No network, no side effects.
+ */
+fun filterInPlaylistSongs(songs: List<Song>, query: String): List<Song> {
+    val q = query.trim()
+    if (q.isEmpty()) return songs
+    return songs.filter { s ->
+        s.name.contains(q, ignoreCase = true) ||
+            s.artist.contains(q, ignoreCase = true)
+    }
 }

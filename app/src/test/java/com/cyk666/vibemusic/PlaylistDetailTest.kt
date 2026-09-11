@@ -83,6 +83,40 @@ class PlaylistDetailTest {
     }
 
     @Test
+    fun filterInPlaylistSongs_blankRestoresFullList() {
+        val songs = listOf(song("夜曲"), song("晴天"))
+        assertEquals(songs, filterInPlaylistSongs(songs, ""))
+        assertEquals(songs, filterInPlaylistSongs(songs, "   "))
+    }
+
+    @Test
+    fun filterInPlaylistSongs_matchesNameCaseInsensitive() {
+        val songs = listOf(
+            Song("1", "Hello World", "a", "", "", 0, "netease"),
+            Song("2", "夜曲", "周杰伦", "", "", 0, "netease")
+        )
+        assertEquals(listOf(songs[0]), filterInPlaylistSongs(songs, "hello"))
+        assertEquals(listOf(songs[1]), filterInPlaylistSongs(songs, "夜"))
+    }
+
+    @Test
+    fun filterInPlaylistSongs_matchesArtist() {
+        val songs = listOf(
+            Song("1", "夜曲", "周杰伦", "", "", 0, "netease"),
+            Song("2", "晴天", "周杰伦", "", "", 0, "netease"),
+            Song("3", "孤勇者", "陈奕迅", "", "", 0, "netease")
+        )
+        assertEquals(listOf(songs[0], songs[1]), filterInPlaylistSongs(songs, "周杰伦"))
+        assertEquals(listOf(songs[2]), filterInPlaylistSongs(songs, " 陈奕迅 "))
+    }
+
+    @Test
+    fun filterInPlaylistSongs_noMatchIsEmpty() {
+        val songs = listOf(song("夜曲"), song("晴天"))
+        assertEquals(emptyList<Song>(), filterInPlaylistSongs(songs, "不存在的歌"))
+    }
+
+    @Test
     fun parseVipFlag_absentDefaultsFalse() {
         val o = JSONObject().put("sourceId", "1").put("name", "n")
         assertFalse(VibeApi.parseVipFlag(o))

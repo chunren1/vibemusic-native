@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -73,6 +74,14 @@ fun PlaylistDetailScreen(
     var importOpen by remember { mutableStateOf(false) }
     var songSheetFor by remember { mutableStateOf<Song?>(null) }
     var confirmRemove by remember { mutableStateOf<Song?>(null) }
+    // In-playlist search: toggled by the top-bar icon, live-filters the
+    // already-loaded songs (no network). Reset when switching playlists.
+    var filterOpen by remember { mutableStateOf(false) }
+    var filterQuery by remember(playlist.id) { mutableStateOf("") }
+    val filtering = filterOpen && filterQuery.trim().isNotEmpty()
+    val visibleSongs = remember(songs, filterOpen, filterQuery) {
+        if (filterOpen) filterInPlaylistSongs(songs, filterQuery) else songs
+    }
 
     val vipCount = remember(songs) { countVipSongs(songs) }
     val count = resolveDetailSongCount(songs, songsLoading, playlist.songCount)
@@ -93,11 +102,44 @@ fun PlaylistDetailScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onGoSearch, modifier = Modifier.size(48.dp)) {
+            IconButton(
+                onClick = {
+                    filterOpen = !filterOpen
+                    if (!filterOpen) filterQuery = ""
+                },
+                modifier = Modifier.size(48.dp)
+            ) {
                 AppIcon(AppIconKind.SEARCH, UiMuted)
             }
             IconButton(onClick = { showOverflow = true }, modifier = Modifier.size(48.dp)) {
                 AppIcon(AppIconKind.MORE, UiMuted)
+            }
+        }
+        if (filterOpen) {
+            OutlinedTextField(
+                value = filterQuery,
+                onValueChange = { filterQuery = it },
+                placeholder = { Text("筛选本歌单歌曲") },
+                singleLine = true,
+                trailingIcon = {
+                    if (filterQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { filterQuery = "" },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            AppIcon(AppIconKind.CLOSE, UiMuted)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+            if (filtering) {
+                Text(
+                    text = "${visibleSongs.size}/${songs.size}首",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = UiMuted,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
         }
         if (songsLoading && songs.isEmpty()) {
@@ -135,6 +177,14 @@ fun PlaylistDetailScreen(
                     onAction = onGoSearch
                 )
             }
+        } else if (filtering && visibleSongs.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                EmptyStateLine(
+                    text = "没有匹配「${filterQuery.trim()}」的歌曲",
+                    actionLabel = "清除筛选",
+                    onAction = { filterQuery = "" }
+                )
+            }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 item(key = "detail-header") {
@@ -148,13 +198,13 @@ fun PlaylistDetailScreen(
                     )
                 }
                 itemsIndexed(
-                    songs,
+                    visibleSongs,
                     key = { idx, s -> s.sourceId + s.platform + idx }
-                ) { index, song ->
+                ) { _, song ->
                     SongRow(
                         model = buildSongRowModel(song),
                         meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
-                        onClick = { onPlaySong(index) },
+                        onClick = { onPlaySong(songs.indexOf(song).takeIf { it >= 0 } ?: 0) },
                         onOverflow = { songSheetFor = song }
                     )
                 }
