@@ -55,6 +55,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
@@ -1001,9 +1002,10 @@ class MainActivity : ComponentActivity() {
                         playlists = emptyList()
                     } catch (e: Exception) {
                         // Background refresh failures stay silent when stale
-                        // content keeps showing; foreground loads surface them.
+                        // content keeps showing; foreground loads surface them
+                        // with a diagnosable message (no silent failure).
                         if (!background) {
-                            showError("歌单加载失败: ${friendlyNetworkMessage(e)}")
+                            showError(diagnosableError("歌单加载失败", e))
                         }
                     } finally {
                         if (!background) playlistsLoading = false
@@ -1028,7 +1030,7 @@ class MainActivity : ComponentActivity() {
                         }
                         currentUser = null
                     } catch (e: Exception) {
-                        showError("歌曲加载失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("歌曲加载失败", e))
                     } finally {
                         songsLoading = false
                     }
@@ -1827,7 +1829,8 @@ class MainActivity : ComponentActivity() {
                     favSongs = emptyList()
                     historyItems = emptyList()
                     lastReportedKey = null
-                    screen = Screen.Mine
+                    loginInitialRegister = false
+                    screen = Screen.Login
                 }
             }
 
@@ -2870,9 +2873,12 @@ class MainActivity : ComponentActivity() {
                                     loginInitialRegister = true
                                     screen = Screen.Login
                                 },
-                                onLogout = ::doLogout,
                                 onRetryPlaylists = { loadPlaylists() },
-                                onSelectPlaylist = ::loadSongs,
+                                onSelectPlaylist = { pl ->
+                                    val name = pl.name.ifBlank { "(untitled)" }
+                                    announceTop("正在打开「$name」…")
+                                    loadSongs(pl)
+                                },
                                 onBackToPlaylists = {
                                     selectedPlaylist = null
                                     playlistSongs = emptyList()
@@ -2887,11 +2893,6 @@ class MainActivity : ComponentActivity() {
                                 onImportPlaylist = ::importAction,
                                 onRemoveSong = ::removeSongAction,
                                 onAddSongToPlaylist = ::openAddSheet,
-                                cacheSizeLabel = cacheSizeLabel,
-                                onClearCache = ::clearMediaCache,
-                                versionLabel = formatVersionLabel(appVersionName),
-                                checkingUpdate = manualChecking,
-                                onCheckUpdate = ::runManualUpdateCheck,
                                 offlineCount = offlineCount,
                                 onOpenOffline = { screen = Screen.Offline },
                                 favIds = favIds,
@@ -2907,28 +2908,9 @@ class MainActivity : ComponentActivity() {
                                         screen = Screen.Favorites
                                     }
                                 },
-                                onChangePassword = ::doChangePassword,
-                                onUpdateProfile = ::doUpdateProfile,
-                                onPickAvatar = {
-                                    uploadTarget = "avatar"
-                                    try {
-                                        photoPicker.launch("image/*")
-                                    } catch (e: Exception) {
-                                        uploadTarget = null
-                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
-                                    }
-                                },
-                                onPickBg = {
-                                    uploadTarget = "bg"
-                                    try {
-                                        photoPicker.launch("image/*")
-                                    } catch (e: Exception) {
-                                        uploadTarget = null
-                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
-                                    }
-                                },
                                 onGoSearch = { screen = Screen.Search },
-                                onOpenSettings = { screen = Screen.Settings }
+                                onOpenSettings = { screen = Screen.Settings },
+                                onOpenPlaylists = { announceTop("我的歌单") }
                             )
 
                             is Screen.History -> HistoryScreen(
@@ -2968,6 +2950,7 @@ class MainActivity : ComponentActivity() {
 
                             is Screen.Settings -> SettingsScreen(
                                 modifier = Modifier.padding(innerPadding),
+                                user = currentUser,
                                 cacheSizeLabel = cacheSizeLabel,
                                 storageLabel = storageTotalLabel(cacheBytes, downloadBytes),
                                 versionLabel = formatVersionLabel(appVersionName),
@@ -2975,6 +2958,31 @@ class MainActivity : ComponentActivity() {
                                 onCheckUpdate = ::runManualUpdateCheck,
                                 onClearCache = ::clearMediaCache,
                                 onBack = { screen = Screen.Mine },
+                                onLoginClick = {
+                                    loginInitialRegister = false
+                                    screen = Screen.Login
+                                },
+                                onLogout = ::doLogout,
+                                onChangePassword = ::doChangePassword,
+                                onUpdateProfile = ::doUpdateProfile,
+                                onPickAvatar = {
+                                    uploadTarget = "avatar"
+                                    try {
+                                        photoPicker.launch("image/*")
+                                    } catch (e: Exception) {
+                                        uploadTarget = null
+                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
+                                    }
+                                },
+                                onPickBg = {
+                                    uploadTarget = "bg"
+                                    try {
+                                        photoPicker.launch("image/*")
+                                    } catch (e: Exception) {
+                                        uploadTarget = null
+                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
+                                    }
+                                },
                                 authDiagCode = authDiagCode,
                                 authDiagTimeMs = authDiagTimeMs,
                                 positionSaveTimeMs = positionSaveTimeMs
@@ -4203,8 +4211,66 @@ fun VersionRow(
 }
 
 @Composable
+fun ProfileViewDialog(
+    user: LoggedInUser,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val displayName = user.nickname.ifBlank { user.username }
+    val sub = listOf(user.gender, user.birthday)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = displayName,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "@${user.username}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (sub.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = sub,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onOpenSettings) { Text("去设置改资料") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+@Composable
+fun SettingsSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = GrayMuted,
+        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    user: LoggedInUser?,
     cacheSizeLabel: String,
     storageLabel: String,
     versionLabel: String,
@@ -4212,11 +4278,19 @@ fun SettingsScreen(
     onCheckUpdate: () -> Unit,
     onClearCache: () -> Unit,
     onBack: () -> Unit,
+    onLoginClick: () -> Unit = {},
+    onLogout: () -> Unit = {},
+    onChangePassword: (String, String) -> Unit = { _, _ -> },
+    onUpdateProfile: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    onPickAvatar: () -> Unit = {},
+    onPickBg: () -> Unit = {},
     authDiagCode: String = "",
     authDiagTimeMs: Long = 0L,
     positionSaveTimeMs: Long = 0L
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showChangePwd by remember(user?.username) { mutableStateOf(false) }
+    var showProfile by remember(user?.username) { mutableStateOf(false) }
     val rows = remember(cacheSizeLabel, storageLabel, versionLabel) {
         buildSettingsRows(
             cacheLabel = "已用 $cacheSizeLabel · 满150MB自动清理",
@@ -4227,7 +4301,12 @@ fun SettingsScreen(
     val themeRow = rows.first { it.id == "theme" }
     val storageRow = rows.first { it.id == "storage" }
     val aboutRow = rows.first { it.id == "about" }
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
                 AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
@@ -4239,40 +4318,123 @@ fun SettingsScreen(
                 modifier = Modifier.weight(1f)
             )
         }
-        Spacer(Modifier.height(4.dp))
-        SettingsRowShell(
-            title = themeRow.title,
-            subtitle = themeRow.subtitle,
-            trailing = { Text(text = "✓", color = NeonViolet) }
-        )
-        CacheManageRow(
-            cacheSizeLabel = cacheSizeLabel,
-            showConfirm = showClearConfirm,
-            onAskClear = { showClearConfirm = true },
-            onConfirmClear = {
-                showClearConfirm = false
-                onClearCache()
-            },
-            onDismissClear = { showClearConfirm = false }
-        )
-        SettingsRowShell(title = storageRow.title, subtitle = storageRow.subtitle)
-        SettingsRowShell(
-            title = "登录诊断",
-            subtitle = remember(authDiagCode, authDiagTimeMs, positionSaveTimeMs) {
-                formatAuthDiag(authDiagCode, authDiagTimeMs, positionSaveTimeMs)
-            },
-            showChevron = false
-        )
-        SettingsRowShell(
-            title = aboutRow.title,
-            subtitle = "${aboutRow.subtitle}\n$SETTINGS_GITHUB_URL\n开源致谢：感谢每一位贡献者"
-        )
+        if (user != null) {
+            SettingsSectionTitle("账号资料")
+            MineSectionCard {
+                SettingsRowShell(
+                    title = "@${user.username}",
+                    subtitle = user.nickname.ifBlank { "昵称未设置" },
+                    showChevron = false
+                )
+                MineDivider()
+                SettingsRowShell(
+                    title = "改资料",
+                    subtitle = "昵称/性别/生日",
+                    onClick = { showProfile = true }
+                )
+                MineDivider()
+                SettingsRowShell(
+                    title = "改密码",
+                    subtitle = "至少8位",
+                    onClick = { showChangePwd = true }
+                )
+                MineDivider()
+                SettingsRowShell(
+                    title = "换头像",
+                    subtitle = "最大 2MB",
+                    onClick = onPickAvatar
+                )
+                MineDivider()
+                SettingsRowShell(
+                    title = "换背景",
+                    subtitle = "我的页头图",
+                    onClick = onPickBg
+                )
+            }
+            if (showChangePwd) {
+                ChangePasswordDialog(
+                    onConfirm = { old, new ->
+                        showChangePwd = false
+                        onChangePassword(old, new)
+                    },
+                    onDismiss = { showChangePwd = false }
+                )
+            }
+            if (showProfile) {
+                ProfileDialog(
+                    initialNickname = user.nickname,
+                    initialGender = user.gender,
+                    initialBirthday = user.birthday,
+                    onConfirm = { nickname, gender, birthday ->
+                        showProfile = false
+                        onUpdateProfile(nickname, gender, birthday)
+                    },
+                    onDismiss = { showProfile = false }
+                )
+            }
+        } else {
+            SettingsSectionTitle("账号")
+            Button(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
+                Text("去登录")
+            }
+        }
+        SettingsSectionTitle("存储")
+        MineSectionCard {
+            CacheManageRow(
+                cacheSizeLabel = cacheSizeLabel,
+                showConfirm = showClearConfirm,
+                onAskClear = { showClearConfirm = true },
+                onConfirmClear = {
+                    showClearConfirm = false
+                    onClearCache()
+                },
+                onDismissClear = { showClearConfirm = false }
+            )
+            MineDivider()
+            SettingsRowShell(title = storageRow.title, subtitle = storageRow.subtitle)
+        }
+        SettingsSectionTitle("关于与退出")
+        MineSectionCard {
+            SettingsRowShell(
+                title = themeRow.title,
+                subtitle = themeRow.subtitle,
+                trailing = { Text(text = "✓", color = NeonViolet) }
+            )
+            MineDivider()
+            SettingsRowShell(
+                title = "登录诊断",
+                subtitle = remember(authDiagCode, authDiagTimeMs, positionSaveTimeMs) {
+                    formatAuthDiag(authDiagCode, authDiagTimeMs, positionSaveTimeMs)
+                },
+                showChevron = false
+            )
+            MineDivider()
+            SettingsRowShell(
+                title = aboutRow.title,
+                subtitle = "${aboutRow.subtitle}\n$SETTINGS_GITHUB_URL\n开源致谢：感谢每一位贡献者"
+            )
+        }
         Spacer(Modifier.height(4.dp))
         VersionRow(
             versionLabel = versionLabel,
             checking = checkingUpdate,
             onCheck = onCheckUpdate
         )
+        if (user != null) {
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onLogout,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+            ) {
+                Text("退出登录")
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -4288,7 +4450,6 @@ fun MineScreen(
     songs: List<Song>,
     songsLoading: Boolean,
     onLoginClick: () -> Unit,
-    onLogout: () -> Unit,
     onRetryPlaylists: () -> Unit,
     onSelectPlaylist: (Playlist) -> Unit,
     onBackToPlaylists: () -> Unit,
@@ -4302,11 +4463,6 @@ fun MineScreen(
     onImportPlaylist: (String, String) -> Unit = { _, _ -> },
     onRemoveSong: (Song) -> Unit = {},
     onAddSongToPlaylist: (Song) -> Unit = {},
-    cacheSizeLabel: String = "",
-    onClearCache: () -> Unit = {},
-    versionLabel: String = "",
-    checkingUpdate: Boolean = false,
-    onCheckUpdate: () -> Unit = {},
     offlineCount: Int = 0,
     onOpenOffline: () -> Unit = {},
     onRegisterClick: () -> Unit = {},
@@ -4316,14 +4472,14 @@ fun MineScreen(
     onOpenHistory: () -> Unit = {},
     favCount: Int = 0,
     onOpenFavorites: () -> Unit = {},
-    onChangePassword: (String, String) -> Unit = { _, _ -> },
-    onUpdateProfile: (String?, String?, String?) -> Unit = { _, _, _ -> },
-    onPickAvatar: () -> Unit = {},
-    onPickBg: () -> Unit = {},
     onGoSearch: () -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onOpenPlaylists: () -> Unit = {}
 ) {
     var selecting by remember { mutableStateOf(false) }
+    var showPlaylists by remember(user?.username) { mutableStateOf(false) }
+    var showProfileView by remember { mutableStateOf(false) }
+    var showListMenu by remember { mutableStateOf(false) }
     var checkedIds by remember { mutableStateOf(setOf<String>()) }
     var showCreate by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
@@ -4334,7 +4490,6 @@ fun MineScreen(
     var confirmRemove by remember { mutableStateOf<Song?>(null) }
     var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
     var songSheetFor by remember { mutableStateOf<Song?>(null) }
-    var showClearConfirm by remember { mutableStateOf(false) }
     // Overview (logged-in, no playlist selected) scrolls as one page so the
     // 我的歌单 section stays reachable on small phones. The detail branch
     // keeps its own inner LazyColumn, so the outer scroll stays off there
@@ -4354,10 +4509,22 @@ fun MineScreen(
             return
         }
         if (user == null) {
-            Text(
-                text = "未登录",
-                style = MaterialTheme.typography.titleLarge
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "未登录",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    AppIcon(AppIconKind.SETTINGS, GrayMuted)
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "登录后看我的歌单；访客可继续搜歌",
@@ -4367,66 +4534,48 @@ fun MineScreen(
             Button(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
                 Text("去登录")
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRegisterClick, modifier = Modifier.fillMaxWidth()) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onRegisterClick, modifier = Modifier.fillMaxWidth()) {
                 Text("注册新账号")
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
-                Text("登录后查看收藏与歌单")
+            TextButton(onClick = onGoSearch, modifier = Modifier.fillMaxWidth()) {
+                Text("先逛逛")
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             MineSectionCard {
-                EntryRow(
-                    title = "我的收藏",
-                    subtitle = "登录后查看",
-                    coverSize = 0.dp,
-                    onClick = onOpenFavorites,
-                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-                )
-                MineDivider()
-                EntryRow(
-                    title = "本地下载",
-                    subtitle = "$offlineCount 首",
-                    coverSize = 0.dp,
-                    onClick = onOpenOffline,
-                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            MineSectionCard {
-                CacheManageRow(
-                    cacheSizeLabel = cacheSizeLabel,
-                    showConfirm = showClearConfirm,
-                    onAskClear = { showClearConfirm = true },
-                    onConfirmClear = {
-                        showClearConfirm = false
-                        onClearCache()
-                    },
-                    onDismissClear = { showClearConfirm = false }
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            MineSectionCard {
-                VersionRow(
-                    versionLabel = versionLabel,
-                    checking = checkingUpdate,
-                    onCheck = onCheckUpdate
-                )
-                MineDivider()
-                SettingsEntryRow(onOpen = onOpenSettings)
+                buildMineEntries(
+                    favCount = 0,
+                    playlistCount = 0,
+                    historyCount = 0,
+                    offlineCount = offlineCount,
+                    loggedIn = false
+                ).forEachIndexed { index, entry ->
+                    if (index > 0) MineDivider()
+                    EntryRow(
+                        modifier = Modifier.heightIn(min = 56.dp),
+                        title = entry.title,
+                        subtitle = entry.subtitle,
+                        coverSize = 0.dp,
+                        onClick = {
+                            if (entry.id == "offline") onOpenOffline()
+                            else if (entry.id == "favorites") onOpenFavorites()
+                            else onLoginClick()
+                        },
+                        trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+                    )
+                }
             }
             return
         }
-        // Logged in header
-        var showChangePwd by remember { mutableStateOf(false) }
-        var showProfile by remember { mutableStateOf(false) }
+        // Logged-in header: tap the body for the profile view, gear for
+        // Settings. Account edits live in Settings, not here.
         val displayName = user.nickname.ifBlank { user.username }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 140.dp)
                 .clip(RoundedCornerShape(12.dp))
+                .clickable { showProfileView = true }
                 .background(ObsidianSurface)
         ) {
             if (shouldShowMineBg(user.bgImage)) {
@@ -4524,113 +4673,85 @@ fun MineScreen(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    OutlinedButton(onClick = onLogout) {
-                        Text("退出登录")
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item(key = "acc-profile") {
-                        OutlinedButton(onClick = { showProfile = true }) { Text("改资料") }
-                    }
-                    item(key = "acc-pwd") {
-                        OutlinedButton(onClick = { showChangePwd = true }) { Text("改密") }
-                    }
-                    item(key = "acc-avatar") {
-                        OutlinedButton(onClick = onPickAvatar) { Text("换头像") }
-                    }
-                    item(key = "acc-bg") {
-                        OutlinedButton(onClick = onPickBg) { Text("换背景") }
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.SETTINGS, GrayMuted)
                     }
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
-        if (showChangePwd) {
-            ChangePasswordDialog(
-                onConfirm = { old, new ->
-                    showChangePwd = false
-                    onChangePassword(old, new)
+        if (showProfileView) {
+            ProfileViewDialog(
+                user = user,
+                onOpenSettings = {
+                    showProfileView = false
+                    onOpenSettings()
                 },
-                onDismiss = { showChangePwd = false }
+                onDismiss = { showProfileView = false }
             )
         }
-        if (showProfile) {
-            ProfileDialog(
-                initialNickname = user.nickname,
-                initialGender = user.gender,
-                initialBirthday = user.birthday,
-                onConfirm = { nickname, gender, birthday ->
-                    showProfile = false
-                    onUpdateProfile(nickname, gender, birthday)
-                },
-                onDismiss = { showProfile = false }
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        MineSectionCard {
-            EntryRow(
-                title = "我的收藏",
-                subtitle = "$favCount 首",
-                coverSize = 0.dp,
-                onClick = onOpenFavorites,
-                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-            )
-            MineDivider()
-            EntryRow(
-                title = "最近播放",
-                subtitle = "$historyCount 首",
-                coverSize = 0.dp,
-                onClick = onOpenHistory,
-                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-            )
-            MineDivider()
-            EntryRow(
-                title = "本地下载",
-                subtitle = "$offlineCount 首",
-                coverSize = 0.dp,
-                onClick = onOpenOffline,
-                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        MineSectionCard {
-            CacheManageRow(
-                cacheSizeLabel = cacheSizeLabel,
-                showConfirm = showClearConfirm,
-                onAskClear = { showClearConfirm = true },
-                onConfirmClear = {
-                    showClearConfirm = false
-                    onClearCache()
-                },
-                onDismissClear = { showClearConfirm = false }
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        MineSectionCard {
-            VersionRow(
-                versionLabel = versionLabel,
-                checking = checkingUpdate,
-                onCheck = onCheckUpdate
-            )
-            MineDivider()
-            SettingsEntryRow(onOpen = onOpenSettings)
+        if (selectedPlaylist == null && !showPlaylists) {
+            MineSectionCard {
+                buildMineEntries(
+                    favCount = favCount,
+                    playlistCount = playlists.size,
+                    historyCount = historyCount,
+                    offlineCount = offlineCount,
+                    loggedIn = true
+                ).forEachIndexed { index, entry ->
+                    if (index > 0) MineDivider()
+                    EntryRow(
+                        modifier = Modifier.heightIn(min = 56.dp),
+                        title = entry.title,
+                        subtitle = entry.subtitle,
+                        coverSize = 0.dp,
+                        onClick = {
+                            when (entry.id) {
+                                "favorites" -> onOpenFavorites()
+                                "playlists" -> {
+                                    showPlaylists = true
+                                    onOpenPlaylists()
+                                }
+                                "history" -> onOpenHistory()
+                                else -> onOpenOffline()
+                            }
+                        },
+                        trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+                    )
+                }
+            }
+            return
         }
         Spacer(Modifier.height(12.dp))
         if (selectedPlaylist == null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = { showCreate = true }, modifier = Modifier.weight(1f)) {
-                    Text("新建歌单")
+                TextButton(
+                    onClick = { showPlaylists = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                    Text("我的")
                 }
-                OutlinedButton(onClick = { showImport = true }, modifier = Modifier.weight(1f)) {
-                    Text("导入外部歌单")
-                }
+                Text(
+                    text = "我的歌单 (${playlists.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Button(
+                onClick = { showCreate = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("新建歌单")
             }
             Spacer(Modifier.height(8.dp))
             if (showCreate) {
@@ -4728,24 +4849,15 @@ fun MineScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                                     Text(
-                                        text = "我的歌单",
-                                        style = MaterialTheme.typography.titleMedium
+                                        text = "全部歌单",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f)
                                     )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        TextButton(
-                                            onClick = {
-                                                selecting = !selecting
-                                                if (!selecting) checkedIds = emptySet()
-                                            }
-                                        ) {
-                                            Text(if (selecting) "取消多选" else "多选")
-                                        }
-                                        TextButton(
-                                            onClick = onRetryPlaylists,
-                                            enabled = !playlistsLoading
-                                        ) {
-                                            Text("刷新")
-                                        }
+                                    IconButton(
+                                        onClick = { showListMenu = true },
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        AppIcon(AppIconKind.MORE, GrayMuted)
                                     }
                                 }
                                 if (selecting) {
@@ -4844,6 +4956,28 @@ fun MineScreen(
                         menuSheetFor = null
                     },
                     onDismiss = { menuSheetFor = null }
+                )
+            }
+            if (showListMenu) {
+                SongMenuSheet(
+                    title = "我的歌单",
+                    actions = listOf(
+                        SongMenuAction("import", "导入外部歌单"),
+                        SongMenuAction("select", if (selecting) "取消多选" else "多选"),
+                        SongMenuAction("refresh", "刷新")
+                    ),
+                    onAction = { id ->
+                        when (id) {
+                            "import" -> showImport = true
+                            "select" -> {
+                                selecting = !selecting
+                                if (!selecting) checkedIds = emptySet()
+                            }
+                            "refresh" -> onRetryPlaylists()
+                        }
+                        showListMenu = false
+                    },
+                    onDismiss = { showListMenu = false }
                 )
             }
         } else {

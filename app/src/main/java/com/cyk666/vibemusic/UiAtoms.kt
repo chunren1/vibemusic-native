@@ -124,7 +124,7 @@ enum class AppIconKind {
     CLOSE, MORE, HEART, DOWNLOAD, ADD, TIMER, QUEUE,
     CHECK, CHEVRON_RIGHT, CHEVRON_LEFT,
     HISTORY, TRENDING, MUSIC_NOTE,
-    INFO, MODE_SEQUENTIAL, MODE_LOOP, MODE_SINGLE, MODE_SHUFFLE
+    INFO, SETTINGS, MODE_SEQUENTIAL, MODE_LOOP, MODE_SINGLE, MODE_SHUFFLE
 }
 
 private fun DrawScope.line(a: Offset, b: Offset, w: Float, c: Color) =
@@ -280,6 +280,19 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
             drawCircle(color = c, radius = 1.5f * s, center = pt(12f, 8f), style = Fill)
             line(pt(12f, 11f), pt(12f, 16.5f), w, c)
         }
+        AppIconKind.SETTINGS -> {
+            // Gear: ring + 8 spokes + hub (no trig — axis-aligned + diagonals).
+            drawCircle(color = c, radius = 5.5f * s, center = pt(12f, 12f), style = Stroke(w))
+            line(pt(2.7f, 12f), pt(5f, 12f), w, c)
+            line(pt(19f, 12f), pt(21.3f, 12f), w, c)
+            line(pt(12f, 2.7f), pt(12f, 5f), w, c)
+            line(pt(12f, 19f), pt(12f, 21.3f), w, c)
+            line(pt(5.4f, 5.4f), pt(7f, 7f), w, c)
+            line(pt(17f, 7f), pt(18.6f, 5.4f), w, c)
+            line(pt(5.4f, 18.6f), pt(7f, 17f), w, c)
+            line(pt(17f, 17f), pt(18.6f, 18.6f), w, c)
+            drawCircle(color = c, radius = 1.6f * s, center = pt(12f, 12f), style = Fill)
+        }
         AppIconKind.MODE_SEQUENTIAL -> {
             line(pt(4f, 12f), pt(19f, 12f), w, c)
             line(pt(15f, 8.5f), pt(19f, 12f), w, c)
@@ -354,6 +367,48 @@ fun buildSongRowModel(song: Song, subtitleOverride: String? = null): SongRowMode
         subtitle = subtitleOverride ?: song.artist,
         coverUrl = song.coverUrl
     )
+
+/** One Mine content entry: stable id + Chinese title + count subtitle. */
+data class MineEntry(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
+/**
+ * Pure builder for the Mine page's exactly-4 content entries
+ * (我的收藏 / 我的歌单 / 最近播放 / 本地下載). Guests see a login
+ * prompt subtitle on account-backed entries; 本地下载 is local so it
+ * always shows its count.
+ */
+fun buildMineEntries(
+    favCount: Int,
+    playlistCount: Int,
+    historyCount: Int,
+    offlineCount: Int,
+    loggedIn: Boolean
+): List<MineEntry> = listOf(
+    MineEntry(
+        id = "favorites",
+        title = "我的收藏",
+        subtitle = if (loggedIn) "$favCount 首" else "登录后查看"
+    ),
+    MineEntry(
+        id = "playlists",
+        title = "我的歌单",
+        subtitle = if (loggedIn) "$playlistCount 个" else "登录后查看"
+    ),
+    MineEntry(
+        id = "history",
+        title = "最近播放",
+        subtitle = if (loggedIn) "$historyCount 首" else "登录后查看"
+    ),
+    MineEntry(
+        id = "offline",
+        title = "本地下载",
+        subtitle = "$offlineCount 首"
+    )
+)
 
 // ---- 3. EntryRow / SongRow atoms ----
 
