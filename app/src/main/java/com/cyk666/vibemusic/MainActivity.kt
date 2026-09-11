@@ -135,6 +135,7 @@ sealed interface Screen {
     data object Mine : Screen
     data object Offline : Screen
     data object History : Screen
+    data object Favorites : Screen
     data object Settings : Screen
 }
 
@@ -312,6 +313,8 @@ class MainActivity : ComponentActivity() {
             // ---- Phase 8: favorites + history ----
             var favIds by remember { mutableStateOf(setOf<String>()) }
             var favBusy by remember { mutableStateOf(setOf<String>()) }
+            var favSongs by remember { mutableStateOf(listOf<Song>()) }
+            var favLoading by remember { mutableStateOf(false) }
             var historyItems by remember { mutableStateOf(listOf<VibeApi.HistoryItem>()) }
             var historyLoading by remember { mutableStateOf(false) }
             var lastReportedKey by remember { mutableStateOf<String?>(null) }
@@ -1175,6 +1178,7 @@ class MainActivity : ComponentActivity() {
                 currentUser = null
                 playlists = emptyList()
                 favIds = emptySet()
+                favSongs = emptyList()
                 historyItems = emptyList()
                 lastReportedKey = null
             }
@@ -1224,14 +1228,39 @@ class MainActivity : ComponentActivity() {
                     try {
                         val faved = VibeApi.toggleFavorite(song, VibeApi.newRequestId())
                         favIds = if (faved) favIds + song.sourceId else favIds - song.sourceId
+                        favSongs = if (faved) {
+                            if (favSongs.any { it.sourceId == song.sourceId }) favSongs
+                            else favSongs + song
+                        } else {
+                            favSongs.filterNot { it.sourceId == song.sourceId }
+                        }
                     } catch (e: NetworkAuthException) {
                         handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("收藏失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("收藏失败", e))
                     } finally {
                         favBusy = favBusy - song.sourceId
+                    }
+                }
+            }
+
+            fun loadFavorites() {
+                if (currentUser == null) return
+                if (favLoading) return
+                favLoading = true
+                scope.launch {
+                    try {
+                        favSongs = VibeApi.favList(200)
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
+                    } catch (e: AuthException) {
+                        handleAuthLost(e.message)
+                    } catch (e: Exception) {
+                        showError(diagnosableError("收藏加载失败", e))
+                    } finally {
+                        favLoading = false
                     }
                 }
             }
@@ -1283,7 +1312,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("新建歌单失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("新建歌单失败", e))
                     }
                 }
             }
@@ -1795,6 +1824,7 @@ class MainActivity : ComponentActivity() {
                     playlistSongs = emptyList()
                     favIds = emptySet()
                     favBusy = emptySet()
+                    favSongs = emptyList()
                     historyItems = emptyList()
                     lastReportedKey = null
                     screen = Screen.Mine
@@ -2330,6 +2360,9 @@ class MainActivity : ComponentActivity() {
                 if (screen is Screen.History && currentUser != null && historyItems.isEmpty() && !historyLoading) {
                     loadHistory()
                 }
+                if (screen is Screen.Favorites && currentUser != null && favSongs.isEmpty() && !favLoading) {
+                    loadFavorites()
+                }
             }
 
             // Discover SWR on tab visit: per-section TTLs (30 min). Fresh cache
@@ -2464,7 +2497,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.Search -> 1
                 is Screen.Player, is Screen.Queue -> 2
                 is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History,
-                is Screen.Settings -> 3
+                is Screen.Favorites, is Screen.Settings -> 3
             }
 
             MaterialTheme(colorScheme = ObsidianScheme) {
@@ -2865,6 +2898,15 @@ class MainActivity : ComponentActivity() {
                                 onToggleFav = ::toggleFav,
                                 historyCount = historyItems.size,
                                 onOpenHistory = { screen = Screen.History },
+                                favCount = favIds.size,
+                                onOpenFavorites = {
+                                    if (currentUser == null) {
+                                        loginInitialRegister = false
+                                        screen = Screen.Login
+                                    } else {
+                                        screen = Screen.Favorites
+                                    }
+                                },
                                 onChangePassword = ::doChangePassword,
                                 onUpdateProfile = ::doUpdateProfile,
                                 onPickAvatar = {
@@ -2907,6 +2949,20 @@ class MainActivity : ComponentActivity() {
                                     doRemoveHistory(historyItems.map { it.song.sourceId }, clearAll = true)
                                 },
                                 onRetry = { loadHistory() },
+                                onBack = { screen = Screen.Mine }
+                            )
+
+                            is Screen.Favorites -> FavoritesScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                songs = favSongs,
+                                loading = favLoading,
+                                favIds = favIds,
+                                onPlayAt = { idx ->
+                                    if (favSongs.isNotEmpty()) playAt(favSongs, idx.coerceIn(favSongs.indices))
+                                },
+                                onToggleFav = ::toggleFav,
+                                onAddToPlaylist = ::openAddSheet,
+                                onRetry = { loadFavorites() },
                                 onBack = { screen = Screen.Mine }
                             )
 
@@ -4258,6 +4314,8 @@ fun MineScreen(
     onToggleFav: (Song) -> Unit = {},
     historyCount: Int = 0,
     onOpenHistory: () -> Unit = {},
+    favCount: Int = 0,
+    onOpenFavorites: () -> Unit = {},
     onChangePassword: (String, String) -> Unit = { _, _ -> },
     onUpdateProfile: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onPickAvatar: () -> Unit = {},
@@ -4277,7 +4335,16 @@ fun MineScreen(
     var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
     var songSheetFor by remember { mutableStateOf<Song?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+    // Overview (logged-in, no playlist selected) scrolls as one page so the
+    // 我的歌单 section stays reachable on small phones. The detail branch
+    // keeps its own inner LazyColumn, so the outer scroll stays off there
+    // (a LazyColumn with weight inside a verticalScroll would never settle).
+    val overviewScroll = rememberScrollState()
+    val overviewScrollable = user != null && selectedPlaylist == null
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp)
+            .then(if (overviewScrollable) Modifier.verticalScroll(overviewScroll) else Modifier)
+    ) {
         if (!authChecked) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
@@ -4310,6 +4377,14 @@ fun MineScreen(
             }
             Spacer(Modifier.height(16.dp))
             MineSectionCard {
+                EntryRow(
+                    title = "我的收藏",
+                    subtitle = "登录后查看",
+                    coverSize = 0.dp,
+                    onClick = onOpenFavorites,
+                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+                )
+                MineDivider()
                 EntryRow(
                     title = "本地下载",
                     subtitle = "$offlineCount 首",
@@ -4498,6 +4573,14 @@ fun MineScreen(
         Spacer(Modifier.height(4.dp))
         MineSectionCard {
             EntryRow(
+                title = "我的收藏",
+                subtitle = "$favCount 首",
+                coverSize = 0.dp,
+                onClick = onOpenFavorites,
+                trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+            )
+            MineDivider()
+            EntryRow(
                 title = "最近播放",
                 subtitle = "$historyCount 首",
                 coverSize = 0.dp,
@@ -4637,20 +4720,13 @@ fun MineScreen(
                     onAction = onGoSearch
                 )
             } else {
-                MineSectionCard(modifier = Modifier.weight(1f)) {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        stickyHeader(key = "mine-pl-head") {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(ObsidianSurface)
-                                    .padding(bottom = 4.dp)
-                            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                MineSectionCard {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                                     Text(
                                         text = "我的歌单",
                                         style = MaterialTheme.typography.titleMedium
@@ -4699,9 +4775,7 @@ fun MineScreen(
                                         }
                                     }
                                 }
-                            }
-                        }
-                        items(playlists, key = { it.id.ifBlank { it.name } }) { pl ->
+                                playlists.forEach { pl ->
                             val checked = pl.id in checkedIds
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -5398,6 +5472,87 @@ fun HistoryScreen(
                 onDeleteOne(target)
             },
             onDismiss = { confirmDelete = null }
+        )
+    }
+}
+
+@Composable
+fun FavoritesScreen(
+    modifier: Modifier = Modifier,
+    songs: List<Song>,
+    loading: Boolean,
+    favIds: Set<String> = emptySet(),
+    onPlayAt: (Int) -> Unit,
+    onToggleFav: (Song) -> Unit = {},
+    onAddToPlaylist: (Song) -> Unit = {},
+    onRetry: () -> Unit = {},
+    onBack: () -> Unit
+) {
+    var sheetFor by remember { mutableStateOf<Song?>(null) }
+    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) {
+                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
+                Text("我的")
+            }
+            Text(
+                text = "我的收藏",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+            if (songs.isNotEmpty()) {
+                Text(
+                    text = "${songs.size} 首",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GrayMuted
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        if (loading) {
+            SearchSkeleton()
+            return
+        }
+        if (songs.isEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("还没有收藏，去搜一首点❤吧")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onRetry) {
+                Text("刷新")
+            }
+            return
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            itemsIndexed(songs, key = { idx, s -> s.sourceId + s.platform + idx }) { index, song ->
+                SongRow(
+                    model = buildSongRowModel(song),
+                    meta = if (song.durationSec > 0) {
+                        formatDuration(song.durationSec)
+                    } else {
+                        null
+                    },
+                    onClick = { onPlayAt(index) },
+                    onOverflow = { sheetFor = song }
+                )
+            }
+        }
+    }
+    sheetFor?.let { target ->
+        val faved = target.sourceId.isNotBlank() && target.sourceId in favIds
+        SongMenuSheet(
+            title = target.name.ifBlank { "(untitled)" },
+            actions = listOf(
+                SongMenuAction("fav", if (faved) "取消收藏" else "收藏"),
+                SongMenuAction("add", "加入歌单")
+            ),
+            onAction = { id ->
+                when (id) {
+                    "fav" -> onToggleFav(target)
+                    "add" -> onAddToPlaylist(target)
+                }
+                sheetFor = null
+            },
+            onDismiss = { sheetFor = null }
         )
     }
 }

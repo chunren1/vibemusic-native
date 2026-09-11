@@ -164,6 +164,19 @@ fun friendlyNetworkMessage(t: Throwable): String {
     return t.message ?: t.javaClass.simpleName
 }
 
+/**
+ * Pure: build a failure toast that keeps the friendly Chinese copy but
+ * appends the raw server/transport message in parentheses, so the next
+ * failure is diagnosable from a screenshot. Blank or identical raw
+ * messages add nothing (no duplicated text).
+ */
+fun diagnosableError(prefix: String, t: Throwable): String {
+    val friendly = friendlyNetworkMessage(t)
+    val raw = t.message.orEmpty().trim()
+    return if (raw.isBlank() || raw == friendly) "$prefix: $friendly"
+    else "$prefix: $friendly（$raw）"
+}
+
 object VibeApi {
     const val BASE_URL = "https://vibe.cyk666.top/"
 
