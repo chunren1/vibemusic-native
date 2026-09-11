@@ -44,7 +44,7 @@ class AuthRefreshOutcomeTest {
     }
 
     /** Minimal single-response HTTP stub over ServerSocket (no new deps). */
-    private class StubHttp(private val body: String) {
+    private class StubHttp(private val body: String, private val httpCode: Int = 200) {
         private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val port: Int get() = server.localPort
 
@@ -67,8 +67,9 @@ class AuthRefreshOutcomeTest {
                                 repeat(contentLength) { input.read() }
                                 val bytes = body.toByteArray()
                                 val out = s.getOutputStream()
+                                val reason = if (httpCode == 401) "Unauthorized" else "OK"
                                 out.write(
-                                    ("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                                    ("HTTP/1.1 $httpCode $reason\r\nContent-Type: application/json\r\n" +
                                         "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n")
                                         .toByteArray()
                                 )
@@ -93,7 +94,7 @@ class AuthRefreshOutcomeTest {
     }
 
     private fun stubServer(body: String, httpCode: Int = 200): StubHttp =
-        StubHttp(body).apply { start() }
+        StubHttp(body, httpCode).apply { start() }
 
     private fun okJson(token: String, refreshToken: String): String =
         JSONObject()
@@ -122,8 +123,80 @@ class AuthRefreshOutcomeTest {
     }
 
     @Test
-    fun refreshOutcome_garbageReplyKeepsStoredTokens(): Unit = runBlocking {
+    fun refreshOutcome_garbageReplyIsNetworkFailKeepsStoredTokens(): Unit = runBlocking {
         val server = stubServer("garbage{{{")
+        try {
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun refreshOutcome_tunnelHtmlBlipIsNetworkFailKeepsStoredTokens(): Unit = runBlocking {
+        val server = stubServer("<html><body>Bad Gateway</body></html>")
+        try {
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun refreshOutcome_emptyBodyIsNetworkFailKeepsStoredTokens(): Unit = runBlocking {
+        val server = stubServer("")
+        try {
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun refreshOutcome_envelope500IsNetworkFailKeepsStoredTokens(): Unit = runBlocking {
+        val server = stubServer(
+            JSONObject().put("code", 500).put("message", "boom").toString()
+        )
+        try {
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun refreshOutcome_envelope200MissingTokenIsNetworkFailKeepsStoredTokens(): Unit = runBlocking {
+        val server = stubServer(JSONObject().put("code", 200).toString())
+        try {
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun refreshOutcome_http401GarbageBodyIsInvalidToken(): Unit = runBlocking {
+        val server = stubServer("<html>Unauthorized</html>", httpCode = 401)
         try {
             val outcome = VibeApi.trySilentRefreshWith("old-acc", server.endpoint(), testClient)
             assertEquals(RefreshOutcome.INVALID_TOKEN, outcome)
@@ -133,6 +206,46 @@ class AuthRefreshOutcomeTest {
         } finally {
             server.stop()
         }
+    }
+
+    // ---- isDecisiveRefreshRejection truth table (pure, no server) ----
+
+    @Test
+    fun decisiveRejection_envelope401IsDecisive() {
+        assertTrue(
+            isDecisiveRefreshRejection(
+                200,
+                JSONObject().put("code", 401).put("message", "expired").toString()
+            )
+        )
+    }
+
+    @Test
+    fun decisiveRejection_http401IsDecisiveEvenWithGarbageBody() {
+        assertTrue(isDecisiveRefreshRejection(401, "<html>Unauthorized</html>"))
+        assertTrue(isDecisiveRefreshRejection(401, ""))
+    }
+
+    @Test
+    fun decisiveRejection_garbageEmptyAnd5xxAreTransient() {
+        assertFalse(isDecisiveRefreshRejection(200, "garbage{{{"))
+        assertFalse(isDecisiveRefreshRejection(200, ""))
+        assertFalse(isDecisiveRefreshRejection(200, "   "))
+        assertFalse(isDecisiveRefreshRejection(200, "<html>tunnel blip</html>"))
+        assertFalse(
+            isDecisiveRefreshRejection(
+                200,
+                JSONObject().put("code", 500).put("message", "boom").toString()
+            )
+        )
+        assertFalse(
+            isDecisiveRefreshRejection(
+                500,
+                JSONObject().put("code", 500).put("message", "boom").toString()
+            )
+        )
+        assertFalse(isDecisiveRefreshRejection(200, JSONObject().put("code", 200).toString()))
+        assertFalse(isDecisiveRefreshRejection(200, JSONObject().put("message", "no code").toString()))
     }
 
     @Test

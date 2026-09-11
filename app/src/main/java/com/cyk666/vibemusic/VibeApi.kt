@@ -68,7 +68,11 @@ fun isGuestPayload(data: JSONObject): Boolean {
 
 /**
  * Pure: parse a POST /api/auth/refresh response. Returns null on any failure
- * (401 envelope, missing data/blank token) — caller treats null as "re-login".
+ * (non-200 envelope, missing data/blank token, garbage/empty body).
+ *
+ * Null alone is NOT "re-login": only [isDecisiveRefreshRejection] decides
+ * whether the null means the credential is dead (401) or the network blipped
+ * (garbage/empty/5xx → keep tokens, retry later). See postRefresh.
  */
 fun parseRefreshResult(json: String): RefreshResult? {
     return try {
@@ -80,6 +84,28 @@ fun parseRefreshResult(json: String): RefreshResult? {
         RefreshResult(token, data.optString("refreshToken"))
     } catch (_: Exception) {
         null
+    }
+}
+
+/**
+ * Pure: did the server DECISIVELY reject the refresh credential?
+ *
+ * Only an explicit 401 — envelope `code==401`, or HTTP 401 status — counts.
+ * Everything else (garbage HTML from tunnel blips, empty body, unparseable
+ * JSON, envelope 5xx / missing code, other HTTP statuses) is transient:
+ * the 7-day refreshToken is probably still valid (backend is JWT-stateless;
+ * restarts never invalidate it), so the caller must keep the tokens and let
+ * the next authed call retry. A single network blip must never log the user
+ * out.
+ */
+fun isDecisiveRefreshRejection(httpCode: Int, raw: String): Boolean {
+    if (httpCode == 401) return true
+    if (raw.isBlank()) return false
+    return try {
+        val root = JSONObject(raw)
+        root.has("code") && root.optInt("code", -1) == 401
+    } catch (_: Exception) {
+        false
     }
 }
 
@@ -245,7 +271,7 @@ object VibeApi {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 return RefreshOutcome.NETWORK_FAIL
             } ?: return RefreshOutcome.INVALID_TOKEN
-            if (res.token.isBlank()) return RefreshOutcome.INVALID_TOKEN
+            if (res.token.isBlank()) return RefreshOutcome.NETWORK_FAIL
             AuthToken.token = res.token
             if (res.refreshToken.isNotBlank()) AuthToken.refreshToken = res.refreshToken
             return try {
@@ -259,10 +285,13 @@ object VibeApi {
     }
 
     /**
-     * POST the refresh grant. Returns the decoded pair, null when the
-     * server decisively rejects the credential (401 envelope / garbage /
-     * blank token → INVALID_TOKEN upstream), and THROWS on anything
-     * transport-level (IOException/timeout/DNS → NETWORK_FAIL upstream).
+     * POST the refresh grant. Returns the decoded pair, null ONLY when the
+     * server decisively rejects the credential (envelope code==401 or HTTP
+     * 401 → INVALID_TOKEN upstream), and THROWS on anything else that is not
+     * a clean success: transport-level failures (IOException/timeout/DNS) as
+     * well as garbage/empty/unparseable bodies and non-401 envelopes (tunnel
+     * HTML blips, 5xx) all surface as NetworkAuthException → NETWORK_FAIL
+     * upstream (tokens kept, next authed call retries).
      */
     private suspend fun postRefresh(
         endpoint: String,
@@ -290,7 +319,16 @@ object VibeApi {
                             } catch (e: java.io.IOException) {
                                 throw e
                             }
-                            cont.resume(parseRefreshResult(raw))
+                            val parsed = parseRefreshResult(raw)
+                            if (parsed != null) {
+                                cont.resume(parsed)
+                            } else if (isDecisiveRefreshRejection(it.code, raw)) {
+                                cont.resume(null)
+                            } else {
+                                cont.resumeWithException(
+                                    NetworkAuthException("网络连接断开，登录态保留")
+                                )
+                            }
                         }
                     } catch (e: Exception) {
                         try {

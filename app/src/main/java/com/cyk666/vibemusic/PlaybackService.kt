@@ -1,5 +1,7 @@
 package com.cyk666.vibemusic
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -371,7 +373,26 @@ class PlaybackService : MediaSessionService() {
         // 1.0.27-ai total-playback-death report (2nd incident; same suspect as
         // 1.0.10-ai). Pure helpers + tests stay pinned; Activity ensureTimeline
         // remains the single recovery path. See lessons.
-        mediaSession = MediaSession.Builder(this, exo).build()
+        // Tap-to-open: without a session activity the notification tap does
+        // nothing (users read it as "notification dead"). This only sets the
+        // launch target — no callback / player-command logic touched.
+        val launchIntent = try {
+            packageManager.getLaunchIntentForPackage(packageName)
+                ?: Intent(this, MainActivity::class.java)
+        } catch (_: Exception) {
+            Intent(this, MainActivity::class.java)
+        }
+        val sessionBuilder = MediaSession.Builder(this, exo)
+        try {
+            sessionBuilder.setSessionActivity(
+                PendingIntent.getActivity(
+                    this, 0, launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        } catch (_: Exception) {
+        }
+        mediaSession = sessionBuilder.build()
     }
 
     fun playQueue(songs: List<Song>, index: Int) {
@@ -401,6 +422,25 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
+
+    // Swipe-away from recents: while audible the service stays foreground so
+    // the session + notification survive; when already paused/idle, stop
+    // quietly instead of lingering with a dead notification. Process death
+    // itself (MIUI battery saver) is outside app control — recovery is the
+    // Activity QueueStore-snapshot + ensureTimeline path, see MainActivity.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val playing = try {
+            player?.isPlaying == true
+        } catch (_: Exception) {
+            false
+        }
+        if (!playing) {
+            try {
+                stopSelf()
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     override fun onDestroy() {
         mediaSession?.run {

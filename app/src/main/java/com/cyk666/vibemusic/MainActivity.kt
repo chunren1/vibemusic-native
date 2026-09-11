@@ -108,6 +108,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -221,6 +224,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             var controller by remember { mutableStateOf<MediaController?>(null) }
+            // Long-background reconnect generation: bumped on ON_START when the
+            // bound controller is missing or its binder died (service killed by
+            // the OS / MIUI battery saver). The controller effect keys on it
+            // and rebuilds; timeline recovery stays on ensureTimeline from the
+            // QueueStore snapshot — never on session callbacks (see
+            // PlaybackService NOTEs: materializers reverted twice).
+            var controllerGen by remember { mutableIntStateOf(0) }
             var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
             // Phase 10: where the user came from before entering Player, so
             // swipe-down-close returns to the previous tab (default Search).
@@ -1895,7 +1905,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            DisposableEffect(context) {
+            DisposableEffect(context, controllerGen) {
+                val builtGen = controllerGen
                 val sessionToken = SessionToken(
                     context,
                     ComponentName(context, PlaybackService::class.java)
@@ -2133,6 +2144,13 @@ class MainActivity : ComponentActivity() {
                     {
                         try {
                             val c = future.get()
+                            if (builtGen != controllerGen) {
+                                try {
+                                    c.release()
+                                } catch (_: Exception) {
+                                }
+                                return@addListener
+                            }
                             c.addListener(listener)
                             isPlaying = c.isPlaying
                             if (queue.isEmpty() && c.mediaItemCount > 0) {
@@ -2162,8 +2180,11 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         } catch (e: Exception) {
+                            if (builtGen != controllerGen) return@addListener
                             showError(
-                                "播放器连接失败: ${e.message ?: e.javaClass.simpleName}"
+                                controllerFailureMessage(
+                                    e.message ?: e.javaClass.simpleName
+                                )
                             )
                         }
                     },
@@ -2186,6 +2207,40 @@ class MainActivity : ComponentActivity() {
                         future.cancel(true)
                     }
                 }
+            }
+
+            // Foreground reconnect: after 30+ min background the bound
+            // controller may point at a dead session (binder died with the
+            // service process) while non-null, so every button silently
+            // no-ops. Probe cheaply on ON_START; on failure release + bump
+            // the generation so the effect above rebinds to the live
+            // session. Audible recovery after rebind is ensureTimeline's job
+            // (QueueStore snapshot), called by every transport entry point.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val obs = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_START) {
+                        val c = controller
+                        val probeFailed = if (c == null) false
+                        else try {
+                            c.playbackState
+                            c.mediaItemCount
+                            false
+                        } catch (_: Exception) {
+                            true
+                        }
+                        if (shouldReconnectController(c == null, probeFailed)) {
+                            try {
+                                c?.release()
+                            } catch (_: Exception) {
+                            }
+                            controller = null
+                            controllerGen += 1
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(obs)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
             }
 
             LaunchedEffect(Unit) {
@@ -3123,6 +3178,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * Reconnect policy (pure): rebind the MediaController when it is missing
+ * (never connected / released after process death) or when the ON_START
+ * probe threw (binder died with the service process while the reference
+ * stayed non-null). A live controller is never rebound — rebinding it
+ * would drop the listener and flicker playback state for no gain.
+ */
+fun shouldReconnectController(controllerNull: Boolean, probeFailed: Boolean): Boolean =
+    controllerNull || probeFailed
+
+/**
+ * Connection-failure toast copy (pure): keeps the raw reason diagnosable
+ * and tells the user the one thing that actually fixes OEM background
+ * kills — self-start + ignore-battery-optimization (MIUI path included).
+ * The OS kill itself is outside app control (see PlaybackService
+ * onTaskRemoved); this message is the documented guidance.
+ */
+fun controllerFailureMessage(reason: String): String =
+    "播放器连接失败: $reason。若后台常被杀，请给 VibeMusic 开自启动并忽略电池优化（MIUI：设置→省电与电池）"
 
 /**
  * Cold-start transport guard (pure): after process death the Activity restores
