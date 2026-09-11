@@ -199,4 +199,46 @@ class KaraokeTest {
         assertEquals(120, KARAOKE_SMOOTH_MS)
         assertEquals(100L, LYRIC_FAST_TICK_MS)
     }
+
+    @Test
+    fun sweep_interpolatesInsideActiveWord() {
+        val words = listOf(
+            WordTimed(10_000L, 11_000L, "爱"),
+            WordTimed(11_000L, 13_000L, "意随风")
+        )
+        assertEquals(0f, karaokeSweepFraction(words, 9_000L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(0f, karaokeSweepFraction(words, 10_000L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(0.125f, karaokeSweepFraction(words, 10_500L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(0.25f, karaokeSweepFraction(words, 11_000L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(0.625f, karaokeSweepFraction(words, 12_000L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(1f, karaokeSweepFraction(words, 13_000L, 10_000L, 13_000L), 1e-6f)
+        assertEquals(1f, karaokeSweepFraction(words, 99_000L, 10_000L, 13_000L), 1e-6f)
+    }
+
+    @Test
+    fun sweep_unknownEndRunsToNextStart() {
+        val words = listOf(
+            WordTimed(10_000L, WORD_END_UNKNOWN, "爱"),
+            WordTimed(12_000L, WORD_END_UNKNOWN, "意")
+        )
+        assertEquals(0f, karaokeSweepFraction(words, 9_000L, 10_000L, 14_000L), 1e-6f)
+        assertEquals(0.25f, karaokeSweepFraction(words, 11_000L, 10_000L, 14_000L), 1e-6f)
+        assertEquals(0.5f, karaokeSweepFraction(words, 12_000L, 10_000L, 14_000L), 1e-6f)
+        assertEquals(0.75f, karaokeSweepFraction(words, 13_000L, 10_000L, 14_000L), 1e-6f)
+        assertEquals(1f, karaokeSweepFraction(words, 14_000L, 10_000L, 14_000L), 1e-6f)
+    }
+
+    @Test
+    fun sweep_emptyWordsFallsBackToLineLevel() {
+        assertEquals(0.5f, karaokeSweepFraction(emptyList(), 15_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(0f, karaokeSweepFraction(emptyList(), 5_000L, 10_000L, 20_000L), 1e-6f)
+        assertEquals(1f, karaokeSweepFraction(emptyList(), 25_000L, 10_000L, 20_000L), 1e-6f)
+    }
+
+    @Test
+    fun sweep_degenerateWindowLightsInstantly() {
+        val words = listOf(WordTimed(10_000L, 10_000L, "啊"))
+        assertEquals(0f, karaokeSweepFraction(words, 9_999L, 10_000L, 14_000L), 1e-6f)
+        assertEquals(1f, karaokeSweepFraction(words, 10_000L, 10_000L, 14_000L), 1e-6f)
+    }
 }

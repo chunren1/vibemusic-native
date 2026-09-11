@@ -1,20 +1,26 @@
 package com.cyk666.vibemusic
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import org.json.JSONArray
 
 // Karaoke renderer (dual-mode, zero backend dependency).
 //
 // Mode A (true word timing): LyricLine.words carries per-word [startMs, endMs).
-//   Active word = champagne bold, completed words = champagne, upcoming = muted.
+//   The active line sweep-fills bright left-to-right, interpolated inside the
+//   active word; completed share stays bright, upcoming stays muted.
 // Mode B (fallback, available today): backend sends line timing only, so the
 //   line duration is split evenly across Unicode code points. This is an
 //   APPROXIMATION — it tracks line progress, not the true vocal beat. It
@@ -230,9 +236,55 @@ fun smoothLyricPosition(lineStartMs: Long, lineEndMs: Long, fraction: Float): Lo
 }
 
 /**
- * Dual-mode karaoke line. Inactive lines render fully muted (matches the old
- * lyric list look); the active line lights words/chars champagne up to
- * [positionMs], with the current word bold.
+ * Pure: continuous left-to-right sweep fraction for the active lyric line.
+ *
+ * Word timings drive the sweep: each word owns a horizontal share
+ * proportional to its code-point length, and inside the active word the
+ * fraction interpolates linearly between word start and word end — so the
+ * bright edge glides smoothly instead of popping word by word. A word with
+ * unknown end runs until the next word start (or [lineEndMs] for the last
+ * word); zero-length windows light instantly once started. Empty word lists
+ * fall back to plain line-level progress ([lineStartMs] → [lineEndMs]).
+ * Result is always clamped to 0..1 with no allocations beyond the loop.
+ */
+fun karaokeSweepFraction(
+    words: List<WordTimed>,
+    positionMs: Long,
+    lineStartMs: Long,
+    lineEndMs: Long
+): Float {
+    if (words.isEmpty()) return karaokeLineFraction(positionMs, lineStartMs, lineEndMs)
+    var total = 0
+    for (w in words) total += w.text.codePointCount(0, w.text.length)
+    if (total <= 0) return karaokeLineFraction(positionMs, lineStartMs, lineEndMs)
+    var done = 0
+    for (i in words.indices) {
+        val w = words[i]
+        val weight = w.text.codePointCount(0, w.text.length)
+        val start = w.startMs
+        val end = if (w.endMs >= 0) w.endMs
+        else words.getOrNull(i + 1)?.startMs?.takeIf { it > start } ?: lineEndMs
+        if (positionMs < start) return done.toFloat() / total
+        if (end <= start) {
+            done += weight
+            continue
+        }
+        if (positionMs >= end) {
+            done += weight
+            continue
+        }
+        val local = (positionMs - start).toFloat() / (end - start).toFloat()
+        return (done + weight * local.coerceIn(0f, 1f)) / total
+    }
+    return 1f
+}
+
+/**
+ * Sweep-fill karaoke line: a dim base text plus a bright overlay clipped to
+ * the [karaokeSweepFraction] width, so the current line fills smoothly
+ * left-to-right synced to word timings. Inactive lines render fully muted.
+ * The overlay is measured at the same full width as the base, so wrapping
+ * is identical and only a GPU clip moves per frame.
  */
 @Composable
 fun KaraokeLine(
@@ -242,42 +294,49 @@ fun KaraokeLine(
     isActive: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val lineStartMs = (line.timeSec * 1000).toLong()
     val words = remember(line, lineEndMs) {
         val w = line.words?.takeIf { it.isNotEmpty() }
-        w ?: proportionalSplit(line.text, (line.timeSec * 1000).toLong(), lineEndMs)
+        w ?: proportionalSplit(line.text, lineStartMs, lineEndMs)
+    }
+    val plain = if (words.isNotEmpty()) {
+        buildString { words.forEach { append(it.text) } }
+    } else {
+        line.text.ifBlank { " " }
     }
     if (!isActive) {
         Text(
-            text = if (words.isNotEmpty()) words.joinToString("") { it.text } else line.text.ifBlank { " " },
+            text = plain,
             style = MaterialTheme.typography.bodyMedium,
             color = KaraokeDim,
             modifier = modifier
         )
         return
     }
-    val activeIdx = wordAtTime(words, positionMs)
-    val annotated = buildAnnotatedString {
-        if (words.isEmpty()) {
-            pushStyle(SpanStyle(color = KaraokeDim))
-            append(line.text.ifBlank { " " })
-            pop()
-        } else {
-            words.forEachIndexed { i, w ->
-                val lit = positionMs >= w.startMs
-                pushStyle(
-                    SpanStyle(
-                        color = if (lit) KaraokeLit else KaraokeDim,
-                        fontWeight = if (i == activeIdx) FontWeight.Bold else FontWeight.Normal
-                    )
-                )
-                append(w.text)
-                pop()
-            }
+    val target = karaokeSweepFraction(words, positionMs, lineStartMs, lineEndMs)
+    val sweep by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(KARAOKE_SMOOTH_MS),
+        label = "karaokeSweep"
+    )
+    val style = MaterialTheme.typography.titleMedium
+    BoxWithConstraints(modifier = modifier) {
+        val full = maxWidth
+        val lit = full * sweep.coerceIn(0f, 1f)
+        Text(text = plain, style = style, color = KaraokeDim)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .width(lit)
+                .clipToBounds()
+        ) {
+            Text(
+                text = plain,
+                style = style,
+                color = KaraokeLit,
+                maxLines = Int.MAX_VALUE,
+                modifier = Modifier.width(full)
+            )
         }
     }
-    Text(
-        text = annotated,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = modifier
-    )
 }

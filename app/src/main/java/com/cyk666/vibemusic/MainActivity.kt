@@ -57,6 +57,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -720,7 +722,6 @@ class MainActivity : ComponentActivity() {
                         c.shuffleModeEnabled = rs.shuffleOn
                     }
                     playMode = next
-                    announceTop(playModeAnnouncement(next))
                     scope.launch {
                         try {
                             val rs = next.toRepeatShuffle()
@@ -2906,7 +2907,8 @@ class MainActivity : ComponentActivity() {
                                     queue.getOrNull(currentIndex)?.let(::toggleFav)
                                 },
                                 sleepActive = sleepMinutes > 0,
-                                audioSessionId = PlaybackService.lastAudioSessionId
+                                audioSessionId = PlaybackService.lastAudioSessionId,
+                                onOpenSearch = { screen = Screen.Search }
                             )
 
                             is Screen.Queue -> QueueScreen(
@@ -2955,8 +2957,6 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onRetryPlaylists = { loadPlaylists() },
                                 onSelectPlaylist = { pl ->
-                                    val name = pl.name.ifBlank { "(untitled)" }
-                                    announceTop("正在打开「$name」…")
                                     loadSongs(pl)
                                     screen = Screen.PlaylistDetail(pl)
                                 },
@@ -2984,7 +2984,6 @@ class MainActivity : ComponentActivity() {
                                 onBrowse = { screen = Screen.Discover },
                                 onOpenSettings = { screen = Screen.Settings },
                                 onOpenPlaylists = {
-                                    announceTop("正在打开我的歌单…")
                                     screen = Screen.Playlists
                                 }
                             )
@@ -2995,8 +2994,6 @@ class MainActivity : ComponentActivity() {
                                 playlistsLoading = playlistsLoading,
                                 onBack = { screen = Screen.Mine },
                                 onSelectPlaylist = { pl ->
-                                    val name = pl.name.ifBlank { "(untitled)" }
-                                    announceTop("正在打开「$name」…")
                                     loadSongs(pl)
                                     screen = Screen.PlaylistDetail(pl)
                                 },
@@ -3656,6 +3653,83 @@ fun HeroControls(
 }
 
 @Composable
+private fun PlayerSeekSection(
+    positionMs: Long,
+    durationMs: Long,
+    enabled: Boolean,
+    onSeek: (Long) -> Unit
+) {
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableLongStateOf(0L) }
+    val shownMs = if (dragging) dragValue else positionMs
+    val sliderMax = durationMs.coerceAtLeast(1L).toFloat()
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // 5dp custom track drawn under a transparent-track Slider:
+        // the value-based Slider in material3 1.3.0 has no track/thumb
+        // slots (only the experimental SliderState overload does), so
+        // the thick violet track is an overlay and the Slider itself
+        // supplies the drag handling + champagne thumb.
+        val sliderValue = shownMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
+            .coerceIn(0f, sliderMax)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(GrayMuted.copy(alpha = 0.35f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth((sliderValue / sliderMax).coerceIn(0f, 1f))
+                        .background(NeonViolet)
+                )
+            }
+            Slider(
+                value = sliderValue,
+                onValueChange = {
+                    dragging = true
+                    dragValue = it.toLong()
+                },
+                onValueChangeFinished = {
+                    dragging = false
+                    onSeek(dragValue.coerceIn(0L, durationMs.coerceAtLeast(0L)))
+                },
+                valueRange = 0f..sliderMax,
+                enabled = enabled && durationMs > 0,
+                colors = SliderDefaults.colors(
+                    thumbColor = Champagne,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatDuration((shownMs / 1000).toInt()),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Monospace
+                ),
+                color = InkOnDark
+            )
+            Text(
+                text = formatDuration((durationMs.coerceAtLeast(0L) / 1000).toInt()),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Monospace
+                ),
+                color = GrayMuted
+            )
+        }
+    }
+}
+
+@Composable
 fun PlayerScreen(
     modifier: Modifier = Modifier,
     queue: List<Song>,
@@ -3682,13 +3756,10 @@ fun PlayerScreen(
     isFav: Boolean = false,
     onToggleFav: () -> Unit = {},
     sleepActive: Boolean = false,
-    audioSessionId: Int = 0
+    audioSessionId: Int = 0,
+    onOpenSearch: () -> Unit = {}
 ) {
     val song = queue.getOrNull(currentIndex)
-    var dragging by remember { mutableStateOf(false) }
-    var dragValue by remember { mutableLongStateOf(0L) }
-    val shownMs = if (dragging) dragValue else positionMs
-    val sliderMax = durationMs.coerceAtLeast(1L).toFloat()
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
     val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
     val lyricsListState = rememberLazyListState()
@@ -3768,104 +3839,117 @@ fun PlayerScreen(
             label = "playerView"
         ) { v ->
             if (v == PlayerView.LYRICS && song != null) {
-            // Player rhythm (NetEase order: cover/title-artist/progress/
-            // controls/action row): single statusBarsPadding at the Column
-            // so COVER and LYRICS share one top inset (was: per-Row inset
-            // inside different Column paddings per view).
+            var showOverflow by remember(song.sourceId) { mutableStateOf(false) }
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth()
+                        .pointerInput(song.sourceId) {
+                            var tx = 0f
+                            var ty = 0f
+                            detectDragGestures(
+                                onDragStart = { tx = 0f; ty = 0f },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    tx += amount.x
+                                    ty += amount.y
+                                },
+                                onDragEnd = {
+                                    val dxDp = with(density) { tx.toDp().value }
+                                    val dyDp = with(density) { ty.toDp().value }
+                                    fireGesture(
+                                        resolvePlayerGesture(
+                                            dxDp,
+                                            dyDp,
+                                            fromCoverZone = false
+                                        )
+                                    )
+                                }
+                            )
+                        },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
-                        onClick = { view = PlayerView.COVER },
-                        modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
-                    ) {
-                        AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                        Text("封面")
-                    }
-                    Text(
-                        text = song.name.ifBlank { "(untitled)" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier.size(48.dp)
                     ) {
-                        AppIcon(AppIconKind.CLOSE, InkOnDark)
+                        AppIcon(AppIconKind.CHEVRON_LEFT, InkOnDark)
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = song.name.ifBlank { "(untitled)" },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = InkOnDark,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = song.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GrayMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenSearch,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.SEARCH, InkOnDark)
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                when (lyricState) {
-                    null, LyricUiState.Loading -> SearchSkeleton()
-                    LyricUiState.Failed -> EmptyStateLine(
-                        text = "歌词加载失败",
-                        actionLabel = "返回封面",
-                        onAction = { view = PlayerView.COVER }
-                    )
-                    is LyricUiState.Ok -> if (lines.isEmpty()) {
-                        EmptyStateLine(
-                            text = "暂无歌词",
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (lyricState) {
+                        null, LyricUiState.Loading -> SearchSkeleton()
+                        LyricUiState.Failed -> EmptyStateLine(
+                            text = "歌词加载失败",
                             actionLabel = "返回封面",
                             onAction = { view = PlayerView.COVER }
                         )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            state = lyricsListState,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
-                                val active = idx == currentLine
-                                val lineStartMs = (line.timeSec * 1000).toLong()
-                                val nextStartMs = lines.getOrNull(idx + 1)
-                                    ?.let { (it.timeSec * 1000).toLong() }
-                                val lineEndMs = when {
-                                    nextStartMs != null && nextStartMs > lineStartMs -> nextStartMs
-                                    durationMs > 0 -> durationMs
-                                    else -> positionMs.coerceAtLeast(lineStartMs) + 4_000L
-                                }
-                                if (active) {
-                                    // Smooth the 500ms/100ms poll steps: animate the
-                                    // line fraction toward its target (120ms tween)
-                                    // and render from the smoothed position.
-                                    val target = karaokeLineFraction(
-                                        lyricNowMs,
-                                        lineStartMs,
-                                        lineEndMs
-                                    )
-                                    val smooth by animateFloatAsState(
-                                        targetValue = target,
-                                        animationSpec = tween(KARAOKE_SMOOTH_MS),
-                                        label = "karaokeActive"
-                                    )
+                        is LyricUiState.Ok -> if (lines.isEmpty()) {
+                            EmptyStateLine(
+                                text = "暂无歌词",
+                                actionLabel = "返回封面",
+                                onAction = { view = PlayerView.COVER }
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = lyricsListState,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
+                                    val active = idx == currentLine
+                                    val lineStartMs = (line.timeSec * 1000).toLong()
+                                    val nextStartMs = lines.getOrNull(idx + 1)
+                                        ?.let { (it.timeSec * 1000).toLong() }
+                                    val lineEndMs = when {
+                                        nextStartMs != null && nextStartMs > lineStartMs -> nextStartMs
+                                        durationMs > 0 -> durationMs
+                                        else -> positionMs.coerceAtLeast(lineStartMs) + 4_000L
+                                    }
                                     KaraokeLine(
                                         line = line,
-                                        positionMs = smoothLyricPosition(
-                                            lineStartMs,
-                                            lineEndMs,
-                                            smooth
-                                        ),
+                                        positionMs = if (active) lyricNowMs else positionMs,
                                         lineEndMs = lineEndMs,
-                                        isActive = true,
+                                        isActive = active,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 6.dp, horizontal = 16.dp)
-                                    )
-                                } else {
-                                    KaraokeLine(
-                                        line = line,
-                                        positionMs = positionMs,
-                                        lineEndMs = lineEndMs,
-                                        isActive = false,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
+                                            .clickable { view = PlayerView.COVER }
                                             .padding(vertical = 6.dp, horizontal = 16.dp)
                                     )
                                 }
@@ -3874,14 +3958,135 @@ fun PlayerScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                HeroControls(
-                    isPlaying = isPlaying,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showOverflow = true },
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.MORE, InkOnDark)
+                    }
+                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
+                }
+                DropdownMenu(
+                    expanded = showOverflow,
+                    onDismissRequest = { showOverflow = false }
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (sleepActive) "睡眠定时：$sleepLabel" else "睡眠定时"
+                            )
+                        },
+                        onClick = {
+                            showOverflow = false
+                            onSleepClick()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("加到歌单") },
+                        onClick = {
+                            showOverflow = false
+                            onAddCurrentToPlaylist()
+                        },
+                        enabled = song != null
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                when {
+                                    downloadedCurrent -> "已缓存到本地"
+                                    downloadingCurrent -> "缓存中…"
+                                    else -> "缓存到本地"
+                                }
+                            )
+                        },
+                        onClick = {
+                            showOverflow = false
+                            onDownloadCurrent()
+                        },
+                        enabled = song != null && !downloadingCurrent && !downloadedCurrent
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                PlayerSeekSection(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
                     enabled = song != null,
-                    onPrev = onPrev,
-                    onPlayPause = onPlayPause,
-                    onNext = onNext,
-                    heroSize = 56.dp
+                    onSeek = onSeek
                 )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onCycleMode,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp).semantics {
+                            contentDescription = "播放模式：" +
+                                playMode.label + "，点击切换"
+                        }
+                    ) {
+                        AppIcon(playModeIconKind(playMode), InkOnDark)
+                    }
+                    IconButton(
+                        onClick = onPrev,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.PREV, if (song != null) InkOnDark else GrayMuted)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(if (song != null) NeonViolet else GrayMuted.copy(alpha = 0.4f))
+                            .clickable(enabled = song != null, onClick = onPlayPause),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AppIcon(
+                            kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
+                            tint = Color.White,
+                            size = 56.dp * 0.45f
+                        )
+                    }
+                    IconButton(
+                        onClick = onNext,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.NEXT, if (song != null) InkOnDark else GrayMuted)
+                    }
+                    IconButton(
+                        onClick = onOpenQueue,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.QUEUE, InkOnDark)
+                    }
+                }
+                buildPlayerMetaLine(
+                    isCached = isCached && song != null,
+                    sleepActive = sleepActive,
+                    sleepLabel = sleepLabel
+                )?.let { meta ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GrayMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         } else {
             // Same unified top inset as the LYRICS branch above.
@@ -3994,68 +4199,12 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(16.dp))
-                // 5dp custom track drawn under a transparent-track Slider:
-                // the value-based Slider in material3 1.3.0 has no track/thumb
-                // slots (only the experimental SliderState overload does), so
-                // the thick violet track is an overlay and the Slider itself
-                // supplies the drag handling + champagne thumb.
-                val sliderValue = shownMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
-                    .coerceIn(0f, sliderMax)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(GrayMuted.copy(alpha = 0.35f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth((sliderValue / sliderMax).coerceIn(0f, 1f))
-                                .background(NeonViolet)
-                        )
-                    }
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = {
-                            dragging = true
-                            dragValue = it.toLong()
-                        },
-                        onValueChangeFinished = {
-                            dragging = false
-                            onSeek(dragValue.coerceIn(0L, durationMs.coerceAtLeast(0L)))
-                        },
-                        valueRange = 0f..sliderMax,
-                        enabled = song != null && durationMs > 0,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Champagne,
-                            activeTrackColor = Color.Transparent,
-                            inactiveTrackColor = Color.Transparent
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatDuration((shownMs / 1000).toInt()),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        color = InkOnDark
-                    )
-                    Text(
-                        text = formatDuration((durationMs.coerceAtLeast(0L) / 1000).toInt()),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        color = GrayMuted
-                    )
-                }
+                PlayerSeekSection(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    enabled = song != null,
+                    onSeek = onSeek
+                )
                 Spacer(Modifier.height(16.dp))
                 HeroControls(
                     isPlaying = isPlaying,
