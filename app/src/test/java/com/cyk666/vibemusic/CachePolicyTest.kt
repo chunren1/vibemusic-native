@@ -119,4 +119,16 @@ class CachePolicyTest {
         assertEquals(0L, MediaCache.cachedBytes(ctx, demo.streamUrl()))
     }
 
+    @Test
+    fun clear_returnsTrueAndKeepsSingletonAlive() {
+        // Playback coordination: clear must never release the live instance
+        // held by PlaybackService's CacheDataSource — evict, don't rebuild.
+        val ctx = context()
+        val before = MediaCache.get(ctx)
+        assertTrue(MediaCache.clear(ctx))
+        assertSame(before, MediaCache.get(ctx))
+        assertEquals(0L, MediaCache.cachedBytes(ctx, demo.streamUrl()))
+        assertTrue(MediaCache.sizeBytes(ctx) >= 0L)
+    }
+
 }

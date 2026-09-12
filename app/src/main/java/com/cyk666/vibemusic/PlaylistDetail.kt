@@ -55,3 +55,15 @@ fun filterInPlaylistSongs(songs: List<Song>, query: String): List<Song> {
             s.artist.contains(q, ignoreCase = true)
     }
 }
+
+/**
+ * Pure landing guard for playlist-songs loads: drop a response that belongs
+ * to a superseded request (generation mismatch) or a no-longer-selected
+ * playlist (id mismatch), so fast playlist switching can't cross-contaminate.
+ */
+fun isStalePlaylistSongs(
+    completedGen: Int,
+    latestGen: Int,
+    currentId: String?,
+    landedId: String
+): Boolean = completedGen != latestGen || currentId != landedId

@@ -342,6 +342,10 @@ class MainActivity : ComponentActivity() {
             var playlistSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
             var songsLoading by remember { mutableStateOf(false) }
             var playlistSongsError by remember { mutableStateOf<String?>(null) }
+            // Same Job-cancel + generation guards as runSearch: fast playlist
+            // switching must not land stale songs into the new selection.
+            var songsJob by remember { mutableStateOf<Job?>(null) }
+            var songsGen by remember { mutableIntStateOf(0) }
 
             // ---- discover state (memory only; 10-min TTL via discoverLastLoaded) ----
             var discoverBanners by remember { mutableStateOf(listOf<DiscoverBanner>()) }
@@ -429,7 +433,9 @@ class MainActivity : ComponentActivity() {
                     controller?.pause()
                 } catch (_: Exception) {
                 }
-                sleepMinutes = 0
+                // Persist the expiry too: loading restores sleepMinutes from
+                // disk, so a memory-only reset would resurrect the timer.
+                setSleep(0)
                 scope.launch { snackbar.showSnackbar("已按定时暂停") }
             }
 
@@ -476,6 +482,10 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         if (isStaleSearchResult(gen, searchGen)) return@launch
                         searchError = friendlyNetworkMessage(e)
+                        // A failed attempt still counts as searched: the result
+                        // branch owns the error UI, otherwise a first-search
+                        // failure renders a blank screen with no retry.
+                        searched = true
                         showError("搜索失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         if (!isStaleSearchResult(gen, searchGen)) loading = false
@@ -862,14 +872,23 @@ class MainActivity : ComponentActivity() {
             }
 
             fun clearMediaCache() {
+                // Pause first so no new spans are written mid-eviction; the
+                // pipeline itself stays intact (MediaCache.clear never releases
+                // the live instance), so no rebuild or auto-resume is needed.
+                try {
+                    controller?.pause()
+                } catch (_: Exception) {
+                }
                 scope.launch(Dispatchers.IO) {
-                    try {
+                    val ok = try {
                         MediaCache.clear(context)
                     } catch (_: Exception) {
+                        false
                     }
                     cacheTick += 1
                     withContext(Dispatchers.Main) {
-                        showError("已清理缓存")
+                        if (ok) showError("已清理缓存")
+                        else showError("清理失败，请重试")
                     }
                 }
             }
@@ -1032,11 +1051,20 @@ class MainActivity : ComponentActivity() {
                 playlistSongs = emptyList()
                 songsLoading = true
                 playlistSongsError = null
-                scope.launch {
+                songsJob?.cancel()
+                songsGen += 1
+                val gen = songsGen
+                val plId = pl.id
+                songsJob = scope.launch {
                     try {
-                        playlistSongs = VibeApi.playlistSongs(pl.id)
+                        val songs = VibeApi.playlistSongs(pl.id)
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
+                        playlistSongs = songs
                         playlistSongsError = null
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: AuthException) {
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         showError(e.message ?: "密码错/登录过期，请重登")
                         scope.launch {
                             try {
@@ -1046,10 +1074,11 @@ class MainActivity : ComponentActivity() {
                         }
                         currentUser = null
                     } catch (e: Exception) {
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         playlistSongsError = diagnosableError("歌曲加载失败", e)
                         showError(diagnosableError("歌曲加载失败", e))
                     } finally {
-                        songsLoading = false
+                        if (!isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) songsLoading = false
                     }
                 }
             }
@@ -3519,7 +3548,27 @@ fun SearchScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        } else if (searched) {
+        } else if (searched || searchError != null) {
+            // Failed refresh with stale rows: error line above the results
+            // instead of swapping to a blank retry page.
+            if (searchError != null && results.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = searchError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    TextButton(onClick = onRetrySearch) { Text("重试") }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
             if (artists.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -3566,7 +3615,10 @@ fun SearchScreen(
             )
             Spacer(Modifier.height(4.dp))
             if (visible.isEmpty()) {
-                when (selectListState(loading = false, error = searchError, isEmpty = true)) {
+                // Retry row only when nothing stale is on screen; stale rows
+                // keep their filter-empty message under the error line above.
+                val retryError = if (results.isEmpty()) searchError else null
+                when (selectListState(loading = false, error = retryError, isEmpty = true)) {
                     ListState.ERROR -> DiscoverRetryRow(
                         message = searchError.orEmpty(),
                         onRetry = onRetrySearch

@@ -7,14 +7,20 @@ import org.junit.Test
 
 class QueueDisplayTest {
 
-    private fun song(id: String, name: String = "n$id", dur: Int = 231) = Song(
+    private fun song(
+        id: String,
+        name: String = "n$id",
+        dur: Int = 231,
+        platform: String = "netease",
+        album: String = ""
+    ) = Song(
         sourceId = id,
         name = name,
         artist = "a$id",
-        album = "",
+        album = album,
         coverUrl = "",
         durationSec = dur,
-        platform = "netease"
+        platform = platform
     )
 
     private fun timelineSong(id: String, name: String = "n$id") = song(id, name, 0)
@@ -136,5 +142,56 @@ class QueueDisplayTest {
         val merged = mergeQueueDurations(listOf(song("a", dur = 200)), listOf(t))
         assertEquals(1, merged.size)
         assertEquals("", merged[0].sourceId)
+    }
+
+    @Test
+    fun resolve_carriesRealPlatformDurationAlbum() {
+        val row = resolveQueueRowDisplay(
+            activityQueue = listOf(
+                song("1", dur = 200, platform = "qq", album = "al1")
+            ),
+            timelineSong = timelineSong("1"),
+            isCurrent = false
+        )
+        assertEquals("qq", row.platform)
+        assertEquals(200, row.durationSec)
+        assertEquals("al1", row.album)
+    }
+
+    @Test
+    fun resolve_noMatchKeepsTimelinePlatform() {
+        val row = resolveQueueRowDisplay(
+            activityQueue = emptyList(),
+            timelineSong = song("9", dur = 0, platform = "migu"),
+            isCurrent = false
+        )
+        assertEquals("migu", row.platform)
+        assertEquals(0, row.durationSec)
+    }
+
+    @Test
+    fun toRowSong_passesThroughWithoutUiDefaults() {
+        val row = resolveQueueRowDisplay(
+            activityQueue = listOf(
+                song("1", dur = 200, platform = "qq", album = "al1")
+            ),
+            timelineSong = timelineSong("1"),
+            isCurrent = false
+        )
+        val back = row.toRowSong()
+        assertEquals("1", back.sourceId)
+        assertEquals(200, back.durationSec)
+        assertEquals("qq", back.platform)
+        assertEquals("al1", back.album)
+    }
+
+    @Test
+    fun toRowSong_inventsNoPlatformWhenUnknown() {
+        val row = resolveQueueRowDisplay(
+            activityQueue = emptyList(),
+            timelineSong = song("9", dur = 0, platform = ""),
+            isCurrent = false
+        )
+        assertEquals("", row.toRowSong().platform)
     }
 }

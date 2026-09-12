@@ -58,6 +58,41 @@ fun filterAndSortSongs(
 fun isStaleSearchResult(completedGen: Int, latestGen: Int): Boolean =
     completedGen != latestGen
 
+/** Search body branch: mirrors the SearchScreen when-chain (single source of truth for tests). */
+enum class SearchBody {
+    LOADING,
+    HISTORY,
+    IDLE,
+    ERROR_RETRY,
+    STALE_WITH_ERROR,
+    RESULTS,
+    NO_RESULT,
+    FILTER_EMPTY
+}
+
+/**
+ * Pure selector for the search body branch.
+ * error + no results → ERROR_RETRY (DiscoverRetryRow);
+ * error + stale results → STALE_WITH_ERROR (error line above rows).
+ */
+fun selectSearchBody(
+    loading: Boolean,
+    queryBlank: Boolean,
+    searched: Boolean,
+    error: String?,
+    hasResults: Boolean,
+    hasVisible: Boolean
+): SearchBody = when {
+    loading -> SearchBody.LOADING
+    queryBlank -> SearchBody.HISTORY
+    !searched && error == null -> SearchBody.IDLE
+    error != null && !hasResults -> SearchBody.ERROR_RETRY
+    error != null -> SearchBody.STALE_WITH_ERROR
+    !hasVisible && hasResults -> SearchBody.FILTER_EMPTY
+    !hasVisible -> SearchBody.NO_RESULT
+    else -> SearchBody.RESULTS
+}
+
 /**
  * Launch rule: the search screen starts with a BLANK query and never
  * auto-searches on cold start. Only a non-blank user-entered query may

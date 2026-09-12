@@ -75,19 +75,39 @@ object MediaCache {
     }
 
     /**
-     * Wipe the whole media cache (清理缓存 with confirm). Releases the singleton
-     * first so the index/DB locks are free, deletes the dir, recreates lazily.
+     * Wipe the whole media cache (清理缓存 with confirm). Never releases the
+     * live singleton: PlaybackService's CacheDataSource holds this instance,
+     * and releasing it mid-playback kills subsequent songs until the service
+     * rebuilds. Instead entries are evicted (removeResource per key) so the
+     * pipeline stays valid and playback survives; the dir itself is deleted
+     * only when no live instance exists (nothing can be using it).
+     * @return true when the cache is actually empty afterwards.
      */
     @Synchronized
-    fun clear(context: Context) {
-        try {
-            instance?.release()
-        } catch (_: Exception) {
+    fun clear(context: Context): Boolean {
+        val live = instance
+        if (live == null) {
+            return try {
+                File(context.applicationContext.cacheDir, DIR_NAME).deleteRecursively()
+                !File(context.applicationContext.cacheDir, DIR_NAME).exists()
+            } catch (_: Exception) {
+                false
+            }
         }
-        instance = null
-        try {
-            File(context.applicationContext.cacheDir, DIR_NAME).deleteRecursively()
+        return try {
+            for (key in live.keys.toList()) {
+                try {
+                    live.removeResource(key)
+                } catch (_: Exception) {
+                    return false
+                }
+            }
+            // Eviction loop completed: all entries known at snapshot time are
+            // gone (concurrent streaming may add new bytes right after — the
+            // badge/size row refreshes via cacheTick regardless).
+            true
         } catch (_: Exception) {
+            false
         }
     }
 }

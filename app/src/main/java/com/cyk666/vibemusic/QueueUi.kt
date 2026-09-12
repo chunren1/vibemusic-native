@@ -65,7 +65,13 @@ data class QueueRowDisplay(
     val isCurrent: Boolean,
     val livePositionMs: Long = 0L,
     val liveDurationMs: Long = 0L,
-    val coverUrl: String = ""
+    val coverUrl: String = "",
+    // Full-song passthrough: queue sheets rebuild a Song from the row, so the
+    // real platform/duration/album must travel with the display model instead
+    // of UI-layer defaults (see toRowSong).
+    val platform: String = "",
+    val durationSec: Int = 0,
+    val album: String = ""
 )
 
 /**
@@ -96,7 +102,10 @@ fun resolveQueueRowDisplay(
         isCurrent = isCurrent,
         livePositionMs = if (isCurrent) livePositionMs.coerceAtLeast(0L) else 0L,
         liveDurationMs = if (isCurrent) liveDurationMs.coerceAtLeast(0L) else 0L,
-        coverUrl = match?.coverUrl ?: timelineSong.coverUrl
+        coverUrl = match?.coverUrl ?: timelineSong.coverUrl,
+        platform = match?.platform?.takeIf { it.isNotBlank() } ?: timelineSong.platform,
+        durationSec = secs ?: 0,
+        album = match?.album ?: timelineSong.album
     )
 }
 
@@ -111,6 +120,17 @@ fun buildQueueRowDisplays(
     timelineSongs.mapIndexed { i, s ->
         resolveQueueRowDisplay(activityQueue, s, i == currentIndex, livePositionMs, liveDurationMs)
     }
+
+/** Pure: queue display row back to a Song for fav/add-to-playlist (no defaults). */
+fun QueueRowDisplay.toRowSong(): Song = Song(
+    sourceId = sourceId,
+    name = title,
+    artist = artist,
+    album = album,
+    coverUrl = coverUrl,
+    durationSec = durationSec,
+    platform = platform
+)
 
 /**
  * Merge controller-timeline order with Activity durations: each timeline item
@@ -269,15 +289,7 @@ fun QueueScreen(
                     SongMenuAction("remove", "从队列删除", danger = true)
                 ),
                 onAction = { id ->
-                    val target = Song(
-                        sourceId = row.sourceId,
-                        name = row.title,
-                        artist = row.artist,
-                        album = "",
-                        coverUrl = row.coverUrl,
-                        durationSec = 0,
-                        platform = "netease"
-                    )
+                    val target = row.toRowSong()
                     when (id) {
                         "fav" -> onToggleFav(target)
                         "add" -> onAddToPlaylist(target)
