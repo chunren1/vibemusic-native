@@ -406,16 +406,6 @@ class PlaybackService : MediaSessionService() {
         exo.play()
     }
 
-    fun next() {
-        val exo = player ?: return
-        if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() else exo.seekTo(0L)
-    }
-
-    fun prev() {
-        val exo = player ?: return
-        if (exo.hasPreviousMediaItem()) exo.seekToPreviousMediaItem() else exo.seekTo(0L)
-    }
-
     fun seekTo(positionMs: Long) {
         player?.seekTo(positionMs.coerceAtLeast(0L))
     }

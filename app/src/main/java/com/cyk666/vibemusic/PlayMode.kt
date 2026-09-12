@@ -41,9 +41,30 @@ fun playModeFrom(repeatMode: Int, shuffleOn: Boolean): PlayMode = when {
     else -> PlayMode.SEQUENTIAL
 }
 
+/**
+ * Manual Next/Prev action at a queue boundary (pure truth table, top-level
+ * testable). Fixes the queue-end bug where `seekTo(0L)` only rewinds the
+ * current track instead of wrapping:
+ * - mid-queue: ADVANCE (plain seekToNext/PreviousMediaItem).
+ * - at end/start in 顺序/列表循环/随机: wrap to first/last track.
+ * - at end/start in 单曲循环: STAY (explicit no-op + user-visible hint).
+ */
+enum class BoundaryAction { ADVANCE, WRAP_TO_FIRST, WRAP_TO_LAST, STAY }
+
+fun nextBoundaryAction(mode: PlayMode, hasNext: Boolean): BoundaryAction = when {
+    hasNext -> BoundaryAction.ADVANCE
+    mode == PlayMode.SINGLE_LOOP -> BoundaryAction.STAY
+    else -> BoundaryAction.WRAP_TO_FIRST
+}
+
+fun prevBoundaryAction(mode: PlayMode, hasPrevious: Boolean): BoundaryAction = when {
+    hasPrevious -> BoundaryAction.ADVANCE
+    mode == PlayMode.SINGLE_LOOP -> BoundaryAction.STAY
+    else -> BoundaryAction.WRAP_TO_LAST
+}
+
 /** Icon-only mode button glyph per mode (player action row, no text label). */
-fun playModeIconKind(mode: PlayMode): AppIconKind = when (mode) {
-    PlayMode.SEQUENTIAL -> AppIconKind.MODE_SEQUENTIAL
+fun playModeIconKind(mode: PlayMode): AppIconKind = when (mode) {    PlayMode.SEQUENTIAL -> AppIconKind.MODE_SEQUENTIAL
     PlayMode.LIST_LOOP -> AppIconKind.MODE_LOOP
     PlayMode.SINGLE_LOOP -> AppIconKind.MODE_SINGLE
     PlayMode.SHUFFLE -> AppIconKind.MODE_SHUFFLE

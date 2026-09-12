@@ -2830,10 +2830,21 @@ class MainActivity : ComponentActivity() {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            if (c.hasNextMediaItem()) {
-                                                pendingRestoreAfterSeek = true
-                                                c.seekToNextMediaItem()
-                                            } else c.seekTo(0L)
+                                            when (nextBoundaryAction(playMode, c.hasNextMediaItem())) {
+                                                BoundaryAction.ADVANCE -> {
+                                                    pendingRestoreAfterSeek = true
+                                                    c.seekToNextMediaItem()
+                                                }
+                                                BoundaryAction.WRAP_TO_FIRST -> {
+                                                    if (c.mediaItemCount > 0) {
+                                                        pendingRestoreAfterSeek = true
+                                                        c.seekTo(0, 0L)
+                                                    }
+                                                }
+                                                BoundaryAction.STAY ->
+                                                    showError("单曲循环：已是最后一首")
+                                                else -> {}
+                                            }
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
@@ -2851,10 +2862,22 @@ class MainActivity : ComponentActivity() {
                                         try {
                                             val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            if (c.hasPreviousMediaItem()) {
-                                                pendingRestoreAfterSeek = true
-                                                c.seekToPreviousMediaItem()
-                                            } else c.seekTo(0L)
+                                            when (prevBoundaryAction(playMode, c.hasPreviousMediaItem())) {
+                                                BoundaryAction.ADVANCE -> {
+                                                    pendingRestoreAfterSeek = true
+                                                    c.seekToPreviousMediaItem()
+                                                }
+                                                BoundaryAction.WRAP_TO_LAST -> {
+                                                    val last = c.mediaItemCount - 1
+                                                    if (last >= 0) {
+                                                        pendingRestoreAfterSeek = true
+                                                        c.seekTo(last, 0L)
+                                                    }
+                                                }
+                                                BoundaryAction.STAY ->
+                                                    showError("单曲循环：已是第一首")
+                                                else -> {}
+                                            }
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
                                             showError(
