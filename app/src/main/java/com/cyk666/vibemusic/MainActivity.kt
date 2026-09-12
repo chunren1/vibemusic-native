@@ -113,6 +113,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -2161,9 +2162,24 @@ class MainActivity : ComponentActivity() {
                                 if (partialOffline) {
                                     showError("该歌曲未缓存完整，请联网后完整播一次")
                                 } else {
+                                    // Toast follows the service's actual outcome (same-track
+                                    // retry may still succeed; queue-end/melt-down stops):
+                                    // fall back to hasNext only when the service never
+                                    // recorded one for this error.
+                                    val hasNext = try {
+                                        c?.hasNextMediaItem() == true
+                                    } catch (_: Exception) {
+                                        false
+                                    }
                                     showError(
-                                        "《${title ?: "unknown"}》播不了，已跳过 " +
-                                            "(${error.errorCodeName})"
+                                        skipErrorToast(
+                                            title?.toString(),
+                                            error.errorCodeName,
+                                            inferSkipOutcome(
+                                                PlaybackService.lastSkipOutcome,
+                                                hasNext
+                                            )
+                                        )
                                     )
                                 }
                             }
@@ -2590,18 +2606,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            fun pollPosition() {
+                controller?.let { c ->
+                    try {
+                        positionMs = c.currentPosition
+                        durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                        if (c.isPlaying) persistPosition()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            val positionLifecycle = LocalLifecycleOwner.current.lifecycle
             LaunchedEffect(screen, controller) {
                 if (screen is Screen.Player || screen is Screen.Queue) {
-                    while (true) {
-                        controller?.let { c ->
-                            try {
-                                positionMs = c.currentPosition
-                                durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                                if (c.isPlaying) persistPosition()
-                            } catch (_: Exception) {
-                            }
+                    // RESUMED-gated: the composition stays alive while the app
+                    // is backgrounded, so a bare while(true) would keep polling
+                    // the controller off-screen. repeatOnLifecycle stops the
+                    // loop on pause and re-runs (refresh once) on return.
+                    positionLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                        pollPosition()
+                        while (true) {
+                            delay(500)
+                            pollPosition()
                         }
-                        delay(500)
                     }
                 }
             }
@@ -3848,11 +3876,18 @@ fun PlayerScreen(
     // The authoritative 500ms positionMs snaps correct any drift.
     var lyricNowMs by remember(song?.sourceId) { mutableLongStateOf(positionMs) }
     LaunchedEffect(positionMs, song?.sourceId) { lyricNowMs = positionMs }
+    val lyricLifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(view, isPlaying, song?.sourceId) {
         if (view != PlayerView.LYRICS || !isPlaying) return@LaunchedEffect
-        while (true) {
-            delay(LYRIC_FAST_TICK_MS)
-            lyricNowMs = advanceLyricTicker(lyricNowMs, LYRIC_FAST_TICK_MS, true)
+        // Same RESUMED gating as the 500ms position ticker: the 100ms loop
+        // must not spin while backgrounded. Re-runs (snaps to positionMs)
+        // on return; animations untouched.
+        lyricLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            lyricNowMs = positionMs
+            while (true) {
+                delay(LYRIC_FAST_TICK_MS)
+                lyricNowMs = advanceLyricTicker(lyricNowMs, LYRIC_FAST_TICK_MS, true)
+            }
         }
     }
     // Vinyl rotation state lives inside VinylCover (PlayerFx.kt): the angle

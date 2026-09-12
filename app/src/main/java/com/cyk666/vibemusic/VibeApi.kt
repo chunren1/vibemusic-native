@@ -386,6 +386,12 @@ object VibeApi {
                 override fun onResponse(call: Call<ResponseBody>, res: Response<ResponseBody>) {
                     try {
                         if (!res.isSuccessful) {
+                            // Retrofit never auto-closes errorBody(): shut it on every
+                            // failure path or the connection leaks.
+                            try {
+                                res.errorBody()?.close()
+                            } catch (_: Exception) {
+                            }
                             if (res.code() == 401) {
                                 cont.resumeWithException(
                                     AuthException("密码错/登录过期，请重登 (HTTP 401)")
@@ -497,12 +503,19 @@ object VibeApi {
         authed { rawPutInner(path, jsonBody) }
 
     private suspend fun rawPutInner(path: String, jsonBody: String): String =
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             val req = Request.Builder()
                 .url(BASE_URL + path)
                 .put(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            okHttp.newCall(req).enqueue(object : okhttp3.Callback {
+            val call = okHttp.newCall(req)
+            cont.invokeOnCancellation {
+                try {
+                    call.cancel()
+                } catch (_: Exception) {
+                }
+            }
+            call.enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
                         cont.resumeWithException(
@@ -543,9 +556,16 @@ object VibeApi {
         }
 
     private suspend fun rawGetInner(path: String): String =
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             val req = Request.Builder().url(BASE_URL + path).get().build()
-            okHttp.newCall(req).enqueue(object : okhttp3.Callback {
+            val call = okHttp.newCall(req)
+            cont.invokeOnCancellation {
+                try {
+                    call.cancel()
+                } catch (_: Exception) {
+                }
+            }
+            call.enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
                         cont.resumeWithException(
@@ -580,12 +600,19 @@ object VibeApi {
         }
 
     private suspend fun rawPostInner(path: String, jsonBody: String): String =
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             val req = Request.Builder()
                 .url(BASE_URL + path)
                 .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            okHttp.newCall(req).enqueue(object : okhttp3.Callback {
+            val call = okHttp.newCall(req)
+            cont.invokeOnCancellation {
+                try {
+                    call.cancel()
+                } catch (_: Exception) {
+                }
+            }
+            call.enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
                         cont.resumeWithException(
@@ -626,9 +653,16 @@ object VibeApi {
         }
 
     private suspend fun rawDeleteInner(path: String): String =
-        suspendCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             val req = Request.Builder().url(BASE_URL + path).delete().build()
-            okHttp.newCall(req).enqueue(object : okhttp3.Callback {
+            val call = okHttp.newCall(req)
+            cont.invokeOnCancellation {
+                try {
+                    call.cancel()
+                } catch (_: Exception) {
+                }
+            }
+            call.enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
                         cont.resumeWithException(

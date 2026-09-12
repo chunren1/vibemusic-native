@@ -99,6 +99,47 @@ fun shouldRetrySameItem(
 }
 
 /**
+ * Service-side error-handling outcome (reporting only — the retry / skip /
+ * stop decisions above are untouched). Mirrored to [PlaybackService.Companion.lastSkipOutcome]
+ * so the Activity toast reports what actually happened instead of a blanket
+ * "已跳过": a same-track retry may still succeed, and queue-end / melt-down
+ * may do nothing at all.
+ */
+enum class SkipOutcome {
+    /** Same index retried once with a rebuilt MediaItem (may still succeed). */
+    RETRIED_SAME_ITEM,
+
+    /** Advanced to the next (offline-playable) item. */
+    SKIPPED_TO_NEXT,
+
+    /** Nothing to advance to (queue end / melt-down guard): playback stopped. */
+    STOPPED_AT_END
+}
+
+/**
+ * Pure: resolve the toast outcome from the service-reported [reported]
+ * value, falling back to the controller's [hasNext] when the service never
+ * recorded one for this error (controller-only failure ordering).
+ */
+fun inferSkipOutcome(reported: SkipOutcome?, hasNext: Boolean): SkipOutcome =
+    reported ?: if (hasNext) SkipOutcome.SKIPPED_TO_NEXT else SkipOutcome.STOPPED_AT_END
+
+/**
+ * Pure: truthful skip-failure toast (Chinese UX, keeps the error code for
+ * diagnosis). SKIPPED keeps the historic "已跳过" wording; STOPPED says the
+ * queue hit the end; RETRIED says a same-track retry is in flight (a
+ * follow-up toast reports that retry's own result).
+ */
+fun skipErrorToast(title: String?, errorCodeName: String, outcome: SkipOutcome): String {
+    val label = "《${title ?: "unknown"}》"
+    return when (outcome) {
+        SkipOutcome.SKIPPED_TO_NEXT -> "${label}播不了，已跳过 ($errorCodeName)"
+        SkipOutcome.STOPPED_AT_END -> "${label}播不了，队列已到末尾，播放停止 ($errorCodeName)"
+        SkipOutcome.RETRIED_SAME_ITEM -> "${label}播不了，正在重试 ($errorCodeName)"
+    }
+}
+
+/**
  * Audio-focus / becoming-noisy config applied to the service ExoPlayer
  * (pure, unit-tested). Verified against the media3 1.5.1 jars via javap:
  * - `ExoPlayer$Builder.setAudioAttributes(AudioAttributes, boolean)` (two-arg)
@@ -154,6 +195,15 @@ class PlaybackService : MediaSessionService() {
          */
         @Volatile
         var lastAudioSessionId: Int = 0
+
+        /**
+         * Latest service-side skip outcome (reporting only). Written by
+         * onPlayerError alongside each retry/skip/stop decision; read by the
+         * Activity to drive the error toast. Plain volatile — never feeds
+         * back into any playback decision.
+         */
+        @Volatile
+        var lastSkipOutcome: SkipOutcome? = null
     }
 
     private var mediaSession: MediaSession? = null
@@ -302,6 +352,7 @@ class PlaybackService : MediaSessionService() {
                     )
                     if (target >= 0) {
                         consecFails++
+                        lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                         try {
                             exo.seekTo(target, 0L)
                             exo.prepare()
@@ -310,6 +361,7 @@ class PlaybackService : MediaSessionService() {
                         }
                     } else {
                         consecFails++
+                        lastSkipOutcome = SkipOutcome.STOPPED_AT_END
                         try {
                             exo.stop()
                         } catch (_: Exception) {
@@ -344,6 +396,7 @@ class PlaybackService : MediaSessionService() {
                 ) {
                     lastStreamRetryKey = streamRetryKey(errMediaId, error.errorCode)
                     lastStreamRetryIndex = errIndex
+                    lastSkipOutcome = SkipOutcome.RETRIED_SAME_ITEM
                     try {
                         exo.replaceMediaItem(
                             errIndex,
@@ -358,9 +411,12 @@ class PlaybackService : MediaSessionService() {
                 // 单首源坏了自动跳下一首；连续坏 3 次就停手（大概率没网，别把队列一口气烧光）
                 if (shouldAutoSkip(consecFails, exo.hasNextMediaItem())) {
                     consecFails++
+                    lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                     exo.seekToNextMediaItem()
                     exo.prepare()
                     exo.play()
+                } else {
+                    lastSkipOutcome = SkipOutcome.STOPPED_AT_END
                 }
             }
         })
