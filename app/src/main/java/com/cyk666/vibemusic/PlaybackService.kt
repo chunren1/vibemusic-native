@@ -3,6 +3,8 @@ package com.cyk666.vibemusic
 import android.app.PendingIntent
 import android.content.Intent
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -17,6 +19,11 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /** Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
 fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
@@ -210,6 +217,14 @@ class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var consecFails = 0
 
+    // Review item 5: the offline probe below fans out to per-song disk/cache
+    // I/O, so it runs on IO; ExoPlayer transport (seek/prepare/play/stop)
+    // posts back to the main thread that built the player. This service is
+    // the SINGLE owner of offline-next transport — the Activity only reports
+    // (it must not seek/stop here, or the queue burns twice).
+    private val serviceIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceMainHandler = Handler(Looper.getMainLooper())
+
     // Signed-URL single-retry state: exactly one same-index retry per item
     // per error episode. Reset on successful play + on index change.
     private var lastStreamRetryKey: String? = null
@@ -309,9 +324,9 @@ class PlaybackService : MediaSessionService() {
                 }
                 if (isLocal) return
                 if (!isNetworkAvailable(this@PlaybackService)) {
-                    // Offline: never burn the queue on holes — jump only to the
-                    // next offline-playable item (valid download or cached bytes),
-                    // wrapping once per repeat-all at most; otherwise stop.
+                    // SINGLE owner of offline-next transport (Activity only
+                    // reports): snapshot + target compute on IO, transport
+                    // back on main. Same triage bar, zero main-thread I/O.
                     val app = this@PlaybackService
                     val count = try {
                         exo.mediaItemCount
@@ -335,36 +350,36 @@ class PlaybackService : MediaSessionService() {
                             Song("", "", "", "", "", 0, "")
                         }
                     }
-                    val target = selectNextOfflineIndex(
-                        songs,
-                        from,
-                        isPlayable = { idx ->
-                            val s = songs.getOrNull(idx)
-                            if (s == null || s.sourceId.isBlank()) false
-                            else try {
-                                OfflineStore.isAudioFileIntact(app, s) ||
-                                    MediaCache.cachedBytes(app, s.streamUrl()) > 0
-                            } catch (_: Exception) {
-                                false
-                            }
-                        },
-                        repeatAll = repeatAll
-                    )
-                    if (target >= 0) {
-                        consecFails++
-                        lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
-                        try {
-                            exo.seekTo(target, 0L)
-                            exo.prepare()
-                            exo.play()
+                    serviceIoScope.launch {
+                        val avail = try {
+                            buildOfflineAvailability(app, songs)
                         } catch (_: Exception) {
+                            OfflineAvailability()
                         }
-                    } else {
-                        consecFails++
-                        lastSkipOutcome = SkipOutcome.STOPPED_AT_END
-                        try {
-                            exo.stop()
-                        } catch (_: Exception) {
+                        val target = selectNextOfflineIndex(
+                            songs,
+                            from,
+                            isPlayable = { idx ->
+                                songs.getOrNull(idx)?.let { avail.isOfflinePlayable(it) }
+                                    ?: false
+                            },
+                            repeatAll = repeatAll
+                        )
+                        serviceMainHandler.post {
+                            try {
+                                if (target >= 0) {
+                                    consecFails++
+                                    lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
+                                    exo.seekTo(target, 0L)
+                                    exo.prepare()
+                                    exo.play()
+                                } else {
+                                    consecFails++
+                                    lastSkipOutcome = SkipOutcome.STOPPED_AT_END
+                                    exo.stop()
+                                }
+                            } catch (_: Exception) {
+                            }
                         }
                     }
                     return
@@ -489,6 +504,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        try {
+            serviceIoScope.cancel()
+        } catch (_: Exception) {
+        }
         mediaSession?.run {
             player.release()
             release()

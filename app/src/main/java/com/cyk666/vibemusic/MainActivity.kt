@@ -564,35 +564,51 @@ class MainActivity : ComponentActivity() {
                 }
                 val safeIndex = index.coerceIn(list.indices)
                 val target = list[safeIndex]
-                if (!isLocalOrCachedPlayable(context, target)) {
-                    showError("无网络且未缓存")
-                    return
-                }
-                try {
-                    queue = list
-                    currentIndex = safeIndex
-                    playerOrigin = if (screen is Screen.Player) playerOrigin else screen
-                    miniDismissed = false
-                    c.setMediaItems(
-                        list.map { it.toPlayMediaItem(context) },
-                        currentIndex,
-                        0L
-                    )
-                    c.prepare()
-                    c.play()
-                    screen = Screen.Player
-                    cacheTick += 1
-                    restorePosition(target)
-                    val snapshot = queue
-                    val snapshotIndex = currentIndex
-                    scope.launch {
+                val online = isNetworkAvailable(context)
+                // Review item 5: gate + timeline items precomputed off-main
+                // from one availability snapshot (no new network hops — pure
+                // local disk/cache pass); transport applies back on main.
+                scope.launch {
+                    val avail = withContext(Dispatchers.IO) {
                         try {
-                            QueueStore.saveQueue(context, snapshot, snapshotIndex)
+                            buildOfflineAvailability(context, list)
                         } catch (_: Exception) {
+                            OfflineAvailability()
                         }
                     }
-                } catch (e: Exception) {
-                    showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                    if (!avail.isGatePlayable(target, online)) {
+                        showError("无网络且未缓存")
+                        return@launch
+                    }
+                    val items = withContext(Dispatchers.IO) {
+                        list.map { it.toPlayMediaItem(context, avail) }
+                    }
+                    try {
+                        queue = list
+                        currentIndex = safeIndex
+                        playerOrigin = if (screen is Screen.Player) playerOrigin else screen
+                        miniDismissed = false
+                        c.setMediaItems(
+                            items,
+                            currentIndex,
+                            0L
+                        )
+                        c.prepare()
+                        c.play()
+                        screen = Screen.Player
+                        cacheTick += 1
+                        restorePosition(target)
+                        val snapshot = queue
+                        val snapshotIndex = currentIndex
+                        scope.launch {
+                            try {
+                                QueueStore.saveQueue(context, snapshot, snapshotIndex)
+                            } catch (_: Exception) {
+                            }
+                        }
+                    } catch (e: Exception) {
+                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
             }
 
@@ -635,7 +651,10 @@ class MainActivity : ComponentActivity() {
             // play/seek action. Saved position restores async via
             // restorePosition; callers that seek explicitly pass restoreSaved=false
             // to avoid a stale async seek overwriting their target.
-            fun ensureTimeline(c: MediaController, restoreSaved: Boolean = true): Boolean {
+            // Suspend: the MediaItem list is precomputed off-main from one
+            // availability snapshot (review item 5); controller calls stay on
+            // main. Callers must launch (see togglePlayPause/queueSeekTo).
+            suspend fun ensureTimeline(c: MediaController, restoreSaved: Boolean = true): Boolean {
                 val count = try {
                     c.mediaItemCount
                 } catch (_: Exception) {
@@ -645,7 +664,16 @@ class MainActivity : ComponentActivity() {
                 if (queue.isEmpty()) return false
                 return try {
                     val idx = currentIndex.coerceIn(queue.indices)
-                    c.setMediaItems(queue.map { it.toPlayMediaItem(context) }, idx, 0L)
+                    val snapshot = queue
+                    val items = withContext(Dispatchers.IO) {
+                        val avail = try {
+                            buildOfflineAvailability(context, snapshot)
+                        } catch (_: Exception) {
+                            OfflineAvailability()
+                        }
+                        snapshot.map { it.toPlayMediaItem(context, avail) }
+                    }
+                    c.setMediaItems(items, idx, 0L)
                     c.prepare()
                     if (restoreSaved) queue.getOrNull(idx)?.let { restorePosition(it) }
                     true
@@ -660,12 +688,14 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
-                try {
-                    ensureTimeline(c)
-                    if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                    if (c.isPlaying) c.pause() else c.play()
-                } catch (e: Exception) {
-                    showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                scope.launch {
+                    try {
+                        ensureTimeline(c)
+                        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+                        if (c.isPlaying) c.pause() else c.play()
+                    } catch (e: Exception) {
+                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
             }
 
@@ -688,14 +718,14 @@ class MainActivity : ComponentActivity() {
                 val key = playKey(song)
                 if (key in redownloadedKeys) return
                 if (!isNetworkAvailable(context)) return
-                val already = try {
-                    OfflineStore.isDownloaded(context, song)
-                } catch (_: Exception) {
-                    false
-                }
-                if (already) return
                 redownloadedKeys = redownloadedKeys + key
                 scope.launch(Dispatchers.IO) {
+                    val already = try {
+                        OfflineStore.isDownloaded(context, song)
+                    } catch (_: Exception) {
+                        false
+                    }
+                    if (already) return@launch
                     try {
                         val bytes = VibeApi.fetchStreamBytes(song.streamUrl())
                         val ok = OfflineStore.saveBytes(
@@ -770,27 +800,39 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
-                try {
-                    ensureTimeline(c, restoreSaved = false)
-                    if (c.mediaItemCount == 0) return
-                    val safeIndex = index.coerceIn(0, c.mediaItemCount - 1)
-                    val target = queue.getOrNull(safeIndex)
-                    if (!skipPlayableCheck && target != null &&
-                        !isLocalOrCachedPlayable(context, target)
-                    ) {
-                        showError("无网络且未缓存")
-                        return
+                scope.launch {
+                    try {
+                        ensureTimeline(c, restoreSaved = false)
+                        if (c.mediaItemCount == 0) return@launch
+                        val safeIndex = index.coerceIn(0, c.mediaItemCount - 1)
+                        val target = queue.getOrNull(safeIndex)
+                        if (!skipPlayableCheck && target != null) {
+                            // Single-song gate off-main (review item 5).
+                            val online = isNetworkAvailable(context)
+                            val playable = withContext(Dispatchers.IO) {
+                                try {
+                                    buildOfflineAvailability(context, listOf(target))
+                                        .isGatePlayable(target, online)
+                                } catch (_: Exception) {
+                                    online
+                                }
+                            }
+                            if (!playable) {
+                                showError("无网络且未缓存")
+                                return@launch
+                            }
+                        }
+                        c.seekTo(safeIndex, 0L)
+                        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+                        c.play()
+                        // Restore the REQUESTED song: currentMediaItemIndex is still
+                        // the old window here (seekTo is async), so resolving the
+                        // target from it restores the wrong song's position.
+                        currentIndex = safeIndex
+                        selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it) }
+                    } catch (e: Exception) {
+                        showError("切歌失败: ${e.message ?: e.javaClass.simpleName}")
                     }
-                    c.seekTo(safeIndex, 0L)
-                    if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                    c.play()
-                    // Restore the REQUESTED song: currentMediaItemIndex is still
-                    // the old window here (seekTo is async), so resolving the
-                    // target from it restores the wrong song's position.
-                    currentIndex = safeIndex
-                    selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it) }
-                } catch (e: Exception) {
-                    showError("切歌失败: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
 
@@ -809,9 +851,10 @@ class MainActivity : ComponentActivity() {
                     showError("至少保留一首")
                     return
                 }
-                try {
-                    ensureTimeline(c, restoreSaved = false)
-                    val count = c.mediaItemCount
+                scope.launch {
+                    try {
+                        ensureTimeline(c, restoreSaved = false)
+                        val count = c.mediaItemCount
                     val removedIdx = index.coerceIn(0, count - 1)
                     val curBefore = c.currentMediaItemIndex
                     val wasCurrent = removedPlayingItem(removedIdx, curBefore)
@@ -832,6 +875,7 @@ class MainActivity : ComponentActivity() {
                     showError("删除失败: ${e.message ?: e.javaClass.simpleName}")
                     syncQueueFromController()
                 }
+                }
             }
 
             fun queueClearKeepCurrent() {
@@ -849,26 +893,28 @@ class MainActivity : ComponentActivity() {
                     showError("至少保留一首")
                     return
                 }
-                try {
-                    ensureTimeline(c, restoreSaved = false)
-                    val count = try {
-                        c.mediaItemCount
-                    } catch (_: Exception) {
-                        0
+                scope.launch {
+                    try {
+                        ensureTimeline(c, restoreSaved = false)
+                        val count = try {
+                            c.mediaItemCount
+                        } catch (_: Exception) {
+                            0
+                        }
+                        if (count <= 1) {
+                            showError("至少保留一首")
+                            return@launch
+                        }
+                        val cur = c.currentMediaItemIndex.coerceIn(0, count - 1)
+                        if (cur < count - 1) c.removeMediaItems(cur + 1, count)
+                        if (cur > 0) c.removeMediaItems(0, cur)
+                        syncQueueFromController()
+                        persistQueue()
+                        showError("已清空，仅保留当前播放")
+                    } catch (e: Exception) {
+                        showError("清空失败: ${e.message ?: e.javaClass.simpleName}")
+                        syncQueueFromController()
                     }
-                    if (count <= 1) {
-                        showError("至少保留一首")
-                        return
-                    }
-                    val cur = c.currentMediaItemIndex.coerceIn(0, count - 1)
-                    if (cur < count - 1) c.removeMediaItems(cur + 1, count)
-                    if (cur > 0) c.removeMediaItems(0, cur)
-                    syncQueueFromController()
-                    persistQueue()
-                    showError("已清空，仅保留当前播放")
-                } catch (e: Exception) {
-                    showError("清空失败: ${e.message ?: e.javaClass.simpleName}")
-                    syncQueueFromController()
                 }
             }
 
@@ -897,15 +943,6 @@ class MainActivity : ComponentActivity() {
             fun downloadSong(song: Song, silent: Boolean) {
                 val key = offlineBaseName(song)
                 if (key in downloadingIds) return
-                val already = try {
-                    OfflineStore.isDownloaded(context, song)
-                } catch (_: Exception) {
-                    false
-                }
-                if (already) {
-                    if (!silent) showError("已下载")
-                    return
-                }
                 if (!silent) downloadingIds = downloadingIds + key
                 scope.launch(Dispatchers.IO) {
                     try {
@@ -2056,12 +2093,16 @@ class MainActivity : ComponentActivity() {
                                 } catch (_: Exception) {
                                     0
                                 }
-                                val fileValid = try {
-                                    OfflineStore.isAudioFileIntact(context, song)
-                                } catch (_: Exception) {
-                                    false
-                                }
-                                when (healAction(fileValid, fails, online)) {
+                                // Review item 5: intact-file probe off-main.
+                                scope.launch {
+                                    val fileValid = withContext(Dispatchers.IO) {
+                                        try {
+                                            OfflineStore.isAudioFileIntact(context, song)
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                    }
+                                    when (healAction(fileValid, fails, online)) {
                                     HealAction.KEEP_STREAM_ONCE -> {
                                         localFailCounts = localFailCounts + (key to fails)
                                         swapToStreamAndPlay(idx, song)
@@ -2092,16 +2133,18 @@ class MainActivity : ComponentActivity() {
                                         showError("本地文件已损坏，联网后重新下载")
                                     }
                                 }
+                                }
                             }
                             LocalErrorAction.ERROR_MESSAGE -> {
                                 showError("本地文件已损坏，联网后重新下载")
                             }
                             LocalErrorAction.SKIP -> {
-                                // Offline: never die on the first hole — advance only to
-                                // the next offline-playable queue item (valid download
-                                // or cached bytes, helpers already in use elsewhere),
-                                // wrapping once per repeat-all at most; else stop.
-                                // Online falls through to the existing path untouched.
+                                // Single owner: PlaybackService already jumps to
+                                // the next offline-playable item (or stops) on
+                                // IO — the Activity only reports, never seeks
+                                // or stops here, or the queue burns twice.
+                                // Target recomputed off-main from one snapshot
+                                // purely to pick the toast (zero main-thread I/O).
                                 if (c != null && !isNetworkAvailable(context)) {
                                     val q = queue
                                     val from = try {
@@ -2115,32 +2158,27 @@ class MainActivity : ComponentActivity() {
                                         playMode == PlayMode.LIST_LOOP ||
                                             playMode == PlayMode.SHUFFLE
                                     }
-                                    val target = selectNextOfflineIndex(
-                                        q,
-                                        from,
-                                        isPlayable = { idx ->
-                                            val s = q.getOrNull(idx)
-                                            if (s == null || s.sourceId.isBlank()) false
-                                            else try {
-                                                OfflineStore.isAudioFileIntact(context, s) ||
-                                                    MediaCache.cachedBytes(
-                                                        context,
-                                                        s.streamUrl()
-                                                    ) > 0
+                                    scope.launch {
+                                        val target = withContext(Dispatchers.IO) {
+                                            try {
+                                                val avail = buildOfflineAvailability(context, q)
+                                                selectNextOfflineIndex(
+                                                    q,
+                                                    from,
+                                                    isPlayable = { idx ->
+                                                        q.getOrNull(idx)?.let {
+                                                            avail.isOfflinePlayable(it)
+                                                        } ?: false
+                                                    },
+                                                    repeatAll = repeatAll
+                                                )
                                             } catch (_: Exception) {
-                                                false
+                                                -1
                                             }
-                                        },
-                                        repeatAll = repeatAll
-                                    )
-                                    if (target >= 0) {
-                                        queueSeekTo(target, skipPlayableCheck = true)
-                                    } else {
-                                        try {
-                                            c.stop()
-                                        } catch (_: Exception) {
                                         }
-                                        showError("离线可播已播完")
+                                        if (target < 0) {
+                                            showError("离线可播已播完")
+                                        }
                                     }
                                     return
                                 }
@@ -2149,38 +2187,45 @@ class MainActivity : ComponentActivity() {
                                 } catch (_: Exception) {
                                     null
                                 }
-                                // Offline + partial cache: CacheDataSource served cached bytes then
-                                // hit a hole the unreachable upstream couldn't fill.
-                                val partialOffline = try {
-                                    val song = queue.getOrNull(currentIndex)
-                                    !isNetworkAvailable(context) &&
-                                        song != null &&
-                                        MediaCache.cachedBytes(context, song.streamUrl()) > 0
+                                val hasNext = try {
+                                    c?.hasNextMediaItem() == true
                                 } catch (_: Exception) {
                                     false
                                 }
-                                if (partialOffline) {
-                                    showError("该歌曲未缓存完整，请联网后完整播一次")
-                                } else {
-                                    // Toast follows the service's actual outcome (same-track
-                                    // retry may still succeed; queue-end/melt-down stops):
-                                    // fall back to hasNext only when the service never
-                                    // recorded one for this error.
-                                    val hasNext = try {
-                                        c?.hasNextMediaItem() == true
-                                    } catch (_: Exception) {
-                                        false
+                                val reported = PlaybackService.lastSkipOutcome
+                                val errorName = error.errorCodeName
+                                val titleText = title?.toString()
+                                val probeSong = queue.getOrNull(currentIndex)
+                                scope.launch {
+                                    // Offline + partial cache: CacheDataSource served cached bytes then
+                                    // hit a hole the unreachable upstream couldn't fill (probe off-main).
+                                    val partialOffline = withContext(Dispatchers.IO) {
+                                        try {
+                                            !online &&
+                                                probeSong != null &&
+                                                MediaCache.cachedBytes(
+                                                    context,
+                                                    probeSong.streamUrl()
+                                                ) > 0
+                                        } catch (_: Exception) {
+                                            false
+                                        }
                                     }
-                                    showError(
-                                        skipErrorToast(
-                                            title?.toString(),
-                                            error.errorCodeName,
-                                            inferSkipOutcome(
-                                                PlaybackService.lastSkipOutcome,
-                                                hasNext
+                                    if (partialOffline) {
+                                        showError("该歌曲未缓存完整，请联网后完整播一次")
+                                    } else {
+                                        // Toast follows the service's actual outcome (same-track
+                                        // retry may still succeed; queue-end/melt-down stops):
+                                        // fall back to hasNext only when the service never
+                                        // recorded one for this error.
+                                        showError(
+                                            skipErrorToast(
+                                                titleText,
+                                                errorName,
+                                                inferSkipOutcome(reported, hasNext)
                                             )
                                         )
-                                    )
+                                    }
                                 }
                             }
                         }
@@ -2884,8 +2929,9 @@ class MainActivity : ComponentActivity() {
                                     if (c == null) {
                                         showError("播放器连接中，请稍候")
                                     } else {
-                                        try {
-                                            val materialized = ensureTimeline(c, restoreSaved = false)
+                                        scope.launch {
+                                            try {
+                                                val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
                                             when (nextBoundaryAction(playMode, c.hasNextMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
@@ -2909,6 +2955,7 @@ class MainActivity : ComponentActivity() {
                                                     "${e.message ?: e.javaClass.simpleName}"
                                             )
                                         }
+                                        }
                                     }
                                 },
                                 onPrev = {
@@ -2916,8 +2963,9 @@ class MainActivity : ComponentActivity() {
                                     if (c == null) {
                                         showError("播放器连接中，请稍候")
                                     } else {
-                                        try {
-                                            val materialized = ensureTimeline(c, restoreSaved = false)
+                                        scope.launch {
+                                            try {
+                                                val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
                                             when (prevBoundaryAction(playMode, c.hasPreviousMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
@@ -2942,21 +2990,24 @@ class MainActivity : ComponentActivity() {
                                                     "${e.message ?: e.javaClass.simpleName}"
                                             )
                                         }
+                                        }
                                     }
                                 },
                                 onSeek = { targetMs ->
-                                    try {
-                                        val c = controller
-                                        if (c == null) {
-                                            showError("播放器连接中，请稍候")
-                                        } else {
-                                            ensureTimeline(c, restoreSaved = false)
-                                            c.seekTo(targetMs)
+                                    scope.launch {
+                                        try {
+                                            val c = controller
+                                            if (c == null) {
+                                                showError("播放器连接中，请稍候")
+                                            } else {
+                                                ensureTimeline(c, restoreSaved = false)
+                                                c.seekTo(targetMs)
+                                            }
+                                        } catch (e: Exception) {
+                                            showError(
+                                                "进度跳转失败: ${e.message ?: e.javaClass.simpleName}"
+                                            )
                                         }
-                                    } catch (e: Exception) {
-                                        showError(
-                                            "进度跳转失败: ${e.message ?: e.javaClass.simpleName}"
-                                        )
                                     }
                                 },
                                 onClose = {
