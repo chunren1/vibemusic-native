@@ -12,6 +12,16 @@ const val SPECTRUM_BAR_COUNT = 28
 /** Visualizer sampling cadence: ~30fps ticker (33ms loop in PlayerFx). */
 const val SPECTRUM_SAMPLE_INTERVAL_MS = 33L
 
+/**
+ * Pure run predicate for the spectrum sampler: sample ONLY while actually
+ * playing AND the host lifecycle is at least STARTED AND the audio session
+ * is valid. Single source of truth for SpectrumVisualizer's gating — the
+ * composition survives backgrounding, so isPlaying alone would keep the
+ * 30fps FFT loop + Compose state writes running off-screen.
+ */
+fun spectrumShouldSample(isPlaying: Boolean, isForeground: Boolean, audioSessionId: Int): Boolean =
+    isPlaying && isForeground && audioSessionId > 0
+
 /** Blur radius (px) for the Player RenderEffect backdrop on API 31+. */
 const val PLAYER_BACKDROP_BLUR_PX = 28f
 

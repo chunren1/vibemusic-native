@@ -20,6 +20,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -45,8 +48,8 @@ import kotlinx.coroutines.launch
 // Track B2: spectrum visualizer (zero new deps — framework Visualizer+Canvas).
 // GPU-friendly: solid-color rounded bars, no layout animation. The Visualizer
 // attaches to the ExoPlayer audio session (needs only MODIFY_AUDIO_SETTINGS,
-// NO RECORD_AUDIO) and is released on dispose/pause to avoid battery drain.
-// Init failure → hide bars silently, never crash.
+// NO RECORD_AUDIO) and is released on dispose/pause/background(STOP) to
+// avoid battery drain. Init failure → settled flat strip, never crash.
 
 private val PfxViolet = Color(0xFF8B5CF6)
 private val PfxCyan = Color(0xFF06B6D4)
@@ -68,9 +71,28 @@ fun SpectrumVisualizer(
     var bars by remember(audioSessionId) {
         mutableStateOf(List(SPECTRUM_BAR_COUNT) { 0f })
     }
+    // Construction failure settles here: flat bars, no retry loop, no
+    // loading-looking animation — the Canvas below draws an empty strip.
+    var vizUnavailable by remember(audioSessionId) { mutableStateOf(false) }
+    // Foreground gate: the composition survives backgrounding, so isPlaying
+    // alone would keep the 30fps FFT loop + state writes running off-screen.
+    // ON_STOP the effect key below flips → job cancelled + Visualizer
+    // released; ON_START it recreates. Same predicate as the unit-tested
+    // spectrumShouldSample (VisualFx.kt).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isForeground by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            isForeground = event.targetState.isAtLeast(Lifecycle.State.STARTED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val scope = rememberCoroutineScope()
-    DisposableEffect(audioSessionId, isPlaying) {
-        if (!isPlaying) {
+    DisposableEffect(audioSessionId, isPlaying, isForeground) {
+        if (!spectrumShouldSample(isPlaying, isForeground, audioSessionId)) {
             bars = List(SPECTRUM_BAR_COUNT) { 0f }
             return@DisposableEffect onDispose {}
         }
@@ -79,7 +101,12 @@ fun SpectrumVisualizer(
         } catch (_: Exception) {
             null
         }
-        if (viz == null) return@DisposableEffect onDispose {}
+        if (viz == null) {
+            vizUnavailable = true
+            bars = List(SPECTRUM_BAR_COUNT) { 0f }
+            return@DisposableEffect onDispose {}
+        }
+        vizUnavailable = false
         var job: Job? = null
         var attached = false
         try {
@@ -125,6 +152,9 @@ fun SpectrumVisualizer(
         }
     }
     Canvas(modifier = modifier) {
+        // Settled failure state: Visualizer unavailable → empty strip, never
+        // an animated/loading look. (bars are already flat zeros; early-out.)
+        if (vizUnavailable) return@Canvas
         val n = bars.size
         if (n == 0) return@Canvas
         val gapPx = drawDp(3f)

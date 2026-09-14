@@ -3,6 +3,9 @@ package com.cyk666.vibemusic
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.database.ExoDatabaseProvider
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
@@ -24,7 +27,6 @@ object MediaCache {
 
     @Volatile
     private var instance: SimpleCache? = null
-
     /** Thread-safe singleton accessor. Uses applicationContext (no activity leak). */
     @Synchronized
     fun get(context: Context): SimpleCache {
@@ -38,6 +40,40 @@ object MediaCache {
         )
         instance = created
         return created
+    }
+
+    /**
+     * CacheDataSource factory whose singleton resolution is deferred to
+     * [DataSource.Factory.createDataSource] time. ExoPlayer invokes that on
+     * its internal loader threads (never Main), so building the player with
+     * this factory keeps the [get] disk IO (dir create + DB open) off Main
+     * even on first tap / service recreate. Config is byte-identical to the
+     * previous eager wiring (write-through [CacheDataSink] +
+     * `FLAG_IGNORE_CACHE_ON_ERROR`); eviction semantics unchanged.
+     * Pair with an IO warm-up (`serviceIoScope.launch { get(app) }`) so the
+     * DB open doesn't stall the first playback load.
+     */
+    fun cachedDataSourceFactory(
+        context: Context,
+        upstream: DataSource.Factory
+    ): DataSource.Factory = LazyCacheDataSourceFactory(context.applicationContext, upstream)
+
+    private class LazyCacheDataSourceFactory(
+        private val appContext: Context,
+        private val upstream: DataSource.Factory
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource {
+            val cache = get(appContext)
+            return CacheDataSource.Factory()
+                .setCache(cache)
+                .setUpstreamDataSourceFactory(upstream)
+                .setCacheWriteDataSinkFactory(
+                    CacheDataSink.Factory()
+                        .setCache(cache)
+                )
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                .createDataSource()
+        }
     }
 
     /**

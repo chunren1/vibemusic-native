@@ -1,6 +1,10 @@
 package com.cyk666.vibemusic
 
 import com.squareup.moshi.Moshi
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,9 +22,11 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 interface VibeService {
     @GET("api/songs/search")
@@ -160,6 +166,50 @@ enum class RefreshOutcome {
  */
 fun shouldClearTokensOnFailure(t: Throwable): Boolean = t is AuthException
 
+/** Refresh-credential cookie the backend sets/reads (HttpOnly, Path=/api/auth/refresh, 7d). */
+internal const val REFRESH_COOKIE_NAME = "VIBE_REFRESH"
+
+/**
+ * Minimal in-memory CookieJar (~30 lines, no new dependency): stores
+ * Set-Cookie across the process so the HttpOnly VIBE_REFRESH cookie — which
+ * the backend NEVER echoes in a JSON body — is replayed on the refresh POST
+ * (the backend reads the credential from Cookie only; Web reaches parity via
+ * withCredentials). Matching/expiry semantics come from OkHttp's [Cookie]
+ * ([matches] covers domain/path/secure); the jar only keeps the store
+ * bounded (replace on same name+domain+path, never store expired, evict
+ * expired on read).
+ */
+internal class InMemoryCookieJar : CookieJar {
+    private val lock = Any()
+    private val store = mutableListOf<Cookie>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            for (c in cookies) {
+                store.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
+                if (c.expiresAt > now) store.add(c)
+            }
+        }
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            store.removeAll { it.expiresAt <= now }
+            return store.filter { it.matches(url) }
+        }
+    }
+
+    /** Live value of a named cookie for [url] ("" when absent/expired/mismatched). */
+    internal fun valueFor(url: HttpUrl, name: String): String =
+        loadForRequest(url).firstOrNull { it.name == name }?.value.orEmpty()
+
+    internal fun clear() {
+        synchronized(lock) { store.clear() }
+    }
+}
+
 private val HTTP_STATUS_IN_MESSAGE = Regex("HTTP\\s+(\\d{3})")
 
 /**
@@ -210,7 +260,16 @@ fun diagnosableError(prefix: String, t: Throwable): String {
 object VibeApi {
     const val BASE_URL = "https://vibe.cyk666.top/"
 
+    /**
+     * Shared jar: login (okHttp) stores Set-Cookie, refresh (refreshHttp)
+     * replays it. One instance across both clients — separate jars would
+     * strand the login cookie where the refresh POST can never see it.
+     * Necessary: documents why two clients must share one jar.
+     */
+    internal val cookieJar = InMemoryCookieJar()
+
     private val okHttp = OkHttpClient.Builder()
+        .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
@@ -235,9 +294,36 @@ object VibeApi {
         .create(VibeService::class.java)
 
     private val refreshHttp = OkHttpClient.Builder()
+        .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    /** Live VIBE_REFRESH cookie value for [endpoint] ("" when the jar has none). */
+    internal fun refreshCookieFor(endpoint: String): String {
+        val url = endpoint.toHttpUrlOrNull() ?: return ""
+        return cookieJar.valueFor(url, REFRESH_COOKIE_NAME)
+    }
+
+    /**
+     * VIBE_REFRESH from THIS response's Set-Cookie headers (never stale jar
+     * state). Used where the credential must be tied to the response at hand
+     * (login enrich, refresh rotation adopt).
+     */
+    internal fun refreshCookieFromResponse(res: okhttp3.Response): String {
+        var found = ""
+        for (h in res.headers("Set-Cookie")) {
+            val c = try {
+                Cookie.parse(res.request.url, h)
+            } catch (_: Exception) {
+                null
+            }
+            if (c != null && c.name == REFRESH_COOKIE_NAME) found = c.value
+        }
+        return found
+    }
+
+    internal fun clearCookiesForTest() = cookieJar.clear()
 
     @Volatile
     private var appContext: android.content.Context? = null
@@ -264,9 +350,14 @@ object VibeApi {
             if (shouldReuseRefreshedToken(AuthToken.token, failedToken)) return RefreshOutcome.REFRESHED
             val ctx = appContext ?: return RefreshOutcome.NETWORK_FAIL
             val rt = AuthToken.refreshToken
-            if (rt.isBlank()) return RefreshOutcome.NETWORK_FAIL
+            // Cookie-only sessions (backend never sends a body refreshToken):
+            // the jar cookie alone is a sufficient credential; only "neither
+            // jar nor persisted value" is hopeless (probing without any
+            // credential would 401 "缺少 refresh token" and misread as dead).
+            val jarCookie = refreshCookieFor(endpoint)
+            if (rt.isBlank() && jarCookie.isBlank()) return RefreshOutcome.NETWORK_FAIL
             val res = try {
-                postRefresh(endpoint, client, rt)
+                postRefresh(endpoint, client, rt.ifBlank { jarCookie })
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 return RefreshOutcome.NETWORK_FAIL
@@ -299,10 +390,20 @@ object VibeApi {
         refreshToken: String
     ): RefreshResult? =
         suspendCoroutine { cont ->
-            val req = Request.Builder()
+            val builder = Request.Builder()
                 .url(endpoint)
                 .post(buildRefreshBody(refreshToken).toRequestBody("application/json; charset=utf-8".toMediaType()))
-                .build()
+            // The backend reads the credential from Cookie only (body value
+            // is ignored server-side). A jar-attached client replays the
+            // live cookie automatically (and its value wins over this
+            // header); the explicit header is the cold-start bridge — after
+            // a process restart the in-memory jar is empty but AuthStore
+            // still holds the persisted cookie value — and what makes
+            // jar-less injected clients testable.
+            if (refreshToken.isNotBlank()) {
+                builder.header("Cookie", "$REFRESH_COOKIE_NAME=$refreshToken")
+            }
+            val req = builder.build()
             client.newCall(req).enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                     try {
@@ -321,7 +422,20 @@ object VibeApi {
                             }
                             val parsed = parseRefreshResult(raw)
                             if (parsed != null) {
-                                cont.resume(parsed)
+                                // Rotation adopt: every refresh re-issues
+                                // VIBE_REFRESH as Set-Cookie while the JSON
+                                // body carries no refreshToken — persist the
+                                // live cookie value so AuthStore keeps the
+                                // CURRENT credential, not a stale echo.
+                                // Body stays authoritative when present.
+                                val rotated = refreshCookieFromResponse(it)
+                                cont.resume(
+                                    if (parsed.refreshToken.isBlank() && rotated.isNotBlank()) {
+                                        parsed.copy(refreshToken = rotated)
+                                    } else {
+                                        parsed
+                                    }
+                                )
                             } else if (isDecisiveRefreshRejection(it.code, raw)) {
                                 cont.resume(null)
                             } else {
@@ -333,7 +447,12 @@ object VibeApi {
                     } catch (e: Exception) {
                         try {
                             if (e is java.io.IOException) cont.resumeWithException(e)
-                            else cont.resume(null)
+                            // 保活：非 IO 的意外异常（空体/脏数据/隧道 HTML 等）绝不能
+                            // 当作"凭据死亡"(null→INVALID_TOKEN→清 token)；按网络抖动
+                            // 处理，7 天 refreshToken 保留，下次鉴权调用自然重试。
+                            else cont.resumeWithException(
+                                NetworkAuthException("网络连接断开，登录态保留")
+                            )
                         } catch (_: IllegalStateException) {
                         }
                     }
@@ -356,13 +475,24 @@ object VibeApi {
         }
     }
 
-    private suspend fun <T> authed(block: suspend () -> T): T {
+    private suspend fun <T> authed(block: suspend () -> T): T =
+        authedWith(::trySilentRefresh, block)
+
+    /**
+     * authed 的可注入变体：生产路径传 ::trySilentRefresh；单测传入 stub
+     * refresh，直接断言"401→续期→重试"的次数与顺序。重试语义与 authed
+     * 完全一致（最多执行 block 两次，第二次再 401 直接抛给调用方）。
+     */
+    internal suspend fun <T> authedWith(
+        refresh: suspend (String) -> RefreshOutcome,
+        block: suspend () -> T
+    ): T {
         try {
             return block()
         } catch (e: AuthException) {
             val failed = AuthToken.token
             val outcome = try {
-                trySilentRefresh(failed)
+                refresh(failed)
             } catch (e2: kotlinx.coroutines.CancellationException) {
                 throw e2
             } catch (_: Exception) {
@@ -742,7 +872,23 @@ object VibeApi {
                                 return
                             }
                             try {
-                                cont.resume(parseLogin(body))
+                                val base = parseLogin(body)
+                                // Cookie-only credential: the login JSON body
+                                // never carries refreshToken (HttpOnly
+                                // VIBE_REFRESH Set-Cookie only). Adopt THIS
+                                // response's cookie value so the existing
+                                // AuthStore.save(..., refreshToken) call in
+                                // the caller persists it for cold-start
+                                // renew. Body stays authoritative when
+                                // present; parseLogin itself is untouched.
+                                val ck = refreshCookieFromResponse(it)
+                                cont.resume(
+                                    if (base.refreshToken.isBlank() && ck.isNotBlank()) {
+                                        base.copy(refreshToken = ck)
+                                    } else {
+                                        base
+                                    }
+                                )
                             } catch (e: Exception) {
                                 cont.resumeWithException(e)
                             }
@@ -779,9 +925,13 @@ object VibeApi {
         return parseUser(data)
     }
 
-    suspend fun me(): LoggedInUser? {
-        val body = rawGet("api/auth/me")
-        return parseMe(body)
+    suspend fun me(): LoggedInUser? = authed {
+        // parseMe rides INSIDE the authed try (isomorphic with
+        // toggleFavoriteWith/uploadImage): transport 401 AND envelope 401
+        // both route through one silent-renew-then-decide — renew ok retries
+        // once, decisive INVALID_TOKEN rethrows for the caller to clear.
+        // Guest-null still returns null without any retry or clearing.
+        parseMe(rawGetInner("api/auth/me"))
     }
 
     // ---- playlists (auth required; parse defensively) ----
@@ -817,7 +967,15 @@ object VibeApi {
 
     suspend fun lyric(sourceId: String): List<LyricLine> {
         val body = rawGet("api/songs/lyric?sourceId=$sourceId")
-        val root = JSONObject(body)
+        // 解析是纯 CPU 计算：切到 Default，调用方 Main（LaunchedEffect）不阻塞。
+        return withContext(Dispatchers.Default) {
+            parseLyricBody(body)
+        }
+    }
+
+    /** Pure lyric 信封解析（lyric() 经 Dispatchers.Default 调用；单测可直调）。 */
+    fun parseLyricBody(json: String): List<LyricLine> {
+        val root = JSONObject(json)
         checkEnvelope(root, "Lyric")
         val arr: JSONArray = root.optJSONArray("data") ?: return emptyList()
         val out = ArrayList<LyricLine>(arr.length())
@@ -1483,14 +1641,38 @@ object VibeApi {
     }
 
     /** Returns the NEW fav state (server source of truth). Sends X-Request-Id. */
-    suspend fun toggleFavorite(song: Song, requestId: String): Boolean {
-        val built = buildToggleRequest(song, requestId)
+    suspend fun toggleFavorite(song: Song, requestId: String): Boolean =
+        toggleFavoriteWith(song, requestId, BASE_URL, okHttp, ::trySilentRefresh)
+
+    /**
+     * toggle 可注入变体（baseUrl/client/refresh 均可换 stub，零新依赖）。
+     * body 获取与 envelope 解析都在 authedWith 的 try 内：HTTP 401 与信封
+     * 401 都走静默续期；重试最多一次（第二次再 401 直接抛，无自递归）。
+     */
+    internal suspend fun toggleFavoriteWith(
+        song: Song,
+        requestId: String,
+        baseUrl: String,
+        client: OkHttpClient,
+        refresh: suspend (String) -> RefreshOutcome
+    ): Boolean = authedWith(refresh) {
+        toggleFavoriteOnce(song, requestId, baseUrl, client)
+    }
+
+    private suspend fun toggleFavoriteOnce(
+        song: Song,
+        requestId: String,
+        baseUrl: String,
+        client: OkHttpClient
+    ): Boolean {
         val token = AuthToken.token
-        val req = built.newBuilder().apply {
-            if (token.isNotBlank()) header("Authorization", "Bearer $token")
-        }.build()
+        val req = buildToggleRequest(song, requestId).newBuilder()
+            .url(baseUrl.trimEnd('/') + "/api/favorites/toggle")
+            .apply {
+                if (token.isNotBlank()) header("Authorization", "Bearer $token")
+            }.build()
         val body: String = suspendCancellableCoroutine { cont ->
-            val call = okHttp.newCall(req)
+            val call = client.newCall(req)
             cont.invokeOnCancellation {
                 try {
                     call.cancel()
@@ -1530,20 +1712,7 @@ object VibeApi {
                 }
             })
         }
-        return try {
-            parseToggleResult(body)
-        } catch (e: AuthException) {
-            val failed = AuthToken.token
-            val outcome = try {
-                trySilentRefresh(failed)
-            } catch (e2: kotlinx.coroutines.CancellationException) {
-                throw e2
-            } catch (_: Exception) {
-                RefreshOutcome.NETWORK_FAIL
-            }
-            routeAfterRefresh(outcome, e)
-            toggleFavorite(song, requestId)
-        }
+        return parseToggleResult(body)
     }
 
     suspend fun favIds(): Set<String> {

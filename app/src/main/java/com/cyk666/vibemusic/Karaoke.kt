@@ -3,17 +3,16 @@ package com.cyk666.vibemusic
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import org.json.JSONArray
 
 // Karaoke renderer (dual-mode, zero backend dependency).
@@ -280,11 +279,25 @@ fun karaokeSweepFraction(
 }
 
 /**
+ * Pure: pixel clip edge for the sweep overlay. The overlay always lays out at
+ * full row width (identical wrapping to the dim base); only this draw-phase
+ * right edge moves with the animated fraction. Clamped to 0..width so a dead
+ * fraction never overdraws and float drift never clips outside the row.
+ */
+fun karaokeSweepClipRight(widthPx: Float, fraction: Float): Float {
+    val w = widthPx.coerceAtLeast(0f)
+    return (w * fraction.coerceIn(0f, 1f)).coerceIn(0f, w)
+}
+
+/**
  * Sweep-fill karaoke line: a dim base text plus a bright overlay clipped to
  * the [karaokeSweepFraction] width, so the current line fills smoothly
  * left-to-right synced to word timings. Inactive lines render fully muted.
- * The overlay is measured at the same full width as the base, so wrapping
- * is identical and only a GPU clip moves per frame.
+ * The overlay is laid out at the same full width as the base (identical
+ * wrapping); only a GPU clipRect moves per frame — no Box width constraint
+ * is ever set from the animated fraction (fillMaxWidth().width(lit) would
+ * clamp lit back to the full row via enforceIncoming and pin the highlight
+ * full-on from the first frame).
  */
 @Composable
 fun KaraokeLine(
@@ -320,22 +333,22 @@ fun KaraokeLine(
         label = "karaokeSweep"
     )
     val style = MaterialTheme.typography.titleMedium
-    BoxWithConstraints(modifier = modifier) {
-        val full = maxWidth
-        val lit = full * sweep.coerceIn(0f, 1f)
+    Box(modifier = modifier.fillMaxWidth()) {
         Text(text = plain, style = style, color = KaraokeDim)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .width(lit)
-                .clipToBounds()
+                .drawWithContent {
+                    clipRect(right = karaokeSweepClipRight(size.width, sweep)) {
+                        this@drawWithContent.drawContent()
+                    }
+                }
         ) {
             Text(
                 text = plain,
                 style = style,
                 color = KaraokeLit,
-                maxLines = Int.MAX_VALUE,
-                modifier = Modifier.width(full)
+                maxLines = Int.MAX_VALUE
             )
         }
     }

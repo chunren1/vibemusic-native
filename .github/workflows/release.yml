@@ -51,12 +51,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APK_NAME" --clobber
+          TAG="${GITHUB_REF_NAME}"
+          # 双通道：tag 含 beta（不分大小写）即测试版 → GitHub prerelease；
+          # 正式 tag（如 v1.0.40-ai）保持正式 Release。更新器正式通道只读 /latest（自动排除 prerelease）。
+          if printf '%s' "$TAG" | grep -qi 'beta'; then
+            PRERELEASE_FLAGS="--prerelease"
+            NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名；正式通道收不到此版）"
           else
-            gh release create "$GITHUB_REF_NAME" "$APK_NAME" \
-              --title "$GITHUB_REF_NAME" \
-              --notes "VibeMusic 原生版 $GITHUB_REF_NAME（CI 自动构建签名）"
+            PRERELEASE_FLAGS=""
+            NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名）"
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_NAME" --clobber
+          else
+            # shellcheck disable=SC2086
+            gh release create "$TAG" "$APK_NAME" \
+              --title "$TAG" \
+              --notes "$NOTES" \
+              $PRERELEASE_FLAGS
           fi
 
       # Gitee 镜像：与 GitHub Release 同包。GitHub 是 source of truth，
@@ -79,11 +91,17 @@ jobs:
             exit 0
           fi
           NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名，与 GitHub Release 同包）"
+          if printf '%s' "$TAG" | grep -qi 'beta'; then
+            NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名，与 GitHub Release 同包）"
+            PRERELEASE_JSON=',"prerelease":true'
+          else
+            PRERELEASE_JSON=',"prerelease":false'
+          fi
           # (a) create release; 422 (already exists) → treat as success.
           CREATE_RESP=$(curl -sS --connect-timeout 10 --max-time 30 -w '\n%{http_code}' \
             -X POST "$API?access_token=${GITEE_TOKEN}" \
             -H "Content-Type: application/json;charset=UTF-8" \
-            --data "$(python3 -c 'import json,os;print(json.dumps({"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"]}))')" \
+            --data "$(TAG="$TAG" NOTES="$NOTES" PRE="$PRERELEASE_JSON" python3 -c 'import json,os;d={"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"]};s=json.dumps(d);print(s[:-1]+os.environ["PRE"]+"}")')" \
             ) || CREATE_RESP=""
           CREATE_CODE=$(printf '%s' "$CREATE_RESP" | tail -n 1)
           CREATE_BODY=$(printf '%s' "$CREATE_RESP" | sed '$d')

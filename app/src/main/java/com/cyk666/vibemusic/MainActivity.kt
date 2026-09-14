@@ -131,7 +131,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 sealed interface Screen {
     data object Discover : Screen
@@ -347,6 +350,11 @@ class MainActivity : ComponentActivity() {
             // switching must not land stale songs into the new selection.
             var songsJob by remember { mutableStateOf<Job?>(null) }
             var songsGen by remember { mutableIntStateOf(0) }
+            // Playback generation: bumped on every playAt / queueSeekTo /
+            // queueRemoveAt so a stale async seek (slow IO landing after a
+            // rapid double-tap) can never hit the new song. Same idiom as
+            // songsGen + isStalePlaylistSongs above (see isStalePlayGen).
+            var playGen by remember { mutableIntStateOf(0) }
 
             // ---- discover state (memory only; 10-min TTL via discoverLastLoaded) ----
             var discoverBanners by remember { mutableStateOf(listOf<DiscoverBanner>()) }
@@ -378,6 +386,23 @@ class MainActivity : ComponentActivity() {
             var updateRelease by remember { mutableStateOf<GithubRelease?>(null) }
             var updateBusy by remember { mutableStateOf(false) }
             var manualChecking by remember { mutableStateOf(false) }
+            var updateChannel by remember { mutableStateOf(UpdateChannel.STABLE) }
+            fun setUpdateChannel(channel: UpdateChannel) {
+                updateChannel = channel
+                scope.launch {
+                    try {
+                        QueueStore.saveUpdateChannel(context, channel)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            LaunchedEffect("update-channel") {
+                updateChannel = try {
+                    QueueStore.loadUpdateChannel(context)
+                } catch (_: Exception) {
+                    UpdateChannel.STABLE
+                }
+            }
             var appVersionName by remember { mutableStateOf("") }
             LaunchedEffect("app-version") {
                 appVersionName = try {
@@ -393,12 +418,22 @@ class MainActivity : ComponentActivity() {
             // ---- sleep timer (activity-level: survives song change + screen switch) ----
             var sleepMinutes by remember { mutableIntStateOf(0) }
             var sleepLeftSec by remember { mutableLongStateOf(0L) }
+            // Absolute expiry backing the countdown: persisted, so process
+            // death restores the true remaining time instead of a full window.
+            var sleepDeadlineMs by remember { mutableLongStateOf(0L) }
             var showSleepDialog by remember { mutableStateOf(false) }
             fun setSleep(min: Int) {
-                sleepMinutes = min.coerceAtLeast(0)
+                val m = min.coerceAtLeast(0)
+                val deadline = computeSleepDeadlineMs(System.currentTimeMillis(), m)
+                sleepMinutes = m
+                sleepDeadlineMs = deadline
                 scope.launch {
                     try {
-                        QueueStore.saveSleepMinutes(context, sleepMinutes)
+                        QueueStore.saveSleepMinutes(context, m)
+                    } catch (_: Exception) {
+                    }
+                    try {
+                        QueueStore.saveSleepDeadline(context, deadline)
                     } catch (_: Exception) {
                     }
                 }
@@ -420,12 +455,13 @@ class MainActivity : ComponentActivity() {
                     lyricStates + (id to LyricUiState.Failed)
                 }
             }
-            LaunchedEffect(sleepMinutes) {
-                if (sleepMinutes <= 0) {
+            LaunchedEffect(sleepDeadlineMs) {
+                val left = sleepRemainingSec(sleepDeadlineMs, System.currentTimeMillis())
+                if (sleepDeadlineMs <= 0L || left <= 0L) {
                     sleepLeftSec = 0L
                     return@LaunchedEffect
                 }
-                sleepLeftSec = sleepMinutes * 60L
+                sleepLeftSec = left
                 while (sleepLeftSec > 0) {
                     delay(1000)
                     sleepLeftSec--
@@ -434,8 +470,8 @@ class MainActivity : ComponentActivity() {
                     controller?.pause()
                 } catch (_: Exception) {
                 }
-                // Persist the expiry too: loading restores sleepMinutes from
-                // disk, so a memory-only reset would resurrect the timer.
+                // Clearing via setSleep writes zeros to both persisted keys,
+                // so a relaunch never resurrects the timer.
                 setSleep(0)
                 scope.launch { snackbar.showSnackbar("已按定时暂停") }
             }
@@ -524,7 +560,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun restorePosition(target: Song) {
+            fun restorePosition(target: Song, gen: Int = playGen) {
                 if (target.sourceId.isBlank()) return
                 scope.launch(Dispatchers.IO) {
                     val saved = try {
@@ -533,8 +569,11 @@ class MainActivity : ComponentActivity() {
                         0L
                     }
                     if (saved <= 0L) return@launch
+                    if (isStalePlayGen(gen, playGen)) return@launch
                     withContext(Dispatchers.Main) {
+                        if (isStalePlayGen(gen, playGen)) return@withContext
                         val cc = controller ?: return@withContext
+                        if (!isRestoreTargetCurrent(queue, currentIndex, target)) return@withContext
                         val dur = try {
                             cc.duration.takeIf { it != C.TIME_UNSET && it > 0 }
                                 ?: (target.durationSec * 1000L)
@@ -565,6 +604,8 @@ class MainActivity : ComponentActivity() {
                 val safeIndex = index.coerceIn(list.indices)
                 val target = list[safeIndex]
                 val online = isNetworkAvailable(context)
+                playGen += 1
+                val gen = playGen
                 // Review item 5: gate + timeline items precomputed off-main
                 // from one availability snapshot (no new network hops — pure
                 // local disk/cache pass); transport applies back on main.
@@ -576,6 +617,7 @@ class MainActivity : ComponentActivity() {
                             OfflineAvailability()
                         }
                     }
+                    if (isStalePlayGen(gen, playGen)) return@launch
                     if (!avail.isGatePlayable(target, online)) {
                         showError("无网络且未缓存")
                         return@launch
@@ -583,8 +625,10 @@ class MainActivity : ComponentActivity() {
                     val items = withContext(Dispatchers.IO) {
                         list.map { it.toPlayMediaItem(context, avail) }
                     }
+                    if (isStalePlayGen(gen, playGen)) return@launch
                     try {
                         queue = list
+                        timelineSongs = list
                         currentIndex = safeIndex
                         playerOrigin = if (screen is Screen.Player) playerOrigin else screen
                         miniDismissed = false
@@ -597,7 +641,7 @@ class MainActivity : ComponentActivity() {
                         c.play()
                         screen = Screen.Player
                         cacheTick += 1
-                        restorePosition(target)
+                        restorePosition(target, gen)
                         val snapshot = queue
                         val snapshotIndex = currentIndex
                         scope.launch {
@@ -654,7 +698,11 @@ class MainActivity : ComponentActivity() {
             // Suspend: the MediaItem list is precomputed off-main from one
             // availability snapshot (review item 5); controller calls stay on
             // main. Callers must launch (see togglePlayPause/queueSeekTo).
-            suspend fun ensureTimeline(c: MediaController, restoreSaved: Boolean = true): Boolean {
+            suspend fun ensureTimeline(
+                c: MediaController,
+                restoreSaved: Boolean = true,
+                gen: Int = playGen
+            ): Boolean {
                 val count = try {
                     c.mediaItemCount
                 } catch (_: Exception) {
@@ -675,7 +723,7 @@ class MainActivity : ComponentActivity() {
                     }
                     c.setMediaItems(items, idx, 0L)
                     c.prepare()
-                    if (restoreSaved) queue.getOrNull(idx)?.let { restorePosition(it) }
+                    if (restoreSaved) queue.getOrNull(idx)?.let { restorePosition(it, gen) }
                     true
                 } catch (_: Exception) {
                     false
@@ -800,9 +848,11 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
+                playGen += 1
+                val gen = playGen
                 scope.launch {
                     try {
-                        ensureTimeline(c, restoreSaved = false)
+                        ensureTimeline(c, restoreSaved = false, gen = gen)
                         if (c.mediaItemCount == 0) return@launch
                         val safeIndex = index.coerceIn(0, c.mediaItemCount - 1)
                         val target = queue.getOrNull(safeIndex)
@@ -817,11 +867,13 @@ class MainActivity : ComponentActivity() {
                                     online
                                 }
                             }
+                            if (isStalePlayGen(gen, playGen)) return@launch
                             if (!playable) {
                                 showError("无网络且未缓存")
                                 return@launch
                             }
                         }
+                        if (isStalePlayGen(gen, playGen)) return@launch
                         c.seekTo(safeIndex, 0L)
                         if (c.playbackState == Player.STATE_IDLE) c.prepare()
                         c.play()
@@ -829,7 +881,7 @@ class MainActivity : ComponentActivity() {
                         // the old window here (seekTo is async), so resolving the
                         // target from it restores the wrong song's position.
                         currentIndex = safeIndex
-                        selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it) }
+                        selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it, gen) }
                     } catch (e: Exception) {
                         showError("切歌失败: ${e.message ?: e.javaClass.simpleName}")
                     }
@@ -851,6 +903,9 @@ class MainActivity : ComponentActivity() {
                     showError("至少保留一首")
                     return
                 }
+                // Invalidate any in-flight playAt / restorePosition seek: the
+                // timeline it would land on no longer exists.
+                playGen += 1
                 scope.launch {
                     try {
                         ensureTimeline(c, restoreSaved = false)
@@ -1596,6 +1651,10 @@ class MainActivity : ComponentActivity() {
                         }
                         return
                     }
+                    if (!isSameSignature(context, apk)) {
+                        showError(UPDATE_SIGNATURE_MISMATCH_MESSAGE)
+                        return
+                    }
                     val uri = FileProvider.getUriForFile(
                         context,
                         context.packageName + ".fileprovider",
@@ -1621,8 +1680,18 @@ class MainActivity : ComponentActivity() {
                         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
                         val safeTag = rel.tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
                         val apk = File(dir, "vibemusic-$safeTag.apk")
-                        if (!apk.exists() || apk.length() <= 0L) {
-                            downloadApk(rel.apkUrl, apk)
+                        if (!isDownloadComplete(apk, -1L)) {
+                            try {
+                                partFileFor(apk).delete()
+                            } catch (_: Exception) {
+                            }
+                            val fallback = fetchFallbackApkUrl(otherUpdateSourceUrl(rel.apkUrl))
+                            downloadApk(
+                                rel.apkUrl,
+                                apk,
+                                fallbackApkUrl = fallback,
+                                expectedBytes = -1L
+                            )
                         }
                         withContext(Dispatchers.Main) {
                             updateBusy = false
@@ -1648,7 +1717,7 @@ class MainActivity : ComponentActivity() {
                         } catch (_: Exception) {
                         }
                         val rel = try {
-                            fetchLatestRelease()
+                            fetchLatestForChannel(updateChannel)
                         } catch (e: Exception) {
                             showError(friendlyNetworkMessage(e))
                             return@launch
@@ -1663,10 +1732,10 @@ class MainActivity : ComponentActivity() {
                                 ""
                             }
                         }
-                        when (compareAndDecide(current, rel.tag, fetchOk = true)) {
+                        val decision = compareAndDecide(current, rel.tag, fetchOk = true)
+                        when (decision) {
                             UpdateDecision.UPDATE_AVAILABLE -> updateRelease = rel
-                            UpdateDecision.UP_TO_DATE -> showError("已是最新版本")
-                            UpdateDecision.CHECK_FAILED -> Unit
+                            else -> manualUpdateCheckMessage(decision)?.let { showError(it) }
                         }
                     } finally {
                         manualChecking = false
@@ -2079,7 +2148,18 @@ class MainActivity : ComponentActivity() {
                                     null
                                 }
                                 if (song == null || song.sourceId.isBlank()) {
-                                    showError("播不了，已跳过 (${error.errorCodeName})")
+                                    val hasNext = try {
+                                        c?.hasNextMediaItem() == true
+                                    } catch (_: Exception) {
+                                        false
+                                    }
+                                    showError(
+                                        skipErrorToast(
+                                            null,
+                                            error.errorCodeName,
+                                            inferSkipOutcome(PlaybackService.lastSkipOutcome, hasNext)
+                                        )
+                                    )
                                     return
                                 }
                                 val key = playKey(song)
@@ -2337,7 +2417,32 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 VibeApi.init(context)
                 try {
-                    sleepMinutes = QueueStore.loadSleepMinutes(context)
+                    val now = System.currentTimeMillis()
+                    val deadline = try {
+                        QueueStore.loadSleepDeadline(context)
+                    } catch (_: Exception) {
+                        0L
+                    }
+                    val legacy = try {
+                        QueueStore.loadSleepMinutes(context)
+                    } catch (_: Exception) {
+                        0
+                    }
+                    val restored = resolveSleepRestore(deadline, legacy, now)
+                    if (restored.deadlineMs <= 0L) {
+                        sleepMinutes = 0
+                        sleepDeadlineMs = 0L
+                        sleepLeftSec = 0L
+                    } else if (deadline > now) {
+                        sleepMinutes = restored.minutes
+                        sleepDeadlineMs = restored.deadlineMs
+                        sleepLeftSec = restored.leftSec
+                    } else {
+                        // Legacy minutes with no live deadline: restart one
+                        // fresh full-length window and persist deadline form.
+                        setSleep(restored.minutes)
+                        sleepLeftSec = restored.leftSec
+                    }
                 } catch (_: Exception) {
                 }
                 try {
@@ -2364,8 +2469,14 @@ class MainActivity : ComponentActivity() {
                             QueueStore.saveLastUpdateCheck(context, now)
                         } catch (_: Exception) {
                         }
+                        val channel = try {
+                            QueueStore.loadUpdateChannel(context)
+                        } catch (_: Exception) {
+                            UpdateChannel.STABLE
+                        }
+                        updateChannel = channel
                         val rel = try {
-                            fetchLatestRelease()
+                            fetchLatestForChannel(channel)
                         } catch (_: Exception) {
                             return@launch
                         }
@@ -3046,7 +3157,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 rows = buildQueueRowDisplays(
                                     queue,
-                                    timelineSongs.ifEmpty { queue },
+                                    resolveQueueTimeline(queue, timelineSongs),
                                     currentIndex,
                                     positionMs,
                                     durationMs
@@ -3209,6 +3320,8 @@ class MainActivity : ComponentActivity() {
                                 versionLabel = formatVersionLabel(appVersionName),
                                 checkingUpdate = manualChecking,
                                 onCheckUpdate = ::runManualUpdateCheck,
+                                updateChannel = updateChannel,
+                                onSelectChannel = ::setUpdateChannel,
                                 onClearCache = ::clearMediaCache,
                                 onBack = { screen = Screen.Mine },
                                 onLoginClick = {
@@ -3346,6 +3459,127 @@ fun resolveMaterializePosition(savedMs: Long, durationMs: Long): Long {
     if (durationMs > 0L) return if (shouldRestorePosition(savedMs, durationMs)) savedMs else 0L
     return if (savedMs > POSITION_RESTORE_MIN_MS) savedMs else 0L
 }
+
+/**
+ * Pure landing guard for playback transport (same idiom as
+ * [isStalePlaylistSongs]): drop an async result that belongs to a
+ * superseded playAt / queueSeekTo / queueRemoveAt (generation mismatch),
+ * so a rapid double-tap on two songs can't cross-seek.
+ */
+fun isStalePlayGen(completedGen: Int, latestGen: Int): Boolean =
+    completedGen != latestGen
+
+/**
+ * Pure: the queued song at [index] must still be [target] before an async
+ * restore seek lands — guards the window where a list swap kept the
+ * generation but moved the rows.
+ */
+fun isRestoreTargetCurrent(queue: List<Song>, index: Int, target: Song): Boolean =
+    queue.getOrNull(index)?.sourceId == target.sourceId
+
+/**
+ * Pure: queue-page display list. playAt assigns timelineSongs alongside
+ * queue, so the page follows list swaps; the empty fallback covers the
+ * cold-start window before any timeline exists.
+ */
+fun resolveQueueTimeline(queue: List<Song>, timelineSongs: List<Song>): List<Song> =
+    timelineSongs.ifEmpty { queue }
+
+/** Pure: absolute sleep-timer expiry (persisted form); non-positive minutes mean off. */
+fun computeSleepDeadlineMs(nowMs: Long, minutes: Int): Long =
+    if (minutes <= 0) 0L else nowMs + minutes * 60_000L
+
+/** Pure: whole remaining seconds until [deadlineMs]; expired/missing deadlines read 0. */
+fun sleepRemainingSec(deadlineMs: Long, nowMs: Long): Long =
+    ((deadlineMs - nowMs) / 1000L).coerceAtLeast(0L)
+
+/** Resolved sleep state at startup: total minutes shown, persisted deadline, live countdown. */
+data class SleepRestore(val minutes: Int, val deadlineMs: Long, val leftSec: Long)
+
+/**
+ * Pure: resolve startup sleep state from the persisted deadline plus the
+ * legacy total-minutes value. A live deadline wins (remaining = deadline -
+ * now; expired deadline clears); a legacy minutes value with no deadline
+ * (pre-deadline installs) restarts one fresh full-length window once, and
+ * the caller overwrites it in deadline form.
+ */
+fun resolveSleepRestore(deadlineMs: Long, legacyMinutes: Int, nowMs: Long): SleepRestore {
+    val legacy = legacyMinutes.coerceAtLeast(0)
+    if (deadlineMs > nowMs) {
+        val left = sleepRemainingSec(deadlineMs, nowMs)
+        val minutes = if (legacy > 0) legacy else ((left + 59L) / 60L).toInt().coerceAtLeast(1)
+        return SleepRestore(minutes, deadlineMs, left)
+    }
+    // A past deadline means the timer already fired: clear even when the
+    // legacy minutes value lingers (its zero-write may have lost the race
+    // with process death). Only a never-set deadline (0) with legacy
+    // minutes migrates to one fresh full-length window.
+    if (deadlineMs > 0L) return SleepRestore(0, 0L, 0L)
+    if (legacy > 0) {
+        return SleepRestore(legacy, computeSleepDeadlineMs(nowMs, legacy), legacy * 60L)
+    }
+    return SleepRestore(0, 0L, 0L)
+}
+
+/**
+ * Pure: manual "检查更新" feedback per decision. UPDATE_AVAILABLE returns
+ * null (the update dialog is the feedback); the auto path never calls this
+ * and stays silent.
+ */
+fun manualUpdateCheckMessage(decision: UpdateDecision): String? = when (decision) {
+    UpdateDecision.UPDATE_AVAILABLE -> null
+    UpdateDecision.UP_TO_DATE -> "已是最新版本"
+    UpdateDecision.CHECK_FAILED -> "检查更新失败，请稍后重试"
+}
+
+/** Signature-mismatch install gate copy: old-key users must reinstall (clears offline content). */
+const val UPDATE_SIGNATURE_MISMATCH_MESSAGE = "签名不一致，需卸载重装（会清空离线内容）"
+
+/**
+ * Pure: which release-check URL serves the OTHER update source (download
+ * fallback for [downloadApk]). Gitee is primary, GitHub the fallback: a
+ * primary apk URL on gitee falls back to the GitHub check, anything else
+ * falls back to the Gitee check.
+ */
+fun otherUpdateSourceUrl(primaryApkUrl: String): String =
+    if (primaryApkUrl.contains("gitee", ignoreCase = true)) UPDATE_LATEST_URL
+    else UPDATE_GITEE_LATEST_URL
+
+private val fallbackCheckHttp = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(15, TimeUnit.SECONDS)
+    .followRedirects(true)
+    .build()
+
+/**
+ * Best-effort fetch of the other source's release apk URL for the download
+ * fallback (null on any failure — the primary URL is still tried alone).
+ * Runs on IO; never throws.
+ */
+suspend fun fetchFallbackApkUrl(checkUrl: String): String? =
+    withContext(Dispatchers.IO) {
+        try {
+            val accept = if (checkUrl.contains("github", ignoreCase = true)) {
+                "application/vnd.github+json"
+            } else {
+                null
+            }
+            val builder = Request.Builder().url(checkUrl).get()
+            if (!accept.isNullOrBlank()) builder.header("Accept", accept)
+            fallbackCheckHttp.newCall(builder.build()).execute().use { res ->
+                if (!res.isSuccessful) return@withContext null
+                val body = res.body?.string().orEmpty()
+                if (body.isBlank()) return@withContext null
+                try {
+                    parseLatestRelease(body).apkUrl.ifBlank { null }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
 fun songFromMediaItem(mi: MediaItem): Song {
     val md = mi.mediaMetadata
@@ -4632,6 +4866,48 @@ fun CacheManageRow(
 }
 
 @Composable
+fun UpdateChannelRow(
+    channel: UpdateChannel,
+    onSelect: (UpdateChannel) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "更新通道",
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = updateChannelSubtitle(channel),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        TextButton(
+            onClick = { onSelect(UpdateChannel.STABLE) },
+            enabled = channel != UpdateChannel.STABLE
+        ) {
+            Text(if (channel == UpdateChannel.STABLE) "✓正式版" else "正式版")
+        }
+        TextButton(
+            onClick = { onSelect(UpdateChannel.BETA) },
+            enabled = channel != UpdateChannel.BETA
+        ) {
+            Text(if (channel == UpdateChannel.BETA) "✓测试版" else "测试版")
+        }
+    }
+}
+
+@Composable
 fun VersionRow(
     versionLabel: String,
     checking: Boolean,
@@ -4731,6 +5007,8 @@ fun SettingsScreen(
     versionLabel: String,
     checkingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
+    updateChannel: UpdateChannel = UpdateChannel.STABLE,
+    onSelectChannel: (UpdateChannel) -> Unit = {},
     onClearCache: () -> Unit,
     onBack: () -> Unit,
     onLoginClick: () -> Unit = {},
@@ -4870,6 +5148,10 @@ fun SettingsScreen(
             )
         }
         Spacer(Modifier.height(4.dp))
+        UpdateChannelRow(
+            channel = updateChannel,
+            onSelect = onSelectChannel
+        )
         VersionRow(
             versionLabel = versionLabel,
             checking = checkingUpdate,
@@ -5334,6 +5616,13 @@ fun UpdateDialog(
                 } else {
                     Text(
                         text = "新版本可用，立即更新体验改进。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                betaReleaseNote(release.prerelease)?.let { note ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = note,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }

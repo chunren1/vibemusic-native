@@ -184,4 +184,22 @@ class VisualFxTest {
         // …and 10 clock-degrees later the cover advanced exactly 10.
         assertEquals(100f, vinylSpinAngle(frozenBase, spinNow + 10f, spinNow), 0.001f)
     }
+
+    // ---- spectrumShouldSample (Top-9 lifecycle gating predicate) ----
+
+    @Test
+    fun spectrum_runsOnlyWhilePlayingForegroundWithSession() {
+        assertTrue(spectrumShouldSample(isPlaying = true, isForeground = true, audioSessionId = 1))
+        assertTrue(spectrumShouldSample(isPlaying = true, isForeground = true, audioSessionId = 42))
+    }
+
+    @Test
+    fun spectrum_pausedBackgroundOrBadSessionStops() {
+        assertFalse(spectrumShouldSample(isPlaying = false, isForeground = true, audioSessionId = 1))
+        assertFalse(spectrumShouldSample(isPlaying = true, isForeground = false, audioSessionId = 1))
+        assertFalse(spectrumShouldSample(isPlaying = false, isForeground = false, audioSessionId = 1))
+        assertFalse(spectrumShouldSample(isPlaying = true, isForeground = true, audioSessionId = 0))
+        assertFalse(spectrumShouldSample(isPlaying = true, isForeground = true, audioSessionId = -3))
+        assertFalse(spectrumShouldSample(isPlaying = true, isForeground = false, audioSessionId = 0))
+    }
 }

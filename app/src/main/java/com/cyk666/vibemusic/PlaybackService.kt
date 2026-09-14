@@ -12,8 +12,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSink
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -119,8 +117,15 @@ enum class SkipOutcome {
     /** Advanced to the next (offline-playable) item. */
     SKIPPED_TO_NEXT,
 
-    /** Nothing to advance to (queue end / melt-down guard): playback stopped. */
-    STOPPED_AT_END
+    /** Nothing to advance to: the queue genuinely hit the end. */
+    STOPPED_AT_END,
+
+    /**
+     * Melt-down guard tripped: consecutive failures hit the cap while items
+     * remain (NOT the queue end — toast must not claim 队列已到末尾).
+     * See [meltDownOutcome].
+     */
+    STOPPED_CONSEC_FAILURES
 }
 
 /**
@@ -132,16 +137,29 @@ fun inferSkipOutcome(reported: SkipOutcome?, hasNext: Boolean): SkipOutcome =
     reported ?: if (hasNext) SkipOutcome.SKIPPED_TO_NEXT else SkipOutcome.STOPPED_AT_END
 
 /**
+ * Pure: melt-down signal split. The `shouldAutoSkip` guard stops for two
+ * different reasons — neither may share one toast: items remain but the
+ * consecutive-failure cap tripped → [SkipOutcome.STOPPED_CONSEC_FAILURES];
+ * genuinely nothing ahead → [SkipOutcome.STOPPED_AT_END].
+ * [hasMoreItems] is the controller's `hasNextMediaItem()` snapshot.
+ */
+fun meltDownOutcome(hasMoreItems: Boolean): SkipOutcome =
+    if (hasMoreItems) SkipOutcome.STOPPED_CONSEC_FAILURES else SkipOutcome.STOPPED_AT_END
+
+/**
  * Pure: truthful skip-failure toast (Chinese UX, keeps the error code for
- * diagnosis). SKIPPED keeps the historic "已跳过" wording; STOPPED says the
- * queue hit the end; RETRIED says a same-track retry is in flight (a
- * follow-up toast reports that retry's own result).
+ * diagnosis). SKIPPED keeps the historic "已跳过" wording; STOPPED_AT_END
+ * says the queue hit the end; STOPPED_CONSEC_FAILURES says repeated
+ * failures stopped playback while songs remain (never claims 末尾);
+ * RETRIED says a same-track retry is in flight (a follow-up toast reports
+ * that retry's own result).
  */
 fun skipErrorToast(title: String?, errorCodeName: String, outcome: SkipOutcome): String {
     val label = "《${title ?: "unknown"}》"
     return when (outcome) {
         SkipOutcome.SKIPPED_TO_NEXT -> "${label}播不了，已跳过 ($errorCodeName)"
         SkipOutcome.STOPPED_AT_END -> "${label}播不了，队列已到末尾，播放停止 ($errorCodeName)"
+        SkipOutcome.STOPPED_CONSEC_FAILURES -> "${label}播不了，连续多次失败，播放停止 ($errorCodeName)"
         SkipOutcome.RETRIED_SAME_ITEM -> "${label}播不了，正在重试 ($errorCodeName)"
     }
 }
@@ -232,21 +250,22 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Cache singleton warms on IO: dir create + DB open must never run
+        // on Main (first tap / service recreate). The pipeline below
+        // resolves the same singleton on ExoPlayer loader threads instead.
+        serviceIoScope.launch {
+            try {
+                MediaCache.get(this@PlaybackService)
+            } catch (_: Exception) {
+            }
+        }
         // Cache-first pipeline: CacheDataSource serves cached bytes first and fills
         // gaps from the HTTP upstream while online, so normal streaming behavior is
         // unchanged. Offline replay works for fully-cached items; a partially-cached
         // item errors on the cache hole (upstream unreachable) → auto-skip/message
         // path handles it (see MainActivity.onPlayerError).
         val upstream = DefaultHttpDataSource.Factory()
-        val cache = MediaCache.get(this)
-        val cacheSourceFactory = CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(upstream)
-            .setCacheWriteDataSinkFactory(
-                CacheDataSink.Factory()
-                    .setCache(cache)
-            )
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val cacheSourceFactory = MediaCache.cachedDataSourceFactory(this, upstream)
         // Scheme routing: file:// download items read straight from disk via
         // FileDataSource; http(s) keeps flowing cache→upstream byte-identical
         // to before. Without this, file:// misses the cache and falls through
@@ -431,7 +450,13 @@ class PlaybackService : MediaSessionService() {
                     exo.prepare()
                     exo.play()
                 } else {
-                    lastSkipOutcome = SkipOutcome.STOPPED_AT_END
+                    // Guard exit with items remaining is the melt-down cap,
+                    // not the queue end — report it truthfully (never 末尾).
+                    lastSkipOutcome = try {
+                        meltDownOutcome(exo.hasNextMediaItem())
+                    } catch (_: Exception) {
+                        SkipOutcome.STOPPED_AT_END
+                    }
                 }
             }
         })

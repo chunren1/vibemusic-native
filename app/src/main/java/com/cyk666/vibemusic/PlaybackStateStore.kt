@@ -149,10 +149,14 @@ fun renderPositions(positions: Map<String, Long>): String {
     return o.toString()
 }
 
+/** Pure: resolve a persisted update-channel string. Blank/unknown → STABLE (default). */
+fun parseUpdateChannel(raw: String?): UpdateChannel =
+    if (raw?.trim().equals("BETA", ignoreCase = true)) UpdateChannel.BETA
+    else UpdateChannel.STABLE
+
 /** First-run start destination: LOGIN forces the login gate, SEARCH_GUEST keeps
  * today's guest landing, RESTORE attempts silent token restore via /me. */
 enum class StartRoute { LOGIN, SEARCH_GUEST, RESTORE }
-
 /** Pure: blank token + never launched -> LOGIN; blank token + launched -> guest
  * Search; stored token -> RESTORE (validate via /me, guest-null stays guest). */
 fun decideStartRoute(tokenBlank: Boolean, launchedBefore: Boolean): StartRoute =
@@ -170,8 +174,10 @@ object QueueStore {
     private val KEY_SHUFFLE = booleanPreferencesKey("shuffle_on")
     private val KEY_PLAY_COUNTS = stringPreferencesKey("play_counts")
     private val KEY_SLEEP_MIN = intPreferencesKey("sleep_timer_min")
+    private val KEY_SLEEP_DEADLINE = longPreferencesKey("sleep_deadline_ms")
     private val KEY_POSITIONS = stringPreferencesKey("positions_json")
     private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_ms")
+    private val KEY_UPDATE_CHANNEL = stringPreferencesKey("update_channel")
     private val KEY_HAS_LAUNCHED = booleanPreferencesKey("has_launched_before")
     private val KEY_LAST_AUTH_FAIL = stringPreferencesKey("last_auth_fail")
     private val KEY_LAST_AUTH_FAIL_TS = longPreferencesKey("last_auth_fail_ts_ms")
@@ -278,6 +284,26 @@ object QueueStore {
         }
     }
 
+    /** Sleep-timer expiry (absolute uptime wall-clock ms): survives process death with true remaining. */
+    suspend fun saveSleepDeadline(context: Context, deadlineMs: Long) {
+        try {
+            context.playbackDataStore.edit { p ->
+                p[KEY_SLEEP_DEADLINE] = deadlineMs.coerceAtLeast(0L)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadSleepDeadline(context: Context): Long {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                p[KEY_SLEEP_DEADLINE] ?: 0L
+            }.first().coerceAtLeast(0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
     /** Progress-survives-restart: per-song position keyed by playKey (<platform>:<sourceId>). */
     suspend fun savePosition(context: Context, key: String, positionMs: Long) {
         if (key.isBlank() || positionMs < 0L) return
@@ -334,6 +360,25 @@ object QueueStore {
                 p[KEY_LAST_UPDATE_CHECK] = nowMs.coerceAtLeast(0L)
             }
         } catch (_: Exception) {
+        }
+    }
+
+    suspend fun saveUpdateChannel(context: Context, channel: UpdateChannel) {
+        try {
+            context.playbackDataStore.edit { p ->
+                p[KEY_UPDATE_CHANNEL] = channel.name
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadUpdateChannel(context: Context): UpdateChannel {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                parseUpdateChannel(p[KEY_UPDATE_CHANNEL])
+            }.first()
+        } catch (_: Exception) {
+            UpdateChannel.STABLE
         }
     }
 

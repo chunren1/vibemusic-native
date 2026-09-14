@@ -1,5 +1,7 @@
 package com.cyk666.vibemusic
 
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,6 +9,12 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 
 @RunWith(RobolectricTestRunner::class)
 class UpdateCheckTest {
@@ -144,5 +152,223 @@ class UpdateCheckTest {
     @Test
     fun throttle_intervalIs24h() {
         assertEquals(24 * 60 * 60 * 1000L, UPDATE_CHECK_INTERVAL_MS)
+    }
+
+    // ---- part-file staging ----
+
+    @Test
+    fun partFile_sameDirWithPartSuffix() {
+        val dest = java.io.File("/tmp/updates", "vibemusic-v1.0.41-ai.apk")
+        val part = partFileFor(dest)
+        assertEquals("vibemusic-v1.0.41-ai.apk.part", part.name)
+        assertEquals(dest.parentFile, part.parentFile)
+    }
+
+    // ---- size-gate reuse decision ----
+
+    private fun tmpApk(name: String, bytes: ByteArray?): java.io.File {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test")
+        dir.mkdirs()
+        val f = java.io.File(dir, name)
+        try {
+            f.delete()
+        } catch (_: Exception) {
+        }
+        if (bytes != null) f.writeBytes(bytes)
+        return f
+    }
+
+    @Test
+    fun sizeGate_missingFileNeverReused() {
+        val f = java.io.File(
+            RuntimeEnvironment.getApplication().cacheDir,
+            "upd-test/no-such.apk"
+        )
+        assertFalse(isDownloadComplete(f, 100L))
+        assertFalse(isDownloadComplete(f, -1L))
+    }
+
+    @Test
+    fun sizeGate_emptyFileNeverReused() {
+        val f = tmpApk("empty.apk", ByteArray(0))
+        assertFalse(isDownloadComplete(f, 100L))
+        assertFalse(isDownloadComplete(f, -1L))
+        f.delete()
+    }
+
+    @Test
+    fun sizeGate_truncatedHalfPackageRejected() {
+        val full = ByteArray(4096) { it.toByte() }
+        val f = tmpApk("half.apk", full.copyOf(2048))
+        assertFalse(isDownloadComplete(f, 4096L))
+        f.delete()
+    }
+
+    @Test
+    fun sizeGate_exactSizeAccepted() {
+        val full = ByteArray(4096) { it.toByte() }
+        val f = tmpApk("full.apk", full)
+        assertTrue(isDownloadComplete(f, 4096L))
+        f.delete()
+    }
+
+    @Test
+    fun sizeGate_unknownSizeFallsBackToNonEmpty() {
+        val f = tmpApk("legacy.apk", byteArrayOf(1, 2, 3))
+        assertTrue(isDownloadComplete(f, -1L))
+        assertTrue(isDownloadComplete(f, 0L))
+        f.delete()
+    }
+
+    // ---- signature gate (fail-closed negatives; positive needs a real apk) ----
+
+    @Test
+    fun signature_missingFileIsFalse() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val f = java.io.File(ctx.cacheDir, "upd-test/no-such.apk")
+        assertFalse(isSameSignature(ctx, f))
+    }
+
+    @Test
+    fun signature_garbageFileIsFalse() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val f = tmpApk("garbage.apk", "not an apk".toByteArray())
+        assertFalse(isSameSignature(ctx, f))
+        f.delete()
+    }
+
+    // ---- streaming download over loopback (raw ServerSocket stub, no new deps) ----
+
+    private class StubApkServer(val bytes: ByteArray, val code: Int = 200) {
+        private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+        val port: Int get() = server.localPort
+        @Volatile
+        private var running = true
+        private val thread = kotlin.concurrent.thread(isDaemon = true, name = "stub-apk") {
+            while (running) {
+                try {
+                    handle(server.accept())
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        private fun handle(s: Socket) {
+            try {
+                s.use { sock ->
+                    val reader = BufferedReader(InputStreamReader(sock.getInputStream()))
+                    try {
+                        var line: String?
+                        do {
+                            line = reader.readLine()
+                        } while (line != null && line.isNotEmpty())
+                    } catch (_: Exception) {
+                    }
+                    val out = sock.getOutputStream()
+                    if (code != 200) {
+                        out.write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                    } else {
+                        out.write(
+                            ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.android.package-archive\r\n" +
+                                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+                        )
+                        out.write(bytes)
+                    }
+                    out.flush()
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        fun url(): String = "http://127.0.0.1:$port/app.apk"
+
+        fun stop() {
+            running = false
+            try {
+                server.close()
+            } catch (_: Exception) {
+            }
+            try {
+                thread.join(1000)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun serveApp(bytes: ByteArray, code: Int = 200): StubApkServer =
+        StubApkServer(bytes, code)
+
+    private fun loopbackUrl(server: StubApkServer): String = server.url()
+
+    @Test
+    fun download_streamsToAtomicLanding_noPartLeft() {
+        val payload = ByteArray(64 * 1024) { (it * 31).toByte() }
+        val server = serveApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl1")
+            val dest = java.io.File(dir, "v.apk")
+            val landed: java.io.File = runBlocking { downloadApk(loopbackUrl(server), dest) }
+            assertArrayEquals(payload, landed.readBytes())
+            assertFalse(partFileFor(dest).exists())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun download_sizeMismatchThrowsAndLeavesNothing() {
+        val payload = ByteArray(1024) { it.toByte() }
+        val server = serveApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl2")
+            val dest = java.io.File(dir, "v.apk")
+            try {
+                runBlocking { downloadApk(loopbackUrl(server), dest, expectedBytes = 2048L) }
+                fail("expected incomplete-file RuntimeException")
+            } catch (e: RuntimeException) {
+                assertTrue((e.message ?: "").contains("incomplete"))
+            }
+            assertFalse(dest.exists())
+            assertFalse(partFileFor(dest).exists())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun download_primary500FallsBackToSecondSource() {
+        val payload = ByteArray(2048) { it.toByte() }
+        val dead = serveApp(payload, code = 500)
+        val good = serveApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl3")
+            val dest = java.io.File(dir, "v.apk")
+            val landed: java.io.File = runBlocking {
+                downloadApk(loopbackUrl(dead), dest, fallbackApkUrl = loopbackUrl(good))
+            }
+            assertArrayEquals(payload, landed.readBytes())
+            assertFalse(partFileFor(dest).exists())
+        } finally {
+            dead.stop()
+            good.stop()
+        }
+    }
+
+    @Test
+    fun download_allSourcesDownThrows() {
+        val dead = serveApp(ByteArray(0), code = 500)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl4")
+            val dest = java.io.File(dir, "v.apk")
+            try {
+                runBlocking { downloadApk(loopbackUrl(dead), dest) }
+                fail("expected download-failed RuntimeException")
+            } catch (e: RuntimeException) {
+                assertTrue((e.message ?: "").contains("Download failed"))
+            }
+            assertFalse(dest.exists())
+        } finally {
+            dead.stop()
+        }
     }
 }

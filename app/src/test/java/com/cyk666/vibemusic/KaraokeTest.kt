@@ -241,4 +241,32 @@ class KaraokeTest {
         assertEquals(0f, karaokeSweepFraction(words, 9_999L, 10_000L, 14_000L), 1e-6f)
         assertEquals(1f, karaokeSweepFraction(words, 10_000L, 10_000L, 14_000L), 1e-6f)
     }
+
+    // ---- karaokeSweepClipRight (Top-1 overlay clip edge) ----
+
+    @Test
+    fun clip_scalesWithFraction() {
+        assertEquals(0f, karaokeSweepClipRight(400f, 0f), 1e-6f)
+        assertEquals(200f, karaokeSweepClipRight(400f, 0.5f), 1e-6f)
+        assertEquals(400f, karaokeSweepClipRight(400f, 1f), 1e-6f)
+    }
+
+    @Test
+    fun clip_clampsFractionAndWidth() {
+        assertEquals(0f, karaokeSweepClipRight(400f, -2f), 1e-6f)
+        assertEquals(400f, karaokeSweepClipRight(400f, 9f), 1e-6f)
+        assertEquals(0f, karaokeSweepClipRight(0f, 0.5f), 1e-6f)
+        assertEquals(0f, karaokeSweepClipRight(-50f, 0.7f), 1e-6f)
+    }
+
+    @Test
+    fun clip_advancesMonotonicallyWithSweep() {
+        val w = 300f
+        var prev = karaokeSweepClipRight(w, 0f)
+        for (f in listOf(0.125f, 0.25f, 0.625f, 1f)) {
+            val cur = karaokeSweepClipRight(w, f)
+            assertTrue(cur > prev)
+            prev = cur
+        }
+    }
 }

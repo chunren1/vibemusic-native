@@ -100,4 +100,52 @@ class UpdateSourceTest {
         assertTrue(UPDATE_GITEE_LATEST_URL.contains("green-leavesQAQ/vibemusic-native"))
         assertTrue(UPDATE_LATEST_URL.contains("api.github.com"))
     }
+
+    // ---- download source selection (Gitee→GitHub fallback for download too) ----
+
+    @Test
+    fun downloadSources_primaryOnly() {
+        assertEquals(
+            listOf("https://gitee.example/app.apk"),
+            resolveDownloadSources("https://gitee.example/app.apk")
+        )
+    }
+
+    @Test
+    fun downloadSources_fallbackAppendedInOrder() {
+        assertEquals(
+            listOf("https://gitee.example/app.apk", "https://github.example/app.apk"),
+            resolveDownloadSources("https://gitee.example/app.apk", "https://github.example/app.apk")
+        )
+    }
+
+    @Test
+    fun downloadSources_blankFallbackDropped() {
+        assertEquals(
+            listOf("https://gitee.example/app.apk"),
+            resolveDownloadSources("https://gitee.example/app.apk", "  ")
+        )
+    }
+
+    @Test
+    fun downloadSources_duplicateTriedOnce() {
+        assertEquals(
+            listOf("https://gitee.example/app.apk"),
+            resolveDownloadSources("https://gitee.example/app.apk", "https://gitee.example/app.apk")
+        )
+    }
+
+    @Test
+    fun downloadSources_emptyPrimaryFallsThroughToFallback() {
+        assertEquals(
+            listOf("https://github.example/app.apk"),
+            resolveDownloadSources("", "https://github.example/app.apk")
+        )
+    }
+
+    @Test
+    fun downloadSources_bothBlankIsEmpty() {
+        assertTrue(resolveDownloadSources("", null).isEmpty())
+        assertTrue(resolveDownloadSources("  ", " ").isEmpty())
+    }
 }
