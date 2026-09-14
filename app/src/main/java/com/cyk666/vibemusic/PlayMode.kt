@@ -89,3 +89,16 @@ fun buildPlayerMetaLine(
     }
     return if (parts.isEmpty()) null else parts.joinToString(" · ")
 }
+
+/**
+ * Pure: one-line lyric preview under the PLAYER cover — the active line's
+ * text with inline timing tags stripped. Null when lines are empty, the
+ * position precedes the first line, or the text is blank (caller shows
+ * its 暂无歌词 fallback). Index math mirrors PlayerScreen's currentLine.
+ */
+fun lyricPreviewLine(lines: List<LyricLine>, positionMs: Long): String? {
+    if (lines.isEmpty()) return null
+    val idx = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
+    if (idx < 0) return null
+    return stripInlineTags(lines[idx].text).trim().ifBlank { null }
+}

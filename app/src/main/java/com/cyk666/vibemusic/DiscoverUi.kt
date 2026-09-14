@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -42,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -238,37 +238,193 @@ fun RecommendImportDialog(
     }
 }
 
+@Composable
+private fun HomeTabLabel(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) UiInk else UiMuted,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1
+        )
+        Spacer(Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .width(16.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(if (selected) UiViolet else Color.Transparent)
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SongCard(
+private fun HomeSongCard(
     song: Song,
+    backCoverUrl: String,
+    enLabel: String,
+    enColor: Color,
     onPlay: () -> Unit,
     onOverflow: () -> Unit
 ) {
-    Column(
+    Row(
         modifier = Modifier
-            .width(120.dp)
+            .width(248.dp)
+            .background(UiSurface, RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onPlay, onLongClick = onOverflow)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.size(72.dp)) {
+            AsyncImage(
+                model = backCoverUrl.ifBlank { null },
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(56.dp)
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(UiMuted.copy(alpha = 0.25f))
+            )
+            AsyncImage(
+                model = song.coverUrl.ifBlank { null },
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(56.dp)
+                    .align(Alignment.BottomStart)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(UiMuted.copy(alpha = 0.25f))
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song.name.ifBlank { "(untitled)" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = UiInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = song.artist.ifBlank { "未知歌手" },
+                style = MaterialTheme.typography.bodySmall,
+                color = UiMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = enLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = enColor,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(UiViolet)
+                .clickable(onClick = onPlay),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(kind = AppIconKind.PLAY, tint = Color.White, size = 20.dp)
+        }
+    }
+}
+
+@Composable
+private fun EncounterRow(
+    song: Song,
+    faved: Boolean,
+    onPlay: () -> Unit,
+    onToggleFav: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPlay)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
             model = song.coverUrl.ifBlank { null },
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(120.dp)
+                .size(52.dp)
                 .clip(RoundedCornerShape(12.dp))
+                .background(UiMuted.copy(alpha = 0.25f))
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song.name.ifBlank { "(untitled)" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = UiInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = song.artist.ifBlank { "未知歌手" },
+                style = MaterialTheme.typography.bodySmall,
+                color = UiMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        FavHeart(faved = faved, onClick = onToggleFav)
+    }
+}
+
+@Composable
+private fun TreasureCell(
+    playlist: RecommendPlaylist,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onTap)
+    ) {
+        AsyncImage(
+            model = playlist.picUrl.ifBlank { null },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(UiMuted.copy(alpha = 0.25f))
+        )
+        Spacer(Modifier.height(6.dp))
         Text(
-            text = song.name.ifBlank { "(untitled)" },
+            text = playlist.name.ifBlank { "(untitled)" },
             style = MaterialTheme.typography.bodyMedium,
+            color = UiInk,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = song.artist,
+            text = if (playlist.copywriter.isNotBlank()) playlist.copywriter
+            else "播放 " + formatPlayCount(playlist.playCount),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = UiMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -309,54 +465,77 @@ fun DiscoverScreen(
     onToggleFav: (Song) -> Unit = {},
     onAddToPlaylist: (Song) -> Unit = {},
     onDownload: (Song) -> Unit = {},
-    onGoSearch: () -> Unit = {}
+    onGoSearch: () -> Unit = {},
+    onOpenHistory: () -> Unit = {}
 ) {
     var cardSheetFor by remember { mutableStateOf<Song?>(null) }
+    var homeTab by remember { mutableStateOf(0) }
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onPullRefresh,
         modifier = modifier.fillMaxSize()
     ) {
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            item(key = "discover-title") {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            item(key = "home-top") {
+                Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "首页",
+                        text = "Music",
                         style = MaterialTheme.typography.titleLarge,
+                        color = UiInk,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = onGoSearch, modifier = Modifier.size(48.dp)) {
-                        AppIcon(AppIconKind.SEARCH, UiMuted)
+                    IconButton(onClick = onOpenHistory, modifier = Modifier.size(48.dp)) {
+                        AppIcon(AppIconKind.HISTORY, UiMuted)
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HomeTabLabel(
+                        text = "乐库",
+                        selected = homeTab == 0,
+                        onClick = { homeTab = 0 }
+                    )
+                    HomeTabLabel(
+                        text = "商城",
+                        selected = homeTab == 1,
+                        onClick = { homeTab = 1 }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(UiSurface)
+                            .clickable(onClick = onGoSearch)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppIcon(AppIconKind.SEARCH, UiMuted, size = 20.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "搜索歌曲 / 歌手",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = UiMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
                 Spacer(Modifier.height(16.dp))
             }
-            when {
-                bannersLoading && banners.isEmpty() -> item(key = "banner-loading") {
-                    BannerSkeleton()
-                    Spacer(Modifier.height(24.dp))
-                }
-                banners.isNotEmpty() -> item(key = "banner") {
-                    BannerCarousel(banners = banners, onTap = onBannerTap)
-                    Spacer(Modifier.height(24.dp))
-                }
-                bannersError != null -> item(key = "banner-error") {
-                    DiscoverRetryRow(message = bannersError, onRetry = onRetryBanners)
-                }
-                else -> item(key = "banner-empty") {
-                    Text(
-                        text = "暂无推荐",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
             item(key = "daily-head") {
-                DiscoverSectionHeader(
+                HomeSectionHeader(
                     title = "每日推荐",
+                    enSubtitle = "DAILY",
+                    enColor = UiViolet,
                     actionLabel = "换一批",
                     actionBusy = dailyLoading && dailySongs.isNotEmpty(),
                     onAction = onRefreshDaily
@@ -386,8 +565,12 @@ fun DiscoverScreen(
                             dailySongs,
                             key = { _, s -> "daily-" + s.sourceId + s.platform }
                         ) { index, song ->
-                            SongCard(
+                            val back = dailySongs.getOrNull(index + 1)?.coverUrl.orEmpty()
+                            HomeSongCard(
                                 song = song,
+                                backCoverUrl = back,
+                                enLabel = "DAILY SONGS",
+                                enColor = UiViolet,
                                 onPlay = { onPlayDaily(index) },
                                 onOverflow = { cardSheetFor = song }
                             )
@@ -407,7 +590,11 @@ fun DiscoverScreen(
             }
             item(key = "guess-head") {
                 Spacer(Modifier.height(24.dp))
-                DiscoverSectionHeader(title = "猜你喜欢")
+                HomeSectionHeader(
+                    title = "新歌速递",
+                    enSubtitle = "NEW",
+                    enColor = UiCyan
+                )
                 Spacer(Modifier.height(8.dp))
             }
             when {
@@ -423,14 +610,18 @@ fun DiscoverScreen(
                             guessSongs,
                             key = { _, s -> "guess-" + s.sourceId + s.platform }
                         ) { index, song ->
-                            SongCard(
+                            val back = guessSongs.getOrNull(index + 1)?.coverUrl.orEmpty()
+                            HomeSongCard(
                                 song = song,
+                                backCoverUrl = back,
+                                enLabel = "NEW SONGS",
+                                enColor = UiCyan,
                                 onPlay = { onPlayGuess(index) },
                                 onOverflow = { cardSheetFor = song }
                             )
                         }
                     }
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
                 guessError != null -> item(key = "guess-error") {
                     DiscoverRetryRow(message = guessError, onRetry = onRetryGuess)
@@ -443,52 +634,60 @@ fun DiscoverScreen(
                     )
                 }
             }
+            item(key = "encounter-head") {
+                Spacer(Modifier.height(16.dp))
+                HomeSectionHeader(
+                    title = "偶遇心动单曲",
+                    enSubtitle = "ENCOUNTER",
+                    enColor = UiPink
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            if (dailySongs.isNotEmpty()) {
+                itemsIndexed(
+                    dailySongs,
+                    key = { _, s -> "encounter-" + s.sourceId + s.platform }
+                ) { index, song ->
+                    EncounterRow(
+                        song = song,
+                        faved = song.sourceId.isNotBlank() && song.sourceId in favIds,
+                        onPlay = { onPlayDaily(index) },
+                        onToggleFav = { onToggleFav(song) }
+                    )
+                }
+            }
             item(key = "hot-head") {
-                DiscoverSectionHeader(title = "推荐歌单")
+                Spacer(Modifier.height(16.dp))
+                HomeSectionHeader(
+                    title = "宝藏歌单库",
+                    enSubtitle = "PLAYLISTS",
+                    enColor = UiGold
+                )
                 Spacer(Modifier.height(8.dp))
             }
             when {
                 hotLoading && hotPlaylists.isEmpty() -> item(key = "hot-loading") {
                     SearchSkeleton()
                 }
-                hotPlaylists.isNotEmpty() -> item(key = "hot-list") {
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(
-                            hotPlaylists,
-                            key = { pl -> "hot-" + pl.id + pl.name }
-                        ) { pl ->
-                            Column(
-                                modifier = Modifier
-                                    .width(140.dp)
-                                    .clickable { onPlaylistTap(pl) }
+                hotPlaylists.isNotEmpty() -> {
+                    hotPlaylists.chunked(2).forEachIndexed { rowIdx, pair ->
+                        item(key = "treasure-row-$rowIdx") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                AsyncImage(
-                                    model = pl.picUrl.ifBlank { null },
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(140.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = pl.name.ifBlank { "(untitled)" },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (pl.copywriter.isNotBlank()) pl.copywriter
-                                    else "播放 " + formatPlayCount(pl.playCount),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                pair.forEach { pl ->
+                                    TreasureCell(
+                                        playlist = pl,
+                                        onTap = { onPlaylistTap(pl) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (pair.size == 1) {
+                                    Spacer(Modifier.weight(1f))
+                                }
                             }
+                            Spacer(Modifier.height(12.dp))
                         }
                     }
                 }

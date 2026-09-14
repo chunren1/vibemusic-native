@@ -102,7 +102,37 @@ fun selectSearchBody(
  */
 fun shouldAutoSearchOnLaunch(query: String): Boolean = query.trim().isNotEmpty()
 
-/** Suggestion source tag for the 联想 dropdown (history first, then hotwords, then live). */
+/**
+ * 联想 overlay 可见性事件（dismiss/re-show 触发器，纯状态机）：
+ * SELECT = 点选一条联想/历史项（立即隐藏，结果干净露出）；
+ * SEARCH_PRESS = 显式按下搜索按钮/IME Search（唯一重现路径）；
+ * QUERY_CHANGE = 键入改字（沿用 500ms debounce 自动搜，但绝不重现 overlay）。
+ */
+enum class SuggestOverlayEvent {
+    QUERY_CHANGE,
+    SELECT,
+    SEARCH_PRESS,
+}
+
+/**
+ * Pure 联想 overlay 可见性归约：SELECT 直接灭，SEARCH_PRESS 重现，
+ * QUERY_CHANGE 保持现状（结果可见时键入不会把 overlay 带回来）。
+ */
+fun reduceSuggestOverlayVisible(
+    current: Boolean,
+    event: SuggestOverlayEvent
+): Boolean = when (event) {
+    SuggestOverlayEvent.QUERY_CHANGE -> current
+    SuggestOverlayEvent.SELECT -> false
+    SuggestOverlayEvent.SEARCH_PRESS -> true
+}
+
+/**
+ * Pure 联想 overlay 显示门：flag 开且确有候选项才盖住结果区。
+ * 空 query 本就无候选（buildSuggestions 回空），此处只管 flag 门。
+ */
+fun shouldShowSuggestOverlay(visibleFlag: Boolean, hasSuggestions: Boolean): Boolean =
+    visibleFlag && hasSuggestions
 enum class SuggestSource(val label: String) {
     HISTORY("历史"),
     HOTWORD("热搜"),

@@ -231,6 +231,7 @@ fun VinylCover(
     spinKey: Any?,
     scale: Float = 1f,
     cornerDp: Dp = 160.dp,
+    fraction: Float = 0.72f,
     modifier: Modifier = Modifier
 ) {
     val running = vinylShouldSpin(isPlaying, spinKey != null)
@@ -275,7 +276,7 @@ fun VinylCover(
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = modifier
-            .fillMaxWidth(0.72f)
+            .fillMaxWidth(fraction)
             .aspectRatio(1f)
             .graphicsLayer {
                 rotationZ = angle

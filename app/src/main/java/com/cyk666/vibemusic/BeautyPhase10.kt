@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -204,12 +205,12 @@ fun EmptyStateLine(
 }
 
 /**
- * Global mini-player: slim bar pinned ABOVE the bottom tab bar (it lives in
- * the Scaffold bottomBar slot, so it can never overlap the tabs). Shown when
- * the queue is non-empty and the current screen is not Player. Tap body ->
- * Player screen. X collapses the bar for this session (UI state only — the
- * queue/playback is untouched); it reappears on the next playAt.
- * P1: Material icons, 48dp touch targets, LinearProgressIndicator hairline.
+ * Global mini-player: floating rounded bar pinned ABOVE the bottom tab bar
+ * (it lives in the Scaffold bottomBar slot, so it can never overlap the
+ * tabs). Shown when the queue is non-empty and the current screen is not
+ * Player. Tap body -> Player screen. X collapses the bar for this session
+ * (UI state only — the queue/playback is untouched); it reappears on the
+ * next playAt. 48dp touch targets, LinearProgressIndicator hairline.
  */
 @Composable
 fun MiniPlayerBar(
@@ -227,54 +228,62 @@ fun MiniPlayerBar(
     } else {
         null
     }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (progress != null) {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = P10Violet,
-                trackColor = P10Muted.copy(alpha = 0.3f)
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .clickable(onClick = onTap)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AsyncImage(
-                model = song.coverUrl.ifBlank { null },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = song.name.ifBlank { "(untitled)" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = P10Ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = song.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = P10Muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(P10Surface)
+            .clickable(onClick = onTap)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = P10Violet,
+                    trackColor = P10Muted.copy(alpha = 0.3f)
                 )
             }
-            IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp)) {
-                AppIcon(
-                    kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
-                    tint = P10Violet
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AsyncImage(
+                    model = song.coverUrl.ifBlank { null },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
                 )
-            }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                AppIcon(AppIconKind.CLOSE, P10Muted)
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = song.name.ifBlank { "(untitled)" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = P10Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = song.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = P10Muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp)) {
+                    AppIcon(
+                        kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
+                        tint = P10Violet
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                    AppIcon(AppIconKind.CLOSE, P10Muted)
+                }
             }
         }
     }

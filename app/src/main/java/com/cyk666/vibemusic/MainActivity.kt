@@ -260,6 +260,11 @@ class MainActivity : ComponentActivity() {
             // Query text that produced `results` (generation-guarded); 联想 live
             // suggestions only use results while the input still equals this.
             var liveQuery by remember { mutableStateOf("") }
+            // 联想 overlay visibility flag: SELECT dismisses it at once,
+            // only an explicit search-button press re-shows it; keystrokes
+            // (debounce auto-search) never touch it (see
+            // reduceSuggestOverlayVisible + SuggestOverlayEvent).
+            var suggestVisible by remember { mutableStateOf(true) }
             var searchHistory by remember { mutableStateOf<List<String>>(emptyList()) }
             var searchSort by remember { mutableStateOf(SearchSort.RELEVANCE) }
             var artistFilter by remember { mutableStateOf<String?>(null) }
@@ -663,6 +668,63 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveQueue(context, snapshot, snapshotIndex)
                     } catch (_: Exception) {
+                    }
+                }
+            }
+
+            // Search-result tap: enqueue ONLY the tapped song right after the
+            // current index (existing queue intact) and start it. Same
+            // playGen + gate + availability-snapshot idiom as playAt, so
+            // stale async landings and restore-position guards keep working.
+            fun playSingleFromSearch(song: Song) {
+                val c = controller
+                if (c == null) {
+                    showError("播放器连接中，请稍候")
+                    return
+                }
+                val online = isNetworkAvailable(context)
+                playGen += 1
+                val gen = playGen
+                scope.launch {
+                    // Pure placement first: the availability snapshot below
+                    // covers the full NEW queue, so every timeline item
+                    // resolves from one consistent pass (review item 5).
+                    val placed = enqueueSingleAfterCurrent(queue, currentIndex, song)
+                    val avail = withContext(Dispatchers.IO) {
+                        try {
+                            buildOfflineAvailability(context, placed.queue)
+                        } catch (_: Exception) {
+                            OfflineAvailability()
+                        }
+                    }
+                    if (isStalePlayGen(gen, playGen)) return@launch
+                    if (!avail.isGatePlayable(song, online)) {
+                        showError("无网络且未缓存")
+                        return@launch
+                    }
+                    val items = withContext(Dispatchers.IO) {
+                        placed.queue.map { it.toPlayMediaItem(context, avail) }
+                    }
+                    if (isStalePlayGen(gen, playGen)) return@launch
+                    try {
+                        queue = placed.queue
+                        timelineSongs = placed.queue
+                        currentIndex = placed.index
+                        playerOrigin = if (screen is Screen.Player) playerOrigin else screen
+                        miniDismissed = false
+                        c.setMediaItems(
+                            items,
+                            currentIndex,
+                            0L
+                        )
+                        c.prepare()
+                        c.play()
+                        screen = Screen.Player
+                        cacheTick += 1
+                        restorePosition(song, gen)
+                        persistQueue()
+                    } catch (e: Exception) {
+                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
                     }
                 }
             }
@@ -2936,7 +2998,8 @@ class MainActivity : ComponentActivity() {
                                 onToggleFav = ::toggleFav,
                                 onAddToPlaylist = ::openAddSheet,
                                 onDownload = { song -> downloadSong(song, false) },
-                                onGoSearch = { screen = Screen.Search }
+                                onGoSearch = { screen = Screen.Search },
+                                onOpenHistory = { screen = Screen.History }
                             )
 
                             is Screen.Search -> SearchScreen(
@@ -2948,6 +3011,10 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onSearch = {
                                     debounceJob?.cancel()
+                                    suggestVisible = reduceSuggestOverlayVisible(
+                                        suggestVisible,
+                                        SuggestOverlayEvent.SEARCH_PRESS
+                                    )
                                     runSearch(query)
                                 },
                                 loading = loading,
@@ -2960,6 +3027,7 @@ class MainActivity : ComponentActivity() {
                                     if (query.trim().isNotEmpty()) runSearch(query)
                                 },
                                 onPlayAt = ::playAt,
+                                onPlaySingle = ::playSingleFromSearch,
                                 artistFilter = artistFilter,
                                 onArtistFilterChange = { artistFilter = it },
                                 sort = searchSort,
@@ -2980,6 +3048,10 @@ class MainActivity : ComponentActivity() {
                                 onPlayGuessAt = ::playAt,
                                 onHistorySelect = { h ->
                                     debounceJob?.cancel()
+                                    suggestVisible = reduceSuggestOverlayVisible(
+                                        suggestVisible,
+                                        SuggestOverlayEvent.SELECT
+                                    )
                                     query = h
                                     runSearch(h)
                                 },
@@ -2997,20 +3069,31 @@ class MainActivity : ComponentActivity() {
                                 downloadedKeys = downloadedKeys,
                                 favIds = favIds,
                                 onToggleFav = ::toggleFav,
-                                suggestions = buildSuggestions(
-                                    searchHistory,
-                                    SEARCH_HOTWORDS,
-                                    if (query.trim().isNotBlank() &&
-                                        query.trim() == liveQuery
-                                    ) {
-                                        results
+                                suggestions = run {
+                                    val built = buildSuggestions(
+                                        searchHistory,
+                                        SEARCH_HOTWORDS,
+                                        if (query.trim().isNotBlank() &&
+                                            query.trim() == liveQuery
+                                        ) {
+                                            results
+                                        } else {
+                                            emptyList()
+                                        },
+                                        query
+                                    )
+                                    if (shouldShowSuggestOverlay(suggestVisible, built.isNotEmpty())) {
+                                        built
                                     } else {
                                         emptyList()
-                                    },
-                                    query
-                                ),
+                                    }
+                                },
                                 onSuggestionSelect = { s ->
                                     debounceJob?.cancel()
+                                    suggestVisible = reduceSuggestOverlayVisible(
+                                        suggestVisible,
+                                        SuggestOverlayEvent.SELECT
+                                    )
                                     query = s.text
                                     runSearch(s.text)
                                 }
@@ -3227,7 +3310,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenSettings = { screen = Screen.Settings },
                                 onOpenPlaylists = {
                                     screen = Screen.Playlists
-                                }
+                                },
+                                onOpenMessages = { screen = Screen.History }
                             )
 
                             is Screen.Playlists -> PlaylistsScreen(
@@ -3485,6 +3569,29 @@ fun isRestoreTargetCurrent(queue: List<Song>, index: Int, target: Song): Boolean
 fun resolveQueueTimeline(queue: List<Song>, timelineSongs: List<Song>): List<Song> =
     timelineSongs.ifEmpty { queue }
 
+/** Placed single-enqueue result: new queue + index of the inserted song. */
+data class EnqueueSingle(val queue: List<Song>, val index: Int)
+
+/**
+ * Pure: tap-a-search-result inserts ONLY that song right after the current
+ * index (documented choice: it plays next, existing order otherwise
+ * untouched). Empty queue → single-item queue at 0; out-of-range index
+ * clamps to the tail. Never drops or reorders existing items.
+ */
+fun enqueueSingleAfterCurrent(
+    queue: List<Song>,
+    currentIndex: Int,
+    song: Song
+): EnqueueSingle {
+    if (queue.isEmpty()) return EnqueueSingle(listOf(song), 0)
+    val at = (currentIndex.coerceIn(queue.indices) + 1).coerceIn(0, queue.size)
+    val out = ArrayList<Song>(queue.size + 1)
+    out.addAll(queue.subList(0, at))
+    out.add(song)
+    out.addAll(queue.subList(at, queue.size))
+    return EnqueueSingle(out, at)
+}
+
 /** Pure: absolute sleep-timer expiry (persisted form); non-positive minutes mean off. */
 fun computeSleepDeadlineMs(nowMs: Long, minutes: Int): Long =
     if (minutes <= 0) 0L else nowMs + minutes * 60_000L
@@ -3687,6 +3794,9 @@ fun SearchScreen(
     searchError: String? = null,
     onRetrySearch: () -> Unit = {},
     onPlayAt: (List<Song>, Int) -> Unit,
+    // Search-result tap handler: single-enqueue after current index.
+    // Null = legacy whole-list replace via onPlayAt.
+    onPlaySingle: ((Song) -> Unit)? = null,
     artistFilter: String? = null,
     onArtistFilterChange: (String?) -> Unit = {},
     sort: SearchSort = SearchSort.RELEVANCE,
@@ -3952,7 +4062,10 @@ fun SearchScreen(
                         SongRow(
                             model = buildSongRowModel(song),
                             meta = formatDuration(song.durationSec),
-                            onClick = { onPlayAt(visible, index) },
+                            onClick = {
+                                val single = onPlaySingle
+                                if (single != null) single(song) else onPlayAt(visible, index)
+                            },
                             onOverflow = { songMenuFor = song }
                         )
                     }
@@ -4145,7 +4258,9 @@ fun PlayerScreen(
     onToggleFav: () -> Unit = {},
     sleepActive: Boolean = false,
     audioSessionId: Int = 0,
-    onOpenSearch: () -> Unit = {}
+    onOpenSearch: () -> Unit = {},
+    onComment: () -> Unit = {},
+    onShare: () -> Unit = {}
 ) {
     val song = queue.getOrNull(currentIndex)
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
@@ -4186,7 +4301,7 @@ fun PlayerScreen(
         label = "coverScale"
     )
     val coverCornerDp by animateDpAsState(
-        targetValue = if (view == PlayerView.COVER) 160.dp else 24.dp,
+        targetValue = 28.dp,
         animationSpec = tween(300),
         label = "coverCorner"
     )
@@ -4267,40 +4382,36 @@ fun PlayerScreen(
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.CHEVRON_LEFT, InkOnDark)
-                    }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    AsyncImage(
+                        model = song.coverUrl.ifBlank { null },
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = song.name.ifBlank { "(untitled)" },
                             style = MaterialTheme.typography.titleMedium,
                             color = InkOnDark,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = song.artist,
                             style = MaterialTheme.typography.bodySmall,
                             color = GrayMuted,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     IconButton(
-                        onClick = onOpenSearch,
+                        onClick = onClose,
                         modifier = Modifier.size(48.dp)
                     ) {
-                        AppIcon(AppIconKind.SEARCH, InkOnDark)
+                        AppIcon(AppIconKind.CLOSE, InkOnDark)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -4562,7 +4673,8 @@ fun PlayerScreen(
                             isPlaying = isPlaying,
                             spinKey = song?.sourceId,
                             scale = coverScale,
-                            cornerDp = coverCornerDp
+                            cornerDp = coverCornerDp,
+                            fraction = 0.86f
                         )
                     }
                 }
@@ -4582,18 +4694,63 @@ fun PlayerScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
-                // 8/16/24 rhythm: 8dp title↔artist gap (was: 0, lines glued).
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    text = song?.artist ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = GrayMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = song?.artist ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GrayMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (song != null) {
+                        Spacer(Modifier.width(8.dp))
+                        QualityChip("标准")
+                        Spacer(Modifier.width(6.dp))
+                        VipBadge()
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .clickable(enabled = song != null) { view = PlayerView.LYRICS },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = lyricPreviewLine(lines, positionMs) ?: "暂无歌词",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Champagne.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
+                    IconButton(
+                        onClick = onComment,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.MESSAGE, InkOnDark)
+                    }
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(AppIconKind.SHARE, InkOnDark)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 PlayerSeekSection(
                     positionMs = positionMs,
                     durationMs = durationMs,
@@ -4625,7 +4782,6 @@ fun PlayerScreen(
                     ) {
                         AppIcon(playModeIconKind(playMode), InkOnDark)
                     }
-                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
                     IconButton(
                         onClick = onAddCurrentToPlaylist,
                         enabled = song != null,
@@ -5303,17 +5459,14 @@ fun MineScreen(
     onGoSearch: () -> Unit = {},
     onBrowse: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onOpenPlaylists: () -> Unit = {}
+    onOpenPlaylists: () -> Unit = {},
+    onOpenMessages: () -> Unit = {}
 ) {
     var showProfileView by remember { mutableStateOf(false) }
-    // Overview (logged-in) scrolls as one page so the 我的歌单 section stays
-    // reachable on small phones. Playlist songs live on the standalone
-    // PlaylistDetail screen now (no nested detail branch here).
     val overviewScroll = rememberScrollState()
-    val overviewScrollable = user != null
     Column(
         modifier = modifier.fillMaxSize().padding(16.dp)
-            .then(if (overviewScrollable) Modifier.verticalScroll(overviewScroll) else Modifier)
+            .verticalScroll(overviewScroll)
     ) {
         if (!authChecked) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -5323,27 +5476,39 @@ fun MineScreen(
             Text("正在恢复登录态…", style = MaterialTheme.typography.bodySmall)
             return
         }
-        if (user == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "未登录",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = onOpenSettings,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    AppIcon(AppIconKind.SETTINGS, GrayMuted)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "登录后看我的歌单；访客可继续搜歌",
-                style = MaterialTheme.typography.bodySmall
+                text = "我的",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = InkOnDark,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(
+                onClick = onOpenMessages,
+                modifier = Modifier.size(48.dp)
+            ) {
+                AppIcon(AppIconKind.MESSAGE, GrayMuted)
+            }
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.size(48.dp)
+            ) {
+                AppIcon(AppIconKind.SETTINGS, GrayMuted)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (user == null) {
+            MineUserCard(
+                displayName = "未登录",
+                sub = "登录后看我的歌单；访客可继续搜歌",
+                avatarUrl = "",
+                bgUrl = "",
+                showVip = false,
+                onClick = onLoginClick
             )
             Spacer(Modifier.height(12.dp))
             Button(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
@@ -5357,147 +5522,43 @@ fun MineScreen(
                 Text("先逛逛")
             }
             Spacer(Modifier.height(12.dp))
-            MineSectionCard {
-                buildMineEntries(
+            GoldDuoRow(onVip = onOpenSettings, onCash = onOpenSettings)
+            Spacer(Modifier.height(12.dp))
+            PromoBanner(onClick = onOpenSettings)
+            Spacer(Modifier.height(12.dp))
+            MineTripleRow(
+                items = buildMineTriple(
                     favCount = 0,
-                    playlistCount = 0,
                     historyCount = 0,
                     offlineCount = offlineCount,
                     loggedIn = false
-                ).forEachIndexed { index, entry ->
-                    if (index > 0) MineDivider()
-                    EntryRow(
-                        modifier = Modifier.heightIn(min = 56.dp),
-                        title = entry.title,
-                        subtitle = entry.subtitle,
-                        coverSize = 0.dp,
-                        onClick = {
-                            if (entry.id == "offline") onOpenOffline()
-                            else if (entry.id == "favorites") onOpenFavorites()
-                            else onLoginClick()
-                        },
-                        trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
-                    )
+                ),
+                onCell = { id ->
+                    when (id) {
+                        "favorites" -> onOpenFavorites()
+                        "history" -> onLoginClick()
+                        else -> onOpenOffline()
+                    }
                 }
-            }
+            )
             return
         }
-        // Logged-in header: tap the body for the profile view, gear for
-        // Settings. Account edits live in Settings, not here.
         val displayName = user.nickname.ifBlank { user.username }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 140.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { showProfileView = true }
-                .background(ObsidianSurface)
-        ) {
-            if (shouldShowMineBg(user.bgImage)) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(absImgUrl(user.bgImage))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color(0x99000000),
-                                    Color(0x66000000),
-                                    Color(0xCC000000)
-                                )
-                            )
-                        )
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .matchParentSize()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(NeonViolet, NeonCyan)
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = avatarInitial(displayName),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp
-                            )
-                        }
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(absImgUrl(user.avatar).ifBlank { null })
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .matchParentSize()
-                                .clip(CircleShape)
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "@${user.username}",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val sub = listOf(user.gender, user.birthday).filter { it.isNotBlank() }.joinToString(" · ")
-                        if (sub.isNotBlank()) {
-                            Text(
-                                text = sub,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.SETTINGS, GrayMuted)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
+        val profileSub = "@${user.username}" +
+            listOf(user.gender, user.birthday)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ", prefix = " · ")
+                .takeIf { user.gender.isNotBlank() || user.birthday.isNotBlank() }
+                .orEmpty()
+        MineUserCard(
+            displayName = displayName,
+            sub = profileSub,
+            avatarUrl = user.avatar,
+            bgUrl = user.bgImage,
+            showVip = true,
+            onClick = { showProfileView = true }
+        )
+        Spacer(Modifier.height(12.dp))
         if (showProfileView) {
             ProfileViewDialog(
                 user = user,
@@ -5508,29 +5569,323 @@ fun MineScreen(
                 onDismiss = { showProfileView = false }
             )
         }
-        MineSectionCard {
-            buildMineEntries(
+        GoldDuoRow(onVip = onOpenSettings, onCash = onOpenSettings)
+        Spacer(Modifier.height(12.dp))
+        PromoBanner(onClick = onOpenSettings)
+        Spacer(Modifier.height(12.dp))
+        MineTripleRow(
+            items = buildMineTriple(
                 favCount = favCount,
-                playlistCount = playlists.size,
                 historyCount = historyCount,
                 offlineCount = offlineCount,
                 loggedIn = true
-            ).forEachIndexed { index, entry ->
-                if (index > 0) MineDivider()
-                EntryRow(
-                    modifier = Modifier.heightIn(min = 56.dp),
-                    title = entry.title,
-                    subtitle = entry.subtitle,
-                    coverSize = 0.dp,
-                    onClick = {
-                        when (entry.id) {
-                            "favorites" -> onOpenFavorites()
-                            "playlists" -> onOpenPlaylists()
-                            "history" -> onOpenHistory()
-                            else -> onOpenOffline()
-                        }
-                    },
-                    trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+            ),
+            onCell = { id ->
+                when (id) {
+                    "favorites" -> onOpenFavorites()
+                    "history" -> onOpenHistory()
+                    else -> onOpenOffline()
+                }
+            }
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "自建歌单 (${playlists.size})",
+                style = MaterialTheme.typography.titleSmall,
+                color = InkOnDark,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onOpenPlaylists) {
+                Text("管理")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (playlistsLoading) {
+            SearchSkeleton()
+        } else if (playlists.isEmpty()) {
+            EmptyStateLine(
+                text = "还没有歌单，新建一个开始收藏吧",
+                actionLabel = "去搜索",
+                onAction = onGoSearch
+            )
+        } else {
+            MineSectionCard {
+                playlists.forEachIndexed { index, pl ->
+                    if (index > 0) MineDivider()
+                    EntryRow(
+                        modifier = Modifier.heightIn(min = 56.dp),
+                        title = pl.name.ifBlank { "(untitled)" },
+                        subtitle = "${pl.songCount} 首",
+                        coverUrl = pl.coverUrl,
+                        onClick = { onSelectPlaylist(pl) },
+                        trailing = { AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MineAvatar(avatarUrl: String, displayName: String) {
+    Box(
+        modifier = Modifier
+            .size(64.dp)
+            .clip(CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(NeonViolet, NeonCyan)
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = avatarInitial(displayName),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp
+            )
+        }
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(absImgUrl(avatarUrl).ifBlank { null })
+                .crossfade(true)
+                .build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+        )
+    }
+}
+
+@Composable
+private fun MineUserCard(
+    displayName: String,
+    sub: String,
+    avatarUrl: String,
+    bgUrl: String,
+    showVip: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 140.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .background(ObsidianSurface)
+    ) {
+        if (shouldShowMineBg(bgUrl)) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(absImgUrl(bgUrl))
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0x99000000),
+                                Color(0x66000000),
+                                Color(0xCC000000)
+                            )
+                        )
+                    )
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MineAvatar(avatarUrl = avatarUrl, displayName = displayName)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = InkOnDark,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (showVip) {
+                        Spacer(Modifier.width(8.dp))
+                        VipBadge()
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GrayMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoldActionCard(
+    title: String,
+    sub: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .heightIn(min = 76.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Champagne.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = Champagne,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = sub,
+            style = MaterialTheme.typography.bodySmall,
+            color = Champagne.copy(alpha = 0.75f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun GoldDuoRow(onVip: () -> Unit, onCash: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        GoldActionCard(
+            title = "会员中心",
+            sub = "畅听无损",
+            onClick = onVip,
+            modifier = Modifier.weight(1f)
+        )
+        GoldActionCard(
+            title = "领现金",
+            sub = "天天可领",
+            onClick = onCash,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun PromoBanner(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 84.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(NeonViolet, NeonCyan)
+                )
+            )
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "开通会员 · 畅听无损",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "高品质音质 · 专属歌单",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "去看看",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun MineTripleRow(
+    items: List<MineTripleItem>,
+    onCell: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(ObsidianSurface)
+            .padding(vertical = 8.dp)
+    ) {
+        items.forEach { e ->
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 64.dp)
+                    .clickable { onCell(e.id) }
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = e.count,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = InkOnDark,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = e.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GrayMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
