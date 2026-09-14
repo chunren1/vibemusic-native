@@ -1499,6 +1499,67 @@ object VibeApi {
         return parseUser(data)
     }
 
+    // ---- Task 8: BYOC NetEase cookie bind (all auth-required; nothing is
+    // persisted locally — the cookie lives server-side only, AuthStore
+    // untouched; request bodies are never logged) ----
+
+    /** Pure builder: PUT /api/cookies/netease body. */
+    fun buildSaveCookieBody(cookie: String): String =
+        JSONObject().put("cookie", cookie).toString()
+
+    data class CookieStatus(val has: Boolean, val valid: Boolean, val needsRebind: Boolean)
+
+    /**
+     * Pure: parse GET /api/cookies/status envelope
+     * ({netease:{has,valid,updatedAt}, bili:{reserved:true}}, plus
+     * needsRebind when invalid). needsRebind is read explicitly from data
+     * or data.netease when present, else derived as has && !valid (an
+     * invalid bound cookie always wants a re-bind). 401 routes to
+     * AuthException via checkEnvelope like every other authed parser.
+     */
+    fun parseCookieStatus(json: String): CookieStatus {
+        val root = JSONObject(json)
+        checkEnvelope(root, "Cookie status")
+        val data = root.optJSONObject("data")
+            ?: throw RuntimeException("Cookie status: missing data")
+        val ne = data.optJSONObject("netease")
+        val has = ne?.optBoolean("has", false) ?: data.optBoolean("has", false)
+        val valid = ne?.optBoolean("valid", false) ?: data.optBoolean("valid", false)
+        val needsRebind = when {
+            data.has("needsRebind") -> data.optBoolean("needsRebind")
+            ne != null && ne.has("needsRebind") -> ne.optBoolean("needsRebind")
+            else -> (has && !valid)
+        }
+        return CookieStatus(has, valid, needsRebind)
+    }
+
+    /**
+     * PUT /api/cookies/netease. Returns the server bound flag
+     * (data.bound, defaults true on a 200 without one).
+     */
+    suspend fun saveNeteaseCookie(cookie: String): Boolean {
+        val body = rawPut("api/cookies/netease", buildSaveCookieBody(cookie))
+        val root = JSONObject(body)
+        checkEnvelope(root, "Save cookie")
+        return when (val d = root.opt("data")) {
+            is Boolean -> d
+            is JSONObject -> d.optBoolean("bound", true)
+            else -> true
+        }
+    }
+
+    /** DELETE /api/cookies/netease. */
+    suspend fun deleteNeteaseCookie() {
+        val body = rawDelete("api/cookies/netease")
+        checkEnvelope(JSONObject(body), "Delete cookie")
+    }
+
+    /** GET /api/cookies/status. */
+    suspend fun cookieStatus(): CookieStatus {
+        val body = rawGet("api/cookies/status")
+        return parseCookieStatus(body)
+    }
+
     private suspend fun uploadImage(
         path: String,
         bytes: ByteArray,

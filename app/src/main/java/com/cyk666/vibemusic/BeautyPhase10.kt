@@ -123,13 +123,24 @@ fun buildSettingsRows(
     themeName: String = "Obsidian Bloom",
     cacheLabel: String,
     storageLabel: String,
-    versionLabel: String
-): List<SettingsRow> = listOf(
-    SettingsRow("theme", "主题", "$themeName · 当前主题"),
-    SettingsRow("cache", "播放缓存", cacheLabel),
-    SettingsRow("storage", "存储用量", storageLabel),
-    SettingsRow("about", "关于", versionLabel)
-)
+    versionLabel: String,
+    cookieLabel: String? = null
+): List<SettingsRow> {
+    val rows = ArrayList<SettingsRow>(5)
+    rows.add(SettingsRow("theme", "主题", "$themeName · 当前主题"))
+    if (cookieLabel != null) rows.add(SettingsRow("cookie", "网易 Cookie", cookieLabel))
+    rows.add(SettingsRow("cache", "播放缓存", cacheLabel))
+    rows.add(SettingsRow("storage", "存储用量", storageLabel))
+    rows.add(SettingsRow("about", "关于", versionLabel))
+    return rows
+}
+
+/** Pure: cookie row subtitle — bound / expired (re-bind) / not set. */
+fun cookieRowSubtitle(has: Boolean, valid: Boolean, needsRebind: Boolean = false): String = when {
+    needsRebind || (has && !valid) -> "已过期，请重新绑定"
+    has && valid -> "已绑定"
+    else -> "未绑定"
+}
 
 /** Pure: bytes -> "12.3 MB" label (0/negative -> "0.0 MB"). */
 fun formatStorageMb(bytes: Long): String {

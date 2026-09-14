@@ -5024,16 +5024,55 @@ fun SettingsScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     var showChangePwd by remember(user?.username) { mutableStateOf(false) }
     var showProfile by remember(user?.username) { mutableStateOf(false) }
-    val rows = remember(cacheSizeLabel, storageLabel, versionLabel) {
+    var showCookiePaste by remember { mutableStateOf(false) }
+    var cookieStatus by remember { mutableStateOf<VibeApi.CookieStatus?>(null) }
+    var cookieLoading by remember { mutableStateOf(false) }
+    var cookieMsg by remember { mutableStateOf("") }
+    val cookieScope = rememberCoroutineScope()
+    fun loadCookieStatus() {
+        if (user == null) {
+            cookieStatus = null
+            cookieMsg = ""
+            cookieLoading = false
+            return
+        }
+        cookieLoading = true
+        cookieScope.launch {
+            try {
+                cookieStatus = VibeApi.cookieStatus()
+            } catch (e: AuthException) {
+                cookieStatus = null
+                cookieMsg = e.message ?: "登录过期，请重登"
+            } catch (e: Exception) {
+                cookieStatus = null
+                cookieMsg = friendlyNetworkMessage(e)
+            } finally {
+                cookieLoading = false
+            }
+        }
+    }
+    LaunchedEffect(user?.userId) { loadCookieStatus() }
+    val cookieState = cookieStatus
+    val cookieSub = when {
+        user == null -> "登录后绑定"
+        cookieLoading && cookieState == null -> "加载中…"
+        cookieState != null -> cookieRowSubtitle(cookieState.has, cookieState.valid, cookieState.needsRebind)
+        cookieMsg.isNotBlank() -> cookieMsg
+        else -> "未绑定"
+    }
+    val rows = remember(cacheSizeLabel, storageLabel, versionLabel, cookieSub) {
         buildSettingsRows(
             cacheLabel = "已用 $cacheSizeLabel · 满150MB自动清理",
             storageLabel = storageLabel,
-            versionLabel = versionLabel.ifBlank { formatVersionLabel("") }
+            versionLabel = versionLabel.ifBlank { formatVersionLabel("") },
+            cookieLabel = cookieSub
         )
     }
     val themeRow = rows.first { it.id == "theme" }
+    val cookieRow = rows.first { it.id == "cookie" }
     val storageRow = rows.first { it.id == "storage" }
     val aboutRow = rows.first { it.id == "about" }
+    val cookieRebind = user != null && cookieState?.needsRebind == true
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -5110,6 +5149,67 @@ fun SettingsScreen(
             Button(onClick = onLoginClick, modifier = Modifier.fillMaxWidth()) {
                 Text("去登录")
             }
+        }
+        SettingsSectionTitle("音乐服务")
+        MineSectionCard {
+            SettingsRowShell(
+                title = cookieRow.title,
+                subtitle = cookieRow.subtitle,
+                onClick = {
+                    if (user == null) onLoginClick()
+                    else showCookiePaste = true
+                }
+            )
+            if (cookieRebind) {
+                MineDivider()
+                SettingsRowShell(
+                    title = "重新绑定",
+                    subtitle = "网易 Cookie 已失效，请粘贴新的",
+                    onClick = { showCookiePaste = true }
+                )
+            }
+            if (user != null && cookieMsg.isNotBlank()) {
+                MineDivider()
+                SettingsRowShell(
+                    title = "状态",
+                    subtitle = cookieMsg,
+                    showChevron = false
+                )
+            }
+        }
+        if (showCookiePaste) {
+            CookiePasteDialog(
+                showUnbind = cookieState?.has == true,
+                onConfirm = { pasted ->
+                    showCookiePaste = false
+                    cookieScope.launch {
+                        try {
+                            VibeApi.saveNeteaseCookie(pasted)
+                            cookieStatus = VibeApi.cookieStatus()
+                            cookieMsg = "绑定成功"
+                        } catch (e: AuthException) {
+                            cookieMsg = e.message ?: "登录过期，请重登"
+                        } catch (e: Exception) {
+                            cookieMsg = "绑定失败: ${friendlyNetworkMessage(e)}"
+                        }
+                    }
+                },
+                onDismiss = { showCookiePaste = false },
+                onDelete = {
+                    showCookiePaste = false
+                    cookieScope.launch {
+                        try {
+                            VibeApi.deleteNeteaseCookie()
+                            cookieStatus = VibeApi.cookieStatus()
+                            cookieMsg = "已解绑"
+                        } catch (e: AuthException) {
+                            cookieMsg = e.message ?: "登录过期，请重登"
+                        } catch (e: Exception) {
+                            cookieMsg = "解绑失败: ${friendlyNetworkMessage(e)}"
+                        }
+                    }
+                }
+            )
         }
         SettingsSectionTitle("存储")
         MineSectionCard {
@@ -5878,6 +5978,46 @@ fun ProfileDialog(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFFEF4444)
             )
+        }
+    }
+}
+
+@Composable
+fun CookiePasteDialog(
+    showUnbind: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit = {}
+) {
+    var input by remember { mutableStateOf("") }
+    FormDialog(
+        title = "绑定网易 Cookie",
+        confirmText = "保存",
+        confirmEnabled = input.isNotBlank(),
+        onConfirm = { onConfirm(input.trim()) },
+        onDismiss = onDismiss
+    ) {
+        Text(
+            text = "粘贴你自己的网易 Cookie，不要填密码",
+            style = MaterialTheme.typography.bodySmall,
+            color = GrayMuted
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            label = { Text("Cookie") },
+            maxLines = 5,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (showUnbind) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = onDelete,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text("解绑", color = Color(0xFFEF4444))
+            }
         }
     }
 }
