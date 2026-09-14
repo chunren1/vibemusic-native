@@ -70,6 +70,45 @@ class UpdateCheckTest {
         assertFalse(isNewerVersion("2.0-ai", "1.99.99"))
     }
 
+    // ---- 同 numeric core 的 beta 后缀比较 ----
+
+    @Test
+    fun beta_sameCoreBeta1ToBeta2IsNewer() {
+        // 同 core：beta.1 -> beta.2 视为有更新（线上"已是最新版本" bug 复现）
+        assertTrue(isNewerVersion("1.0.42-ai-beta.1", "v1.0.42-ai-beta.2"))
+    }
+
+    @Test
+    fun beta_sameCoreBeta2ToBeta1NotNewer() {
+        // 同 core：高 beta -> 低 beta 不是更新
+        assertFalse(isNewerVersion("1.0.42-ai-beta.2", "v1.0.42-ai-beta.1"))
+    }
+
+    @Test
+    fun beta_sameCoreSameBetaNotNewer() {
+        // 同 core 同 beta：不是更新（避免重复提示）
+        assertFalse(isNewerVersion("1.0.42-ai-beta.1", "v1.0.42-ai-beta.1"))
+    }
+
+    @Test
+    fun beta_sameCoreStableOverBetaIsNewer() {
+        // 同 core：正式版覆盖 beta 视为更新
+        assertTrue(isNewerVersion("1.0.42-ai-beta.2", "v1.0.42-ai"))
+    }
+
+    @Test
+    fun beta_sameCoreBetaOverStableNotNewer() {
+        // 同 core：beta 覆盖正式版不是更新
+        assertFalse(isNewerVersion("1.0.42-ai", "v1.0.42-ai-beta.2"))
+    }
+
+    @Test
+    fun beta_numericCoreDiffStillWins() {
+        // numeric core 不一致时仍按数字比较，beta 后缀不翻转结果
+        assertTrue(isNewerVersion("1.0.41-ai-beta.9", "v1.0.42-ai-beta.1"))
+        assertFalse(isNewerVersion("1.0.42-ai-beta.2", "v1.0.41"))
+    }
+
     // ---- parseLatestRelease ----
 
     private fun releaseJson(assets: String?): String {

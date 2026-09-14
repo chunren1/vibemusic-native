@@ -50,11 +50,22 @@ private fun numericCore(version: String): List<Int> {
     return core.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
 }
 
+private fun betaNumber(version: String): Int? {
+    val stripped = version.trim().removePrefix("v").removePrefix("V")
+        .substringBefore("+").trim()
+    val m = Regex("(?i)-beta\\.(\\d+)\\s*$").find(stripped) ?: return null
+    return m.groupValues[1].toIntOrNull()
+}
+
 /**
  * Pure: true when [latestTag] is strictly newer than [current].
  * Leading v/V stripped; dot-separated numeric core compared with missing
- * parts as 0; suffixes (-ai etc.) ignored for ordering, so equal cores with
- * differing suffixes are NOT newer (avoids reinstall loops).
+ * parts as 0; non-beta suffixes (-ai etc.) ignored for ordering, so equal
+ * cores without a beta marker are NOT newer (avoids reinstall loops).
+ * Beta tie-break when numeric cores tie: trailing -beta.N parsed
+ * case-insensitively; both absent → false; stable (no beta marker) over
+ * beta → true; beta over stable → false; both beta → true iff
+ * latestNum > currentNum.
  */
 fun isNewerVersion(current: String, latestTag: String): Boolean {
     val cur = numericCore(current)
@@ -65,7 +76,12 @@ fun isNewerVersion(current: String, latestTag: String): Boolean {
         val l = lat.getOrElse(i) { 0 }
         if (l != c) return l > c
     }
-    return false
+    val curBeta = betaNumber(current)
+    val latBeta = betaNumber(latestTag)
+    if (curBeta == null && latBeta == null) return false
+    if (curBeta != null && latBeta == null) return true
+    if (curBeta == null && latBeta != null) return false
+    return latBeta!! > curBeta!!
 }
 
 /**
