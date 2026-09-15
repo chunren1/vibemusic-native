@@ -26,6 +26,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Google 已下架废弃的 tools 包（2026-09-15 实锤 Failed to find package 'tools' 致整步 exit 1），只留 platform-tools
+          packages: platform-tools
 
       - name: Restore keystore
         run: echo "$KEYSTORE_FILE" | base64 -d > /tmp/release.jks
