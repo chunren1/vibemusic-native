@@ -1470,7 +1470,23 @@ object VibeApi {
                                 return
                             }
                             try {
-                                cont.resume(parseRegister(body))
+                                val base = parseRegister(body)
+                                // Cookie-only credential: the register JSON body
+                                // never carries refreshToken (HttpOnly
+                                // VIBE_REFRESH Set-Cookie only). Adopt THIS
+                                // response's cookie value so the existing
+                                // AuthStore.save(..., refreshToken) call in
+                                // the caller persists it for cold-start
+                                // renew. Body stays authoritative when
+                                // present; parseRegister itself is untouched.
+                                val ck = refreshCookieFromResponse(it)
+                                cont.resume(
+                                    if (base.refreshToken.isBlank() && ck.isNotBlank()) {
+                                        base.copy(refreshToken = ck)
+                                    } else {
+                                        base
+                                    }
+                                )
                             } catch (e: Exception) {
                                 cont.resumeWithException(e)
                             }
