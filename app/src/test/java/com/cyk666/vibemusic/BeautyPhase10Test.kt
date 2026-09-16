@@ -219,4 +219,20 @@ class BeautyPhase10Test {
     fun dirAudioBytes_missingDirIsZero() {
         assertEquals(0L, dirAudioBytes(File("/nonexistent-p10-dir-xyz")))
     }
+
+    @Test
+    fun `迷你条进度_正常位置算出比例`() {
+        assertEquals(0.25f, miniProgressFraction(30_000L, 120_000L)!!, 0.001f)
+    }
+
+    @Test
+    fun `迷你条进度_无时长时不渲染`() {
+        assertEquals(null, miniProgressFraction(30_000L, 0L))
+    }
+
+    @Test
+    fun `迷你条进度_越界钳制到01`() {
+        assertEquals(1f, miniProgressFraction(999_000L, 120_000L)!!, 0.001f)
+        assertEquals(0f, miniProgressFraction(-5_000L, 120_000L)!!, 0.001f)
+    }
 }

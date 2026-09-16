@@ -372,7 +372,45 @@ fun AppIcon(
     }
 }
 
-// ---- 2. Song row model (pure) ----
+// ---- 2b. CoverImage: single cover render rule (no empty holes) ----
+
+/**
+ * Pure gate: blank cover URLs never reach Coil (they render null).
+ */
+fun hasCoverUrl(coverUrl: String): Boolean = coverUrl.isNotBlank()
+
+/**
+ * Shared cover atom: non-blank URL → Coil cover; blank → the same
+ * default-note placeholder EntryRow uses (muted box + MUSIC_NOTE), never
+ * an empty hole. All non-HOME cover paths go through here; HOME rows stay
+ * behind the cover gate (homeVisibleSongs/homeVisiblePlaylists).
+ */
+@Composable
+fun CoverImage(
+    coverUrl: String,
+    size: Dp,
+    cornerDp: Dp = 12.dp,
+    iconSize: Dp = 24.dp,
+    modifier: Modifier = Modifier
+) {
+    if (hasCoverUrl(coverUrl)) {
+        AsyncImage(
+            model = coverUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
+        )
+    } else {
+        Box(
+            modifier = modifier.size(size)
+                .clip(RoundedCornerShape(cornerDp))
+                .background(UiMuted.copy(alpha = 0.25f)),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = iconSize)
+        }
+    }
+}
 
 /** Display model for one song row: title fallback + subtitle in one place. */
 data class SongRowModel(

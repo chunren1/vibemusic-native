@@ -24,10 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import java.io.File
 
 // Phase 10 beauty overhaul: pure logic + shared atoms. Zero new dependencies
@@ -210,6 +208,18 @@ fun EmptyStateLine(
  * while the queue is non-empty (queue/playback untouched).
  * 48dp touch targets, LinearProgressIndicator hairline.
  */
+/**
+ * Pure: mini-player progress fraction from the same positionMs/durationMs
+ * the PlayerScreen seek section reads. Null when the duration is unknown
+ * (no bar rendered); always clamped 0..1.
+ */
+fun miniProgressFraction(positionMs: Long, durationMs: Long): Float? =
+    if (durationMs > 0) {
+        (positionMs.coerceAtLeast(0L).toFloat() / durationMs).coerceIn(0f, 1f)
+    } else {
+        null
+    }
+
 @Composable
 fun MiniPlayerBar(
     song: Song?,
@@ -217,14 +227,11 @@ fun MiniPlayerBar(
     onTap: () -> Unit,
     onPlayPause: () -> Unit,
     positionMs: Long = 0L,
-    durationMs: Long = 0L
+    durationMs: Long = 0L,
+    onOpenQueue: () -> Unit = {}
 ) {
     if (song == null) return
-    val progress = if (durationMs > 0) {
-        (positionMs.coerceAtLeast(0L).toFloat() / durationMs).coerceIn(0f, 1f)
-    } else {
-        null
-    }
+    val progress = miniProgressFraction(positionMs, durationMs)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,11 +256,11 @@ fun MiniPlayerBar(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AsyncImage(
-                    model = song.coverUrl.ifBlank { null },
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                CoverImage(
+                    coverUrl = song.coverUrl,
+                    size = 40.dp,
+                    cornerDp = 8.dp,
+                    iconSize = 20.dp
                 )
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -277,6 +284,9 @@ fun MiniPlayerBar(
                         kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
                         tint = P10Violet
                     )
+                }
+                IconButton(onClick = onOpenQueue, modifier = Modifier.size(48.dp)) {
+                    AppIcon(kind = AppIconKind.QUEUE, tint = P10Muted)
                 }
             }
         }

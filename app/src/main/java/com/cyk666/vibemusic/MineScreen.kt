@@ -163,7 +163,6 @@ fun MineScreen(
     onBrowse: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenPlaylists: () -> Unit = {},
-    onOpenMessages: () -> Unit = {}
 ) {
     var showProfileView by remember { mutableStateOf(false) }
     val overviewScroll = rememberScrollState()
@@ -190,12 +189,6 @@ fun MineScreen(
                 color = InkOnDark,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(
-                onClick = onOpenMessages,
-                modifier = Modifier.size(48.dp)
-            ) {
-                AppIcon(AppIconKind.MESSAGE, GrayMuted)
-            }
             IconButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.size(48.dp)
@@ -255,7 +248,7 @@ fun MineScreen(
             bgUrl = user.bgImage,
             onClick = { showProfileView = true }
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         if (showProfileView) {
             ProfileViewDialog(
                 user = user,
@@ -281,7 +274,7 @@ fun MineScreen(
                 }
             }
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically

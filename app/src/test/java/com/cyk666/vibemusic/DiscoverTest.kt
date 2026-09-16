@@ -270,4 +270,29 @@ class DiscoverTest {
         assertEquals("12.5万", formatPlayCount(125_000))
         assertEquals("1亿", formatPlayCount(100_000_000))
     }
+
+    // ---- selectOpenedRecommend ----
+
+    private fun ownedPlaylist(id: String, name: String) =
+        Playlist(id, name, "https://cdn/$id.jpg", 10)
+
+    @Test
+    fun `宝藏歌单打开_优先选新导入`() {
+        val before = setOf("p1")
+        val after = listOf(ownedPlaylist("p1", "旧歌单"), ownedPlaylist("p9", "宝藏"))
+        assertEquals("p9", selectOpenedRecommend(before, after, "宝藏", "宝藏")?.id)
+    }
+
+    @Test
+    fun `宝藏歌单打开_无新增时按导入名回退`() {
+        val before = setOf("p1")
+        val after = listOf(ownedPlaylist("p1", "宝藏"))
+        assertEquals("p1", selectOpenedRecommend(before, after, "宝藏", "其它")?.id)
+    }
+
+    @Test
+    fun `宝藏歌单打开_全无匹配返回空`() {
+        val after = listOf(ownedPlaylist("p1", "旧歌单"))
+        assertEquals(null, selectOpenedRecommend(setOf("p1"), after, "", ""))
+    }
 }

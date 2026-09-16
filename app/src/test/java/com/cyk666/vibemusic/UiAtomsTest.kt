@@ -88,4 +88,15 @@ class UiAtomsTest {
         assertFalse(isTopToastVisible(""))
         assertFalse(isTopToastVisible("   "))
     }
+
+    @Test
+    fun `封面门_非空URL走Coil`() {
+        assertTrue(hasCoverUrl("https://cdn/x.jpg"))
+    }
+
+    @Test
+    fun `封面门_空URL走默认音符占位`() {
+        assertFalse(hasCoverUrl(""))
+        assertFalse(hasCoverUrl("   "))
+    }
 }

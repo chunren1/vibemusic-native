@@ -7,9 +7,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -23,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -264,9 +268,28 @@ fun VinylCover(
         baseAngle
     }
     val ctx = LocalContext.current
+    val discModifier = modifier
+        .fillMaxWidth(fraction)
+        .aspectRatio(1f)
+        .graphicsLayer {
+            rotationZ = angle
+            scaleX = scale
+            scaleY = scale
+        }
+        .shadow(16.dp, RoundedCornerShape(cornerDp))
+        .clip(RoundedCornerShape(cornerDp))
+    if (coverUrl.isNullOrBlank()) {
+        Box(
+            modifier = discModifier.background(UiMuted.copy(alpha = 0.25f)),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = 64.dp)
+        }
+        return
+    }
     val request = remember(coverUrl, ctx) {
         ImageRequest.Builder(ctx)
-            .data(coverUrl?.ifBlank { null })
+            .data(coverUrl)
             .size(VINYL_COVER_REQ_PX)
             .crossfade(true)
             .build()
@@ -275,15 +298,6 @@ fun VinylCover(
         model = request,
         contentDescription = null,
         contentScale = ContentScale.Crop,
-        modifier = modifier
-            .fillMaxWidth(fraction)
-            .aspectRatio(1f)
-            .graphicsLayer {
-                rotationZ = angle
-                scaleX = scale
-                scaleY = scale
-            }
-            .shadow(16.dp, RoundedCornerShape(cornerDp))
-            .clip(RoundedCornerShape(cornerDp))
+        modifier = discModifier
     )
 }

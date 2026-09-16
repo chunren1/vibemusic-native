@@ -372,7 +372,6 @@ class MainActivity : ComponentActivity() {
             var discoverLastLoaded by remember { mutableLongStateOf(0L) }
             var discoverRefreshing by remember { mutableStateOf(false) }
             var discoverInitialErrorShown by remember { mutableStateOf(false) }
-            var recommendConfirm by remember { mutableStateOf<RecommendPlaylist?>(null) }
             // Track A SWR: per-section last-loaded timestamps (memory only).
             // Discover sections 30-min TTL, Mine playlists 5-min TTL.
             var bannersLastLoaded by remember { mutableLongStateOf(0L) }
@@ -1711,6 +1710,48 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Treasure-cell tap: import the recommend playlist, then open the
+            // existing detail screen on it. Its 播放全部 row (playAt over the
+            // loaded list) syncs ALL songs into the queue and starts playback.
+            // Import stays available inside detail (overflow → 导入外部歌单).
+            fun openRecommendPlaylist(pl: RecommendPlaylist) {
+                if (currentUser == null) {
+                    screen = Screen.Login
+                    return
+                }
+                scope.launch {
+                    try {
+                        val r = VibeApi.importPlaylist("netease", pl.id)
+                        showError("成功导入${r.imported}/${r.total}首「${r.name}」")
+                        val before = playlists.map { it.id }.toSet()
+                        try {
+                            playlists = VibeApi.myPlaylists()
+                            playlistsLastLoaded = System.currentTimeMillis()
+                        } catch (_: Exception) {
+                        }
+                        val opened = selectOpenedRecommend(
+                            before,
+                            playlists,
+                            r.name,
+                            pl.name
+                        )
+                        if (opened != null) {
+                            loadSongs(opened)
+                            screen = Screen.PlaylistDetail(opened)
+                        } else {
+                            loadPlaylists()
+                            screen = Screen.Mine
+                        }
+                    } catch (e: NetworkAuthException) {
+                        handleAuthLost(e.message, clearTokens = false)
+                    } catch (e: AuthException) {
+                        handleAuthLost(e.message)
+                    } catch (e: Exception) {
+                        showError("导入失败: ${friendlyNetworkMessage(e)}")
+                    }
+                }
+            }
+
             fun sharePlaylistText(text: String) {
                 try {
                     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -2849,18 +2890,20 @@ class MainActivity : ComponentActivity() {
             }
 
             val positionLifecycle = LocalLifecycleOwner.current.lifecycle
-            LaunchedEffect(screen, controller) {
-                if (screen is Screen.Player || screen is Screen.Queue) {
-                    // RESUMED-gated: the composition stays alive while the app
-                    // is backgrounded, so a bare while(true) would keep polling
-                    // the controller off-screen. repeatOnLifecycle stops the
-                    // loop on pause and re-runs (refresh once) on return.
-                    positionLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            LaunchedEffect(controller) {
+                // RESUMED-gated: the composition stays alive while the app
+                // is backgrounded, so a bare while(true) would keep polling
+                // the controller off-screen. repeatOnLifecycle stops the
+                // loop on pause and re-runs (refresh once) on return.
+                // Runs on EVERY tab (not just Player/Queue): the mini bar
+                // progress reads this same positionMs/durationMs pair, so
+                // gating it to Player/Queue left the bar stale everywhere
+                // else. PlayerScreen keeps reading the identical source.
+                positionLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    pollPosition()
+                    while (true) {
+                        delay(500)
                         pollPosition()
-                        while (true) {
-                            delay(500)
-                            pollPosition()
-                        }
                     }
                 }
             }
@@ -2898,7 +2941,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onPlayPause = { togglePlayPause() },
                                     positionMs = positionMs,
-                                    durationMs = durationMs
+                                    durationMs = durationMs,
+                                    onOpenQueue = { screen = Screen.Queue }
                                 )
                             }
                             NavigationBar {
@@ -3003,11 +3047,7 @@ class MainActivity : ComponentActivity() {
                                 hotError = hotError,
                                 onRetryHot = { loadHot() },
                                 onPlaylistTap = { pl ->
-                                    if (currentUser == null) {
-                                        screen = Screen.Login
-                                    } else {
-                                        recommendConfirm = pl
-                                    }
+                                    openRecommendPlaylist(pl)
                                 },
                                 refreshing = discoverRefreshing,
                                 onPullRefresh = { loadDiscover(isPullRefresh = true) },
@@ -3329,7 +3369,6 @@ class MainActivity : ComponentActivity() {
                                 onOpenPlaylists = {
                                     screen = Screen.Playlists
                                 },
-                                onOpenMessages = { screen = Screen.History }
                             )
 
                             is Screen.Playlists -> PlaylistsScreen(
@@ -3495,17 +3534,6 @@ class MainActivity : ComponentActivity() {
                             onPick = { pl -> addSongAction(pl, target) },
                             onCreateAndAdd = { name -> createAndAddAction(name, target) },
                             onDismiss = { if (!addBusy) pendingAddSong = null }
-                        )
-                    }
-                    recommendConfirm?.let { pl ->
-                        RecommendImportDialog(
-                            playlist = pl,
-                            onConfirm = {
-                                recommendConfirm = null
-                                importAction("netease", pl.id)
-                                screen = Screen.Mine
-                            },
-                            onDismiss = { recommendConfirm = null }
                         )
                     }
                     updateRelease?.let { rel ->

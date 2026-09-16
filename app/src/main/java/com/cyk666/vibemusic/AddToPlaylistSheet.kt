@@ -92,8 +92,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -118,8 +116,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
 import com.cyk666.vibemusic.OfflineStore.toLocalMediaItem
 import com.google.common.util.concurrent.MoreExecutors
@@ -173,11 +169,11 @@ fun AddToPlaylistSheet(    song: Song,
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AsyncImage(
-                                model = pl.coverUrl.ifBlank { null },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(44.dp)
+                            CoverImage(
+                                coverUrl = pl.coverUrl,
+                                size = 44.dp,
+                                cornerDp = 8.dp,
+                                iconSize = 20.dp
                             )
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {

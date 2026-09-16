@@ -97,6 +97,22 @@ fun hasPlaylistCover(playlist: RecommendPlaylist): Boolean = playlist.picUrl.isN
 fun homeVisiblePlaylists(playlists: List<RecommendPlaylist>): List<RecommendPlaylist> =
     playlists.filter(::hasPlaylistCover)
 
+/**
+ * Pure: after importing a treasure playlist, pick the detail page to open.
+ * The freshly-imported server playlist (id not seen before) wins; when the
+ * import created nothing new (already imported), fall back to a name match
+ * so the tap still lands on the detail page instead of nowhere.
+ */
+fun selectOpenedRecommend(
+    beforeIds: Set<String>,
+    after: List<Playlist>,
+    importName: String,
+    recommendName: String
+): Playlist? =
+    after.firstOrNull { it.id !in beforeIds }
+        ?: after.firstOrNull { it.name == importName && importName.isNotBlank() }
+        ?: after.firstOrNull { it.name == recommendName }
+
 /** Pure: compact play-count copy (125000 → "12.5万"). */
 fun formatPlayCount(count: Long): String {
     if (count < 0) return "0"
