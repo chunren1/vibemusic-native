@@ -61,7 +61,9 @@ private fun betaNumber(version: String): Int? {
  * Beta tie-break when numeric cores tie: trailing -beta.N parsed
  * case-insensitively; both absent → false; stable (no beta marker) over
  * beta → true; beta over stable → false; both beta → true iff
- * latestNum > currentNum.
+ * latestNum > currentNum. NOTE: beta.N suffixes are transitional only —
+ * new prereleases always bump the numeric core (e.g. 1.0.44-ai-beta.1),
+ * so old clients compare by core and never depend on this tie-break.
  */
 fun isNewerVersion(current: String, latestTag: String): Boolean {
     val cur = numericCore(current)
