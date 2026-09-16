@@ -209,6 +209,31 @@ fun focusLossAction(focusChange: Int): FocusLossAction = when (focusChange) {
     else -> FocusLossAction.PAUSE
 }
 
+/**
+ * Pure policy: should the service stay a foreground service?
+ *
+ * Context (2026-09-17): the notification play button goes dead after the
+ * service process is reclaimed while paused — the queue only exists in the
+ * player + the Activity-side snapshot, so a recreated session has nothing to
+ * play and only reopening the App recovers it. Keeping the service foreground
+ * while a paused queue is still loaded removes that window; recovery stays a
+ * single-owner Activity concern (see the session-builder NOTE below).
+ *
+ * Why not "materialize on a session callback": tried twice and rolled back
+ * twice (1.0.10-ai → 1.0.11-ai, 1.0.27-ai → 1.0.28-ai) — it scrambled every
+ * transport action and surfaced stale songs. Do not attempt a third time.
+ *
+ * IDLE (error / explicit stop) deliberately drops foreground: that path needs
+ * the Activity heal, and a dead notification there is honest.
+ */
+fun shouldStayForeground(
+    isPlaying: Boolean,
+    playWhenReady: Boolean,
+    mediaItemCount: Int,
+    playbackState: Int
+): Boolean = isPlaying || playWhenReady ||
+    (mediaItemCount > 0 && playbackState != Player.STATE_IDLE)
+
 class PlaybackService : MediaSessionService() {
 
     companion object {
@@ -525,6 +550,33 @@ class PlaybackService : MediaSessionService() {
                 stopSelf()
             } catch (_: Exception) {
             }
+        }
+    }
+
+    /**
+     * Foreground keep-alive while a paused queue is still loaded.
+     *
+     * Default Media3 behavior demotes the service to background as soon as
+     * playback stops (playWhenReady=false), which makes the whole
+     * notification-playback path reclaimable: the pending-intent play button
+     * then restarts a session with no items and silently no-ops (only
+     * reopening the App can rebuild the queue). Holding foreground keeps
+     * process + session + notification consistent so the button stays live.
+     *
+     * Only affects the foreground decision — no transport, no session
+     * callback, no auto-play (see [shouldStayForeground] for the history).
+     */
+    override fun isPlaybackOngoing(): Boolean {
+        val exo = player ?: return false
+        return try {
+            shouldStayForeground(
+                isPlaying = exo.isPlaying,
+                playWhenReady = exo.playWhenReady,
+                mediaItemCount = exo.mediaItemCount,
+                playbackState = exo.playbackState
+            )
+        } catch (_: Exception) {
+            false
         }
     }
 
