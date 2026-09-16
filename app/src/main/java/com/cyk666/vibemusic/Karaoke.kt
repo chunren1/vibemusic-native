@@ -119,6 +119,39 @@ private val CREDIT_PREFIX = Regex(
 
 fun isCreditLine(text: String): Boolean = CREDIT_PREFIX.containsMatchIn(text.trimStart())
 
+/** Pure: lyric line with no readable text (tags stripped, blank). */
+fun isBlankLyricLine(text: String): Boolean = stripInlineTags(text).trim().isEmpty()
+
+private fun isLyricMusicSymbolCp(cp: Int): Boolean = cp == '♪'.code ||
+    cp == '♫'.code || cp == '♩'.code || cp == '♬'.code ||
+    cp == '♭'.code || cp == '♮'.code || cp == '♯'.code ||
+    cp in 0x1D100..0x1D1FF ||
+    cp in 0x2600..0x27BF ||
+    cp in 0x1F300..0x1FAFF ||
+    cp == 0xFE0F || cp == 0x200D
+
+/**
+ * Pure: line carries no readable lyric — only music symbols/emoji/punctuation
+ * around at least one music symbol (e.g. "♪", "♪～♪"). Any letter/digit
+ * (incl. CJK) conserves the line; blank lines report false here (see
+ * [isBlankLyricLine]). Callers drop lines where either is true.
+ */
+fun isMusicSymbolLine(text: String): Boolean {
+    val plain = stripInlineTags(text).trim()
+    if (plain.isEmpty()) return false
+    var sawMusic = false
+    var i = 0
+    while (i < plain.length) {
+        val cp = plain.codePointAt(i)
+        if (!Character.isWhitespace(cp)) {
+            if (isLyricMusicSymbolCp(cp)) sawMusic = true
+            else if (Character.isLetterOrDigit(cp)) return false
+        }
+        i += Character.charCount(cp)
+    }
+    return sawMusic
+}
+
 /**
  * Pure: strip transport noise from a backend lyric line — carriage
  * returns, XML-escaped entities, surrounding whitespace. Tag syntax

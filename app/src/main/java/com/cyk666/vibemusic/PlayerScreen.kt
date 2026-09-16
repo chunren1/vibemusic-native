@@ -147,14 +147,23 @@ fun HeroControls(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = onCycleMode,
-            enabled = enabled,
-            modifier = Modifier.size(48.dp).semantics {
-                contentDescription = "播放模式：" + playMode.label + "，点击切换"
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconButton(
+                onClick = onCycleMode,
+                enabled = enabled,
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = "播放模式：" + playMode.label + "，点击切换"
+                }
+            ) {
+                AppIcon(playModeIconKind(playMode), if (enabled) InkOnDark else GrayMuted)
             }
-        ) {
-            AppIcon(playModeIconKind(playMode), if (enabled) InkOnDark else GrayMuted)
+            // 真机 48dp 下矢量字形仍可能糊成一团：模式名文字兜底可读性。
+            Text(
+                text = playMode.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (enabled) InkOnDark else GrayMuted,
+                maxLines = 1
+            )
         }
         Spacer(Modifier.width(8.dp))
         IconButton(
@@ -306,6 +315,7 @@ fun PlayerScreen(
 ) {
     val song = queue.getOrNull(currentIndex)
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
+        .filterNot { isBlankLyricLine(it.text) || isMusicSymbolLine(it.text) }
     val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
     val lyricsListState = rememberLazyListState()
     var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
@@ -560,15 +570,23 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onCycleMode,
-                        enabled = song != null,
-                        modifier = Modifier.size(48.dp).semantics {
-                            contentDescription = "播放模式：" +
-                                playMode.label + "，点击切换"
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(
+                            onClick = onCycleMode,
+                            enabled = song != null,
+                            modifier = Modifier.size(48.dp).semantics {
+                                contentDescription = "播放模式：" +
+                                    playMode.label + "，点击切换"
+                            }
+                        ) {
+                            AppIcon(playModeIconKind(playMode), InkOnDark)
                         }
-                    ) {
-                        AppIcon(playModeIconKind(playMode), InkOnDark)
+                        Text(
+                            text = playMode.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = InkOnDark,
+                            maxLines = 1
+                        )
                     }
                     IconButton(
                         onClick = onPrev,

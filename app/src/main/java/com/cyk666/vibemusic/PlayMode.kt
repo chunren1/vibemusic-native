@@ -99,5 +99,10 @@ fun lyricPreviewLine(lines: List<LyricLine>, positionMs: Long): String? {
     if (lines.isEmpty()) return null
     val idx = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
     if (idx < 0) return null
-    return stripInlineTags(lines[idx].text).trim().ifBlank { null }
+    for (i in idx downTo 0) {
+        val text = lines[i].text
+        if (isBlankLyricLine(text) || isMusicSymbolLine(text)) continue
+        return stripInlineTags(text).trim().ifBlank { null }
+    }
+    return null
 }

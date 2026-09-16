@@ -318,56 +318,53 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
             drawCircle(color = c, radius = 1.6f * s, center = pt(12f, 12f), style = Fill)
         }
         AppIconKind.MODE_SEQUENTIAL -> {
-            // Straight playback arrow: single shaft + one head. The lw bump
-            // (vs the base w) keeps the 2.6px-equivalent stroke legible at
-            // 24-48dp without merging into a blob.
-            val lw = w * 1.3f
+            // Straight playback arrow: single shaft + one head. Thick stroke
+            // keeps the glyph legible at 24-48dp without merging into a blob.
+            val lw = w * 1.5f
             line(pt(3.5f, 12f), pt(19f, 12f), lw, c)
-            line(pt(14.8f, 8f), pt(19f, 12f), lw, c)
-            line(pt(14.8f, 16f), pt(19f, 12f), lw, c)
+            line(pt(14.5f, 7.5f), pt(19f, 12f), lw, c)
+            line(pt(14.5f, 16.5f), pt(19f, 12f), lw, c)
         }
         AppIconKind.MODE_LOOP -> {
-            // Loop-all: sharp-corner circulation rect, one chevron per travel
+            // Loop-all: large circulation rect with one chevron per travel
             // end (top runs right, bottom runs left). No numeral — the bare
             // loop is what sets it apart from MODE_SINGLE.
-            val lw = w * 1.3f
-            line(pt(6.5f, 8f), pt(17.5f, 8f), lw, c)
-            line(pt(14.3f, 5.6f), pt(17.5f, 8f), lw, c)
-            line(pt(14.3f, 10.4f), pt(17.5f, 8f), lw, c)
-            line(pt(17.5f, 8f), pt(17.5f, 16f), lw, c)
-            line(pt(17.5f, 16f), pt(6.5f, 16f), lw, c)
-            line(pt(9.7f, 13.6f), pt(6.5f, 16f), lw, c)
-            line(pt(9.7f, 18.4f), pt(6.5f, 16f), lw, c)
-            line(pt(6.5f, 16f), pt(6.5f, 8f), lw, c)
+            val lw = w * 1.5f
+            line(pt(5.5f, 7.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(14.5f, 4.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(14.5f, 10.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(18.5f, 7.5f), pt(18.5f, 16.5f), lw, c)
+            line(pt(18.5f, 16.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(9.5f, 13.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(9.5f, 19.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(5.5f, 16.5f), pt(5.5f, 7.5f), lw, c)
         }
         AppIconKind.MODE_SINGLE -> {
             // Single-loop: the same circulation rect as MODE_LOOP plus one
             // chunky centered "1" (flag + stem, clear of the rect edges so
             // the numeral never merges with the loop at small sizes).
-            val lw = w * 1.3f
-            line(pt(6.5f, 8f), pt(17.5f, 8f), lw, c)
-            line(pt(14.3f, 5.6f), pt(17.5f, 8f), lw, c)
-            line(pt(14.3f, 10.4f), pt(17.5f, 8f), lw, c)
-            line(pt(17.5f, 8f), pt(17.5f, 16f), lw, c)
-            line(pt(17.5f, 16f), pt(6.5f, 16f), lw, c)
-            line(pt(9.7f, 13.6f), pt(6.5f, 16f), lw, c)
-            line(pt(9.7f, 18.4f), pt(6.5f, 16f), lw, c)
-            line(pt(6.5f, 16f), pt(6.5f, 8f), lw, c)
-            val nw = w * 1.5f
-            line(pt(10.2f, 11.4f), pt(12.2f, 9.8f), nw, c)
-            line(pt(12.2f, 9.8f), pt(12.2f, 14.6f), nw, c)
+            val lw = w * 1.5f
+            line(pt(5.5f, 7.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(14.5f, 4.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(14.5f, 10.5f), pt(18.5f, 7.5f), lw, c)
+            line(pt(18.5f, 7.5f), pt(18.5f, 16.5f), lw, c)
+            line(pt(18.5f, 16.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(9.5f, 13.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(9.5f, 19.5f), pt(5.5f, 16.5f), lw, c)
+            line(pt(5.5f, 16.5f), pt(5.5f, 7.5f), lw, c)
+            val nw = w * 1.7f
+            line(pt(10f, 11.2f), pt(12.2f, 9.6f), nw, c)
+            line(pt(12.2f, 9.6f), pt(12.2f, 14.8f), nw, c)
         }
         AppIconKind.MODE_SHUFFLE -> {
-            // Shuffled crossing arrows: two straight diagonals with heads
-            // only at the right ends (tails stay headless so the left side
-            // never clots). Same X geometry as before, thicker stroke.
-            val lw = w * 1.3f
+            // Shuffled crossing arrows: two straight diagonals, one arm per
+            // head (single-arm heads stay open at small sizes where double
+            // arms clot into a blob). Same X geometry, thicker stroke.
+            val lw = w * 1.5f
             line(pt(4f, 7f), pt(20f, 17f), lw, c)
-            line(pt(16.6f, 17f), pt(20f, 17f), lw, c)
-            line(pt(18.4f, 13.6f), pt(20f, 17f), lw, c)
+            line(pt(16.4f, 17f), pt(20f, 17f), lw, c)
             line(pt(4f, 17f), pt(20f, 7f), lw, c)
-            line(pt(16.6f, 7f), pt(20f, 7f), lw, c)
-            line(pt(18.4f, 10.4f), pt(20f, 7f), lw, c)
+            line(pt(16.4f, 7f), pt(20f, 7f), lw, c)
         }
     }
 }
