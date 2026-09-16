@@ -347,7 +347,7 @@ private fun DetailHeader(
         ) {
             if (playlist.coverUrl.isNotBlank()) {
                 AsyncImage(
-                    model = playlist.coverUrl,
+                    model = coverModel(playlist.coverUrl),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))

@@ -27,6 +27,16 @@ class HomeCoverGateTest {
     }
 
     @Test
+    fun `相对路径代理封面_算有封面`() {
+        assertTrue(hasCover(song("1", "/api/image-proxy?url=x")))
+    }
+
+    @Test
+    fun `null字符串封面_判定拦截`() {
+        assertFalse(hasCover(song("1", "null")))
+    }
+
+    @Test
     fun `首页歌单_过滤无封面并保持顺序`() {
         val songs = listOf(
             song("1", "https://cdn/1.jpg"),

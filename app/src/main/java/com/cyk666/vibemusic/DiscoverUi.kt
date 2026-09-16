@@ -85,7 +85,7 @@ fun RecommendImportDialog(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = playlist.picUrl.ifBlank { null },
+                model = coverModel(playlist.picUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -170,7 +170,7 @@ private fun HomeSongCard(
     ) {
         Box(modifier = Modifier.size(72.dp)) {
             AsyncImage(
-                model = backCoverUrl.ifBlank { null },
+                model = coverModel(backCoverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -180,7 +180,7 @@ private fun HomeSongCard(
                     .background(UiMuted.copy(alpha = 0.25f))
             )
             AsyncImage(
-                model = song.coverUrl.ifBlank { null },
+                model = coverModel(song.coverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -245,7 +245,7 @@ private fun EncounterRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = song.coverUrl.ifBlank { null },
+            model = coverModel(song.coverUrl),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -284,7 +284,7 @@ private fun TreasureCell(
         modifier = modifier.clickable(onClick = onTap)
     ) {
         AsyncImage(
-            model = playlist.picUrl.ifBlank { null },
+            model = coverModel(playlist.picUrl),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier

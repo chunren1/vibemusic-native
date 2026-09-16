@@ -47,6 +47,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,6 +72,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 
 // ---- 0. Diagonal shimmer sweep (Track B3: replaces alpha-pulse placeholders).
 //
@@ -390,9 +394,32 @@ fun AppIcon(
 // ---- 2b. CoverImage: single cover render rule (no empty holes) ----
 
 /**
- * Pure gate: blank cover URLs never reach Coil (they render null).
+ * Pure: absolute image URL for a backend path. Blank / literal "null" (the
+ * backend's String.valueOf(null) legacy) → "". Relative paths (e.g. the
+ * image-proxy cover for B站/酷狗 sources) get the API base prepended;
+ * absolute http(s) URLs pass through unchanged (idempotent).
  */
-fun hasCoverUrl(coverUrl: String): Boolean = coverUrl.isNotBlank()
+fun absImgUrl(path: String): String {
+    val t = path.trim()
+    if (t.isBlank() || t == "null") return ""
+    if (t.startsWith("http://") || t.startsWith("https://")) return t
+    return VibeApi.BASE_URL.trimEnd('/') + (if (t.startsWith("/")) t else "/$t")
+}
+
+/**
+ * Pure: Coil model for a cover URL — null when nothing loadable. Every cover
+ * render point (home gate, CoverImage, player backdrop/vinyl, artworkUri)
+ * funnels through this so relative proxy paths and "null" strings never
+ * reach Coil raw (2026-09-17 cover incident).
+ */
+fun coverModel(coverUrl: String): String? = absImgUrl(coverUrl).ifBlank { null }
+
+/**
+ * Pure gate: only positively-loadable cover URLs count as "has cover".
+ * Blank / "null" / non-http garbage is rejected; relative proxy paths count
+ * (absImgUrl resolves them) — so the home gate never hides a playable cover.
+ */
+fun hasCoverUrl(coverUrl: String): Boolean = absImgUrl(coverUrl).isNotBlank()
 
 /**
  * Shared cover atom: non-blank URL → Coil cover; blank → the same
@@ -408,11 +435,19 @@ fun CoverImage(
     iconSize: Dp = 24.dp,
     modifier: Modifier = Modifier
 ) {
-    if (hasCoverUrl(coverUrl)) {
+    val model = remember(coverUrl) { coverModel(coverUrl) }
+    // Load-failure fallback (2026-09-17 cover incident): a URL that passes
+    // the gate can still 404 or fail at the CDN — show the same note
+    // placeholder instead of a blank hole.
+    var failed by remember(coverUrl) { mutableStateOf(false) }
+    if (model != null && !failed) {
         AsyncImage(
-            model = coverUrl,
+            model = model,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            onState = { st ->
+                if (st is AsyncImagePainter.State.Error) failed = true
+            },
             modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
         )
     } else {
@@ -553,7 +588,7 @@ fun EntryRow(
         if (coverSize > 0.dp) {
             if (coverUrl.isNotBlank()) {
                 AsyncImage(
-                    model = coverUrl.ifBlank { null },
+                    model = coverModel(coverUrl),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))

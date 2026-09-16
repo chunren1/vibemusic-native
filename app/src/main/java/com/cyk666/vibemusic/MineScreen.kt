@@ -467,13 +467,6 @@ private fun MineTripleRow(
     }
 }
 
-fun absImgUrl(path: String): String {
-    val t = path.trim()
-    if (t.isBlank()) return ""
-    if (t.startsWith("http://") || t.startsWith("https://")) return t
-    return VibeApi.BASE_URL.trimEnd('/') + (if (t.startsWith("/")) t else "/$t")
-}
-
 fun avatarInitial(name: String): String {
     for (ch in name.trim()) {
         if (ch.isLetterOrDigit()) return ch.uppercaseChar().toString()

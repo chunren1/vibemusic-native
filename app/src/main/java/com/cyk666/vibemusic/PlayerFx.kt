@@ -191,7 +191,7 @@ fun BoxScope.PlayerBackdrop(coverUrl: String?) {
     val ctx = LocalContext.current
     val request = remember(coverUrl, ctx) {
         ImageRequest.Builder(ctx)
-            .data(coverUrl?.ifBlank { null })
+            .data(coverModel(coverUrl.orEmpty()))
             .size(PLAYER_BACKDROP_REQ_PX)
             .crossfade(true)
             .build()
@@ -289,7 +289,7 @@ fun VinylCover(
     }
     val request = remember(coverUrl, ctx) {
         ImageRequest.Builder(ctx)
-            .data(coverUrl)
+            .data(coverModel(coverUrl))
             .size(VINYL_COVER_REQ_PX)
             .crossfade(true)
             .build()

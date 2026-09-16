@@ -39,7 +39,7 @@ data class Song(
                 .setTitle(name)
                 .setArtist(artist)
                 .setAlbumTitle(album.ifBlank { null })
-                .setArtworkUri(if (coverUrl.isBlank()) null else Uri.parse(coverUrl))
+                .setArtworkUri(absImgUrl(coverUrl).ifBlank { null }?.let { Uri.parse(it) })
                 .setExtras(android.os.Bundle().apply { putString("platform", platform) })
                 .build()
         )

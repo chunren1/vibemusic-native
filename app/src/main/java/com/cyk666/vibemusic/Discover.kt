@@ -85,7 +85,7 @@ fun buildRandomPath(count: Int): String =
  * search/playlist pages keep their default-note placeholder path and
  * must NOT use this filter.
  */
-fun hasCover(song: Song): Boolean = song.coverUrl.isNotBlank()
+fun hasCover(song: Song): Boolean = hasCoverUrl(song.coverUrl)
 
 /** Pure: HOME-visible tracks = cover-gated, order preserved. */
 fun homeVisibleSongs(songs: List<Song>): List<Song> = songs.filter(::hasCover)
