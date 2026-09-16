@@ -206,9 +206,9 @@ fun EmptyStateLine(
  * Global mini-player: floating rounded bar pinned ABOVE the bottom tab bar
  * (it lives in the Scaffold bottomBar slot, so it can never overlap the
  * tabs). Shown when the queue is non-empty and the current screen is not
- * Player. Tap body -> Player screen. X collapses the bar for this session
- * (UI state only — the queue/playback is untouched); it reappears on the
- * next playAt. 48dp touch targets, LinearProgressIndicator hairline.
+ * Player. Tap body -> Player screen. No dismiss button — the bar stays
+ * while the queue is non-empty (queue/playback untouched).
+ * 48dp touch targets, LinearProgressIndicator hairline.
  */
 @Composable
 fun MiniPlayerBar(
@@ -216,7 +216,6 @@ fun MiniPlayerBar(
     isPlaying: Boolean,
     onTap: () -> Unit,
     onPlayPause: () -> Unit,
-    onDismiss: () -> Unit,
     positionMs: Long = 0L,
     durationMs: Long = 0L
 ) {
@@ -278,9 +277,6 @@ fun MiniPlayerBar(
                         kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
                         tint = P10Violet
                     )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                    AppIcon(AppIconKind.CLOSE, P10Muted)
                 }
             }
         }

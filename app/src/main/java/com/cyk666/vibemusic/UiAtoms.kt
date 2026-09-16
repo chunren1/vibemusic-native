@@ -887,18 +887,3 @@ fun HomeSectionHeader(
         }
     }
 }
-
-/** Gold VIP badge chip (MINE user card, PLAYER title row). Visual only. */
-@Composable
-fun VipBadge(text: String = "VIP") {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = Color(0xFF1A1206),
-        fontWeight = FontWeight.Bold,
-        maxLines = 1,
-        modifier = Modifier
-            .background(UiGold, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-    )
-}

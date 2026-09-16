@@ -138,6 +138,20 @@ private fun discoverId(o: JSONObject): String {
     return if (v.isBlank() || v == "null") "" else v
 }
 
+/**
+ * Pure: first non-blank text across [keys], with JSON null and the literal
+ * "null" string both mapping to "" (org.json may surface an explicit null
+ * as the four characters "null", which must never reach the UI).
+ */
+private fun cleanDiscoverText(o: JSONObject, vararg keys: String): String {
+    for (k in keys) {
+        if (!o.has(k) || o.isNull(k)) continue
+        val v = o.opt(k)?.toString().orEmpty().trim()
+        if (v.isNotEmpty() && !v.equals("null", ignoreCase = true)) return v
+    }
+    return ""
+}
+
 /** Pure: parse GET /api/songs/banner (missing desc → "", missing playCount → 0). */
 fun parseDiscoverBanners(json: String): List<DiscoverBanner> {
     val root = JSONObject(json)
@@ -178,9 +192,9 @@ fun parsePersonalized(json: String): PersonalizedResult {
         ?: JSONArray()
     return PersonalizedResult(
         songs = songsArr.toDiscoverSongs(),
-        reason = data.optString("reason"),
-        greeting = data.optString("greeting"),
-        type = data.optString("type")
+        reason = cleanDiscoverText(data, "reason"),
+        greeting = cleanDiscoverText(data, "greeting"),
+        type = cleanDiscoverText(data, "type")
     )
 }
 
@@ -223,9 +237,9 @@ fun parseRecommendPlaylists(json: String): List<RecommendPlaylist> {
         out.add(
             RecommendPlaylist(
                 id = discoverId(o),
-                name = o.optString("name"),
-                picUrl = o.optString("picUrl").ifBlank { o.optString("coverUrl") },
-                copywriter = o.optString("copywriter").ifBlank { o.optString("desc") },
+                name = cleanDiscoverText(o, "name"),
+                picUrl = cleanDiscoverText(o, "picUrl", "coverUrl"),
+                copywriter = cleanDiscoverText(o, "copywriter", "desc"),
                 playCount = optLongFlexible(o, "playCount", "count")
             )
         )

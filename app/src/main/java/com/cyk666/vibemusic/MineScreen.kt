@@ -210,7 +210,6 @@ fun MineScreen(
                 sub = "登录后看我的歌单；访客可继续搜歌",
                 avatarUrl = "",
                 bgUrl = "",
-                showVip = false,
                 onClick = onLoginClick
             )
             Spacer(Modifier.height(12.dp))
@@ -254,7 +253,6 @@ fun MineScreen(
             sub = profileSub,
             avatarUrl = user.avatar,
             bgUrl = user.bgImage,
-            showVip = true,
             onClick = { showProfileView = true }
         )
         Spacer(Modifier.height(12.dp))
@@ -370,7 +368,6 @@ private fun MineUserCard(
     sub: String,
     avatarUrl: String,
     bgUrl: String,
-    showVip: Boolean,
     onClick: () -> Unit
 ) {
     Box(
@@ -414,20 +411,13 @@ private fun MineUserCard(
             MineAvatar(avatarUrl = avatarUrl, displayName = displayName)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = InkOnDark,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (showVip) {
-                        Spacer(Modifier.width(8.dp))
-                        VipBadge()
-                    }
-                }
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = InkOnDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = sub,

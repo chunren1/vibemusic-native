@@ -92,6 +92,20 @@ class DiscoverTest {
         assertEquals("随缘", r.reason)
     }
 
+    @Test
+    fun `每日推荐_reason为null时不显示null字样`() {
+        val r = parsePersonalized("""{"code":200,"message":"ok","data":{"songs":[],"reason":null,"greeting":null,"type":null}}""")
+        assertEquals("", r.reason)
+        assertEquals("", r.greeting)
+        assertEquals("", r.type)
+    }
+
+    @Test
+    fun `每日推荐_reason为字符串null时视为空`() {
+        val r = parsePersonalized("""{"code":200,"message":"ok","data":{"songs":[],"reason":"null"}}""")
+        assertEquals("", r.reason)
+    }
+
     // ---- random ----
 
     @Test
@@ -173,6 +187,23 @@ class DiscoverTest {
         assertEquals(1, pls.size)
         assertEquals("", pls[0].copywriter)
         assertEquals(0L, pls[0].playCount)
+    }
+
+    @Test
+    fun `宝藏歌单_copywriter为null时置空走播放量文案`() {
+        val json = """{"code":200,"message":"ok","data":[{"id":1,"name":"有量无文案","coverUrl":"https://c/n.jpg","copywriter":null,"desc":null,"count":25000}]}"""
+        val pls = parseRecommendPlaylists(json)
+        assertEquals(1, pls.size)
+        assertEquals("", pls[0].copywriter)
+        assertEquals(25000L, pls[0].playCount)
+    }
+
+    @Test
+    fun `宝藏歌单_文案为字符串null时视为空`() {
+        val json = """{"code":200,"message":"ok","data":[{"id":1,"name":"null","coverUrl":"https://c/n.jpg","copywriter":"null"}]}"""
+        val pls = parseRecommendPlaylists(json)
+        assertEquals("", pls[0].name)
+        assertEquals("", pls[0].copywriter)
     }
 
     // ---- banner aspect ----

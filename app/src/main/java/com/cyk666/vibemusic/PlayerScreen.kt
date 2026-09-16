@@ -699,7 +699,7 @@ fun PlayerScreen(
                             spinKey = song?.sourceId,
                             scale = coverScale,
                             cornerDp = coverCornerDp,
-                            fraction = 0.86f
+                            fraction = 0.62f
                         )
                     }
                 }
@@ -720,23 +720,15 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = song?.artist ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = GrayMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (song != null) {
-                        Spacer(Modifier.width(8.dp))
-                        VipBadge()
-                    }
-                }
+                Text(
+                    text = song?.artist ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GrayMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
@@ -756,36 +748,10 @@ fun PlayerScreen(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
-                }
-                Spacer(Modifier.height(8.dp))
-                PlayerSeekSection(
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    enabled = song != null,
-                    onSeek = onSeek
-                )
-                Spacer(Modifier.height(16.dp))
-                HeroControls(
-                    isPlaying = isPlaying,
-                    enabled = song != null,
-                    onPrev = onPrev,
-                    onPlayPause = onPlayPause,
-                    onNext = onNext,
-                    heroSize = 64.dp,
-                    playMode = playMode,
-                    onCycleMode = onCycleMode,
-                    onOpenQueue = onOpenQueue
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
                     IconButton(
                         onClick = onAddCurrentToPlaylist,
                         enabled = song != null,
@@ -820,6 +786,26 @@ fun PlayerScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+                PlayerSeekSection(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    enabled = song != null,
+                    onSeek = onSeek
+                )
+                Spacer(Modifier.height(16.dp))
+                HeroControls(
+                    isPlaying = isPlaying,
+                    enabled = song != null,
+                    onPrev = onPrev,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    heroSize = 64.dp,
+                    playMode = playMode,
+                    onCycleMode = onCycleMode,
+                    onOpenQueue = onOpenQueue
+                )
+                Spacer(Modifier.height(16.dp))
                 buildPlayerMetaLine(
                     isCached = false,
                     sleepActive = sleepActive,

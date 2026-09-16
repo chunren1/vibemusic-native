@@ -239,9 +239,6 @@ class MainActivity : ComponentActivity() {
             // Phase 10: where the user came from before entering Player, so
             // swipe-down-close returns to the previous tab (default Search).
             var playerOrigin by remember { mutableStateOf<Screen>(Screen.Search) }
-            // Phase 10: session-only collapse of the mini-player bar (X button).
-            // UI state only — queue/playback untouched; reset on next playAt.
-            var miniDismissed by remember { mutableStateOf(false) }
             // Blank on launch: no auto-search (see shouldAutoSearchOnLaunch);
             // the empty state shows history chips + hotwords + 猜你喜欢.
             var query by remember { mutableStateOf("") }
@@ -633,7 +630,6 @@ class MainActivity : ComponentActivity() {
                         timelineSongs = list
                         currentIndex = safeIndex
                         playerOrigin = if (screen is Screen.Player) playerOrigin else screen
-                        miniDismissed = false
                         c.setMediaItems(
                             items,
                             currentIndex,
@@ -741,7 +737,6 @@ class MainActivity : ComponentActivity() {
                         timelineSongs = placed.queue
                         currentIndex = placed.index
                         playerOrigin = if (screen is Screen.Player) playerOrigin else screen
-                        miniDismissed = false
                         c.setMediaItems(
                             items,
                             currentIndex,
@@ -2892,7 +2887,7 @@ class MainActivity : ComponentActivity() {
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
                         Column {
-                            if (queue.isNotEmpty() && screen !is Screen.Player && !miniDismissed) {
+                            if (queue.isNotEmpty() && screen !is Screen.Player) {
                                 MiniPlayerBar(
                                     song = queue.getOrNull(currentIndex),
                                     isPlaying = isPlaying,
@@ -2902,7 +2897,6 @@ class MainActivity : ComponentActivity() {
                                         screen = Screen.Player
                                     },
                                     onPlayPause = { togglePlayPause() },
-                                    onDismiss = { miniDismissed = true },
                                     positionMs = positionMs,
                                     durationMs = durationMs
                                 )
