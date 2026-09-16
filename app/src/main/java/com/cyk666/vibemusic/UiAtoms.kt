@@ -25,6 +25,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -54,6 +60,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -106,10 +113,11 @@ fun ShimmerBox(
     }
 }
 
-// UI overhaul atoms (P0+P1 batch): zero new dependencies — Canvas-drawn
-// Material-style icons (material-icons-core is runtime-only via material3,
-// NOT on the compile classpath, so Icons.* is unimportable without adding a
-// dep — forbidden), shared row atoms, bottom-sheet menus, dialog atoms.
+// UI overhaul atoms (P0+P1 batch): Canvas-drawn Material-style icons for the
+// general set + official material-icons-extended vectors for the four play
+// modes (BOM-managed, no version pin). AppIconKind.MODE_* entries are kept
+// (PlayMode.playModeIconKind + PlayerScreen call sites unchanged) but render
+// via modeMaterialIcon() instead of Canvas paths.
 // Obsidian Bloom palette duplicated per-file (MainActivity vals are private).
 
 val UiInk = Color(0xFFEDEDF2)
@@ -130,6 +138,34 @@ enum class AppIconKind {
     CLOSE, MORE, HEART, DOWNLOAD, ADD, TIMER, QUEUE,
     CHECK, CHEVRON_RIGHT, CHEVRON_LEFT,    HISTORY, TRENDING, MUSIC_NOTE, MESSAGE, SHARE,
     INFO, SETTINGS, MODE_SEQUENTIAL, MODE_LOOP, MODE_SINGLE, MODE_SHUFFLE
+}
+
+/**
+ * 播放模式官方图标映射 (androidx.compose.material:material-icons-extended,
+ * 版本由 compose-bom 托管，libs.versions.toml 中无版本号):
+ * - 顺序 SEQUENTIAL (MODE_SEQUENTIAL) → Icons.AutoMirrored.Filled.PlaylistPlay
+ * - 列表循环 LIST_LOOP (MODE_LOOP) → Icons.Filled.Repeat
+ * - 单曲循环 SINGLE_LOOP (MODE_SINGLE) → Icons.Filled.RepeatOne
+ * - 随机 SHUFFLE (MODE_SHUFFLE) → Icons.Filled.Shuffle
+ *
+ * SEQUENTIAL 备选说明: 官方图标库没有"顺序播放"字形；PlaylistPlay
+ * (播放列表 + 三角) 语义最接近"按列表顺序播放"，且与"下一首"无视觉
+ * 冲突，故不用 ArrowForward (单箭头易与 NEXT 切歌混淆)。
+ * 手绘 Canvas 路径已删除 (drawKind 不再含 MODE_* 分支)，终结糊字 debate。
+ */
+fun modeMaterialIcon(kind: AppIconKind): ImageVector = when (kind) {
+    AppIconKind.MODE_SEQUENTIAL -> Icons.AutoMirrored.Filled.PlaylistPlay
+    AppIconKind.MODE_LOOP -> Icons.Filled.Repeat
+    AppIconKind.MODE_SINGLE -> Icons.Filled.RepeatOne
+    AppIconKind.MODE_SHUFFLE -> Icons.Filled.Shuffle
+    else -> throw IllegalArgumentException("非播放模式图标: $kind")
+}
+
+/** Pure: true when [kind] is one of the four official-vector play modes. */
+fun isPlayModeKind(kind: AppIconKind): Boolean = when (kind) {
+    AppIconKind.MODE_SEQUENTIAL, AppIconKind.MODE_LOOP,
+    AppIconKind.MODE_SINGLE, AppIconKind.MODE_SHUFFLE -> true
+    else -> false
 }
 
 private fun DrawScope.line(a: Offset, b: Offset, w: Float, c: Color) =
@@ -317,61 +353,17 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
             line(pt(17f, 17f), pt(18.6f, 18.6f), w, c)
             drawCircle(color = c, radius = 1.6f * s, center = pt(12f, 12f), style = Fill)
         }
-        AppIconKind.MODE_SEQUENTIAL -> {
-            // Straight playback arrow: single shaft + one head. Thick stroke
-            // keeps the glyph legible at 24-48dp without merging into a blob.
-            val lw = w * 1.5f
-            line(pt(3.5f, 12f), pt(19f, 12f), lw, c)
-            line(pt(14.5f, 7.5f), pt(19f, 12f), lw, c)
-            line(pt(14.5f, 16.5f), pt(19f, 12f), lw, c)
-        }
-        AppIconKind.MODE_LOOP -> {
-            // Loop-all: large circulation rect with one chevron per travel
-            // end (top runs right, bottom runs left). No numeral — the bare
-            // loop is what sets it apart from MODE_SINGLE.
-            val lw = w * 1.5f
-            line(pt(5.5f, 7.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(14.5f, 4.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(14.5f, 10.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(18.5f, 7.5f), pt(18.5f, 16.5f), lw, c)
-            line(pt(18.5f, 16.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(9.5f, 13.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(9.5f, 19.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(5.5f, 16.5f), pt(5.5f, 7.5f), lw, c)
-        }
-        AppIconKind.MODE_SINGLE -> {
-            // Single-loop: the same circulation rect as MODE_LOOP plus one
-            // chunky centered "1" (flag + stem, clear of the rect edges so
-            // the numeral never merges with the loop at small sizes).
-            val lw = w * 1.5f
-            line(pt(5.5f, 7.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(14.5f, 4.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(14.5f, 10.5f), pt(18.5f, 7.5f), lw, c)
-            line(pt(18.5f, 7.5f), pt(18.5f, 16.5f), lw, c)
-            line(pt(18.5f, 16.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(9.5f, 13.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(9.5f, 19.5f), pt(5.5f, 16.5f), lw, c)
-            line(pt(5.5f, 16.5f), pt(5.5f, 7.5f), lw, c)
-            val nw = w * 1.7f
-            line(pt(10f, 11.2f), pt(12.2f, 9.6f), nw, c)
-            line(pt(12.2f, 9.6f), pt(12.2f, 14.8f), nw, c)
-        }
-        AppIconKind.MODE_SHUFFLE -> {
-            // Shuffled crossing arrows: two straight diagonals, one arm per
-            // head (single-arm heads stay open at small sizes where double
-            // arms clot into a blob). Same X geometry, thicker stroke.
-            val lw = w * 1.5f
-            line(pt(4f, 7f), pt(20f, 17f), lw, c)
-            line(pt(16.4f, 17f), pt(20f, 17f), lw, c)
-            line(pt(4f, 17f), pt(20f, 7f), lw, c)
-            line(pt(16.4f, 7f), pt(20f, 7f), lw, c)
-        }
+        // MODE_* 无 Canvas 分支：四种播放模式走官方 material-icons-extended
+        // 向量 (AppIcon 直接渲染 modeMaterialIcon)，永不到达 drawKind。
+        else -> Unit
     }
 }
 
 /**
- * Material-style icon (filled/outlined pair) drawn on Canvas — zero deps.
- * 24dp viewport convention; selected tab icons use filled + neon tint.
+ * Material-style icon: official material-icons-extended vector for the four
+ * play modes, Canvas-drawn glyph for everything else. 24dp viewport
+ * convention; selected tab icons use filled + neon tint. Mode buttons keep
+ * their 48dp IconButton target + text label at the call site (PlayerScreen).
  */
 @Composable
 fun AppIcon(
@@ -380,6 +372,15 @@ fun AppIcon(
     filled: Boolean = true,
     size: Dp = 24.dp
 ) {
+    if (isPlayModeKind(kind)) {
+        Icon(
+            imageVector = modeMaterialIcon(kind),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(size)
+        )
+        return
+    }
     Canvas(modifier = Modifier.size(size)) {
         val s = size.toPx() / 24f
         drawKind(kind, tint, filled, s)

@@ -95,6 +95,12 @@ class PlayModeTest {
     }
 
     @Test
+    fun `播放模式官方图标_四种模式各有不同向量`() {
+        val vectors = PlayMode.entries.map { modeMaterialIcon(playModeIconKind(it)) }
+        assertEquals(4, vectors.toSet().size)
+    }
+
+    @Test
     fun announcements_embedModeLabel() {
         for (m in PlayMode.entries) {
             val text = playModeAnnouncement(m)

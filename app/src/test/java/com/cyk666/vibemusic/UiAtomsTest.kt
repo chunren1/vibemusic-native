@@ -1,8 +1,14 @@
 package com.cyk666.vibemusic
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -128,5 +134,51 @@ class UiAtomsTest {
         assertEquals("bilibili", buildSongRowModel(song().copy(platform = "bilibili")).platform)
         assertEquals("netease", buildSongRowModel(song()).platform)
         assertEquals("", SongRowModel("t", "s", "c").platform)
+    }
+
+    @Test
+    fun `播放模式图标_顺序映射PlaylistPlay`() {
+        assertSame(Icons.AutoMirrored.Filled.PlaylistPlay, modeMaterialIcon(AppIconKind.MODE_SEQUENTIAL))
+    }
+
+    @Test
+    fun `播放模式图标_列表循环映射Repeat`() {
+        assertSame(Icons.Filled.Repeat, modeMaterialIcon(AppIconKind.MODE_LOOP))
+    }
+
+    @Test
+    fun `播放模式图标_单曲循环映射RepeatOne`() {
+        assertSame(Icons.Filled.RepeatOne, modeMaterialIcon(AppIconKind.MODE_SINGLE))
+    }
+
+    @Test
+    fun `播放模式图标_随机映射Shuffle`() {
+        assertSame(Icons.Filled.Shuffle, modeMaterialIcon(AppIconKind.MODE_SHUFFLE))
+    }
+
+    @Test
+    fun `播放模式图标_四种互不相同`() {
+        val vectors = listOf(
+            AppIconKind.MODE_SEQUENTIAL,
+            AppIconKind.MODE_LOOP,
+            AppIconKind.MODE_SINGLE,
+            AppIconKind.MODE_SHUFFLE
+        ).map { modeMaterialIcon(it) }
+        assertEquals(4, vectors.toSet().size)
+    }
+
+    @Test
+    fun `播放模式判定_仅四种模式返回真`() {
+        assertTrue(isPlayModeKind(AppIconKind.MODE_SEQUENTIAL))
+        assertTrue(isPlayModeKind(AppIconKind.MODE_LOOP))
+        assertTrue(isPlayModeKind(AppIconKind.MODE_SINGLE))
+        assertTrue(isPlayModeKind(AppIconKind.MODE_SHUFFLE))
+        assertFalse(isPlayModeKind(AppIconKind.PLAY))
+        assertFalse(isPlayModeKind(AppIconKind.QUEUE))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `播放模式图标_非模式抛异常`() {
+        modeMaterialIcon(AppIconKind.PLAY)
     }
 }

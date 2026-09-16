@@ -12,8 +12,8 @@ android {
         applicationId = "com.cyk666.vibemusic"
         minSdk = 26
         targetSdk = 35
-        versionCode = 58
-        versionName = "1.0.44-ai-beta.1"
+        versionCode = 59
+        versionName = "1.0.45-ai-beta.1"
     }
 
     val wantsRelease = gradle.startParameter.taskNames.any {
@@ -68,6 +68,7 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.compose)
