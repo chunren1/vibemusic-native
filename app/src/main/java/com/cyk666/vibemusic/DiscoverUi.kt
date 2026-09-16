@@ -350,6 +350,15 @@ fun DiscoverScreen(
     onOpenHistory: () -> Unit = {}
 ) {
     var cardSheetFor by remember { mutableStateOf<Song?>(null) }
+    // No-cover-no-HOME, enforced at the render site (not just the current
+    // Activity call site): coverless tracks/playlists never render in Daily /
+    // 新歌速递 / Encounter / Treasure rows no matter which caller supplies
+    // the lists. Search/detail/queue keep their placeholder path and are
+    // untouched by these gated lists. Filtering is idempotent, so an
+    // already-gated caller list yields identical content + indices.
+    val dailyGated = remember(dailySongs) { homeVisibleSongs(dailySongs) }
+    val guessGated = remember(guessSongs) { homeVisibleSongs(guessSongs) }
+    val hotGated = remember(hotPlaylists) { homeVisiblePlaylists(hotPlaylists) }
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onPullRefresh,
@@ -412,7 +421,7 @@ fun DiscoverScreen(
                     enSubtitle = "DAILY",
                     enColor = UiViolet,
                     actionLabel = "换一批",
-                    actionBusy = dailyLoading && dailySongs.isNotEmpty(),
+                    actionBusy = dailyLoading && dailyGated.isNotEmpty(),
                     onAction = onRefreshDaily
                 )
                 if (dailyReason.isNotBlank()) {
@@ -428,19 +437,19 @@ fun DiscoverScreen(
                 Spacer(Modifier.height(8.dp))
             }
             when {
-                dailyLoading && dailySongs.isEmpty() -> item(key = "daily-loading") {
+                dailyLoading && dailyGated.isEmpty() -> item(key = "daily-loading") {
                     SearchSkeleton()
                 }
-                dailySongs.isNotEmpty() -> item(key = "daily-list") {
+                dailyGated.isNotEmpty() -> item(key = "daily-list") {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         itemsIndexed(
-                            dailySongs,
+                            dailyGated,
                             key = { _, s -> "daily-" + s.sourceId + s.platform }
                         ) { index, song ->
-                            val back = dailySongs.getOrNull(index + 1)?.coverUrl.orEmpty()
+                            val back = dailyGated.getOrNull(index + 1)?.coverUrl.orEmpty()
                             HomeSongCard(
                                 song = song,
                                 backCoverUrl = back,
@@ -473,19 +482,19 @@ fun DiscoverScreen(
                 Spacer(Modifier.height(8.dp))
             }
             when {
-                guessLoading && guessSongs.isEmpty() -> item(key = "guess-loading") {
+                guessLoading && guessGated.isEmpty() -> item(key = "guess-loading") {
                     SearchSkeleton()
                 }
-                guessSongs.isNotEmpty() -> item(key = "guess-list") {
+                guessGated.isNotEmpty() -> item(key = "guess-list") {
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         itemsIndexed(
-                            guessSongs,
+                            guessGated,
                             key = { _, s -> "guess-" + s.sourceId + s.platform }
                         ) { index, song ->
-                            val back = guessSongs.getOrNull(index + 1)?.coverUrl.orEmpty()
+                            val back = guessGated.getOrNull(index + 1)?.coverUrl.orEmpty()
                             HomeSongCard(
                                 song = song,
                                 backCoverUrl = back,
@@ -518,9 +527,9 @@ fun DiscoverScreen(
                 )
                 Spacer(Modifier.height(4.dp))
             }
-            if (dailySongs.isNotEmpty()) {
+            if (dailyGated.isNotEmpty()) {
                 itemsIndexed(
-                    dailySongs,
+                    dailyGated,
                     key = { _, s -> "encounter-" + s.sourceId + s.platform }
                 ) { index, song ->
                     EncounterRow(
@@ -541,11 +550,11 @@ fun DiscoverScreen(
                 Spacer(Modifier.height(8.dp))
             }
             when {
-                hotLoading && hotPlaylists.isEmpty() -> item(key = "hot-loading") {
+                hotLoading && hotGated.isEmpty() -> item(key = "hot-loading") {
                     SearchSkeleton()
                 }
-                hotPlaylists.isNotEmpty() -> {
-                    hotPlaylists.chunked(2).forEachIndexed { rowIdx, pair ->
+                hotGated.isNotEmpty() -> {
+                    hotGated.chunked(2).forEachIndexed { rowIdx, pair ->
                         item(key = "treasure-row-$rowIdx") {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

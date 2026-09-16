@@ -295,4 +295,35 @@ class DiscoverTest {
         val after = listOf(ownedPlaylist("p1", "旧歌单"))
         assertEquals(null, selectOpenedRecommend(setOf("p1"), after, "", ""))
     }
+
+    // ---- recommendToPlaylist / isRecommendDetail (tap-to-detail, no import) ----
+
+    private fun treasure(id: String) =
+        RecommendPlaylist(id, "宝藏$id", "https://cdn/$id.jpg", "编辑推荐", 999L)
+
+    @Test
+    fun `宝藏详情_未导入模型字段映射`() {
+        val detail = recommendToPlaylist(treasure("n1"))
+        assertEquals("recommend:n1", detail.id)
+        assertEquals("宝藏n1", detail.name)
+        assertEquals("https://cdn/n1.jpg", detail.coverUrl)
+        assertEquals("编辑推荐", detail.description)
+        assertEquals(0, detail.songCount)
+    }
+
+    @Test
+    fun `宝藏详情_过渡id不与真实歌单冲突`() {
+        val detail = recommendToPlaylist(treasure("p1"))
+        assertFalse(detail.id == "p1")
+        assertEquals("recommend:p1", recommendDetailId("p1"))
+    }
+
+    @Test
+    fun `宝藏详情_仅过渡页判定为未导入`() {
+        val detail = recommendToPlaylist(treasure("n1"))
+        assertTrue(isRecommendDetail(detail, "n1"))
+        assertFalse(isRecommendDetail(detail, "n2"))
+        assertFalse(isRecommendDetail(detail, null))
+        assertFalse(isRecommendDetail(ownedPlaylist("p1", "旧歌单"), "n1"))
+    }
 }

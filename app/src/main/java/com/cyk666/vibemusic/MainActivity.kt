@@ -349,6 +349,10 @@ class MainActivity : ComponentActivity() {
             // switching must not land stale songs into the new selection.
             var songsJob by remember { mutableStateOf<Job?>(null) }
             var songsGen by remember { mutableIntStateOf(0) }
+            // Unimported treasure view: raw recommend id behind the transient
+            // recommend:xxx detail (drives the detail [加入我的歌单] button;
+            // null on normal Mine details so the button stays hidden).
+            var recommendImportId by remember { mutableStateOf<String?>(null) }
             // Playback generation: bumped on every playAt / queueSeekTo /
             // queueRemoveAt so a stale async seek (slow IO landing after a
             // rapid double-tap) can never hit the new song. Same idiom as
@@ -1710,20 +1714,37 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Treasure-cell tap: import the recommend playlist, then open the
-            // existing detail screen on it. Its 播放全部 row (playAt over the
-            // loaded list) syncs ALL songs into the queue and starts playback.
-            // Import stays available inside detail (overflow → 导入外部歌单).
+            // Treasure-cell tap: open the existing detail screen on a
+            // transient (unimported) model — NO auto-import. Its 播放全部
+            // row (playAt over the loaded list) syncs ALL songs into the
+            // queue and starts playback without importing. Importing is an
+            // explicit [加入我的歌单] tap on the detail page
+            // (joinRecommendAsMine) or the detail overflow's 导入外部歌单
+            // (importAction) — importPlaylist stays the single entry point.
             fun openRecommendPlaylist(pl: RecommendPlaylist) {
+                if (currentUser == null) {
+                    screen = Screen.Login
+                    return
+                }
+                recommendImportId = pl.id
+                val transient = recommendToPlaylist(pl)
+                loadSongs(transient)
+                screen = Screen.PlaylistDetail(transient)
+            }
+
+            // On-demand import for the unimported treasure detail: imports,
+            // then lands on the real Mine detail (same selectOpenedRecommend
+            // pick as the old import-then-open path).
+            fun joinRecommendAsMine(recommendId: String, fallbackName: String) {
                 if (currentUser == null) {
                     screen = Screen.Login
                     return
                 }
                 scope.launch {
                     try {
-                        val r = VibeApi.importPlaylist("netease", pl.id)
-                        showError("成功导入${r.imported}/${r.total}首「${r.name}」")
                         val before = playlists.map { it.id }.toSet()
+                        val r = VibeApi.importPlaylist("netease", recommendId)
+                        showError("成功导入${r.imported}/${r.total}首「${r.name}」")
                         try {
                             playlists = VibeApi.myPlaylists()
                             playlistsLastLoaded = System.currentTimeMillis()
@@ -1733,12 +1754,14 @@ class MainActivity : ComponentActivity() {
                             before,
                             playlists,
                             r.name,
-                            pl.name
+                            fallbackName
                         )
                         if (opened != null) {
+                            recommendImportId = null
                             loadSongs(opened)
                             screen = Screen.PlaylistDetail(opened)
                         } else {
+                            recommendImportId = null
                             loadPlaylists()
                             screen = Screen.Mine
                         }
@@ -3340,6 +3363,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onRetryPlaylists = { loadPlaylists() },
                                 onSelectPlaylist = { pl ->
+                                    recommendImportId = null
                                     loadSongs(pl)
                                     screen = Screen.PlaylistDetail(pl)
                                 },
@@ -3377,6 +3401,7 @@ class MainActivity : ComponentActivity() {
                                 playlistsLoading = playlistsLoading,
                                 onBack = { screen = Screen.Mine },
                                 onSelectPlaylist = { pl ->
+                                    recommendImportId = null
                                     loadSongs(pl)
                                     screen = Screen.PlaylistDetail(pl)
                                 },
@@ -3415,7 +3440,14 @@ class MainActivity : ComponentActivity() {
                                 onRenamePlaylist = ::renamePlaylistAction,
                                 onUpdateDescription = ::updateDescAction,
                                 onDeletePlaylist = ::deletePlaylistAction,
-                                onImportPlaylist = ::importAction
+                                onImportPlaylist = ::importAction,
+                                onJoinMine = if (isRecommendDetail(s.playlist, recommendImportId)) {
+                                    val rid = recommendImportId.orEmpty()
+                                    val fallback = s.playlist.name
+                                    { joinRecommendAsMine(rid, fallback) }
+                                } else {
+                                    null
+                                }
                             )
 
                             is Screen.History -> HistoryScreen(

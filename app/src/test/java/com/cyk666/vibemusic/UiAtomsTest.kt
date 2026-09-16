@@ -99,4 +99,34 @@ class UiAtomsTest {
         assertFalse(hasCoverUrl(""))
         assertFalse(hasCoverUrl("   "))
     }
+
+    @Test
+    fun `B站来源_大小写与首尾空格均识别`() {
+        assertTrue(isBilibiliPlatform("bilibili"))
+        assertTrue(isBilibiliPlatform("BiliBili"))
+        assertTrue(isBilibiliPlatform("  bilibili  "))
+    }
+
+    @Test
+    fun `B站来源_其它平台与空值不识别`() {
+        assertFalse(isBilibiliPlatform("netease"))
+        assertFalse(isBilibiliPlatform("qq"))
+        assertFalse(isBilibiliPlatform(""))
+        assertFalse(isBilibiliPlatform("   "))
+        assertFalse(isBilibiliPlatform("bilibili1"))
+    }
+
+    @Test
+    fun `B站歌曲_按platform字段判定`() {
+        val bili = song().copy(platform = "bilibili")
+        assertTrue(isBilibiliSong(bili))
+        assertFalse(isBilibiliSong(song()))
+    }
+
+    @Test
+    fun `行模型_携带platform供徽标使用`() {
+        assertEquals("bilibili", buildSongRowModel(song().copy(platform = "bilibili")).platform)
+        assertEquals("netease", buildSongRowModel(song()).platform)
+        assertEquals("", SongRowModel("t", "s", "c").platform)
+    }
 }

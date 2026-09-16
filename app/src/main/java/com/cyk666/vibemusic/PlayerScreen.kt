@@ -445,6 +445,10 @@ fun PlayerScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (isBilibiliSong(song)) {
+                            Spacer(Modifier.height(2.dp))
+                            BiliBadge()
+                        }
                     }
                     IconButton(
                         onClick = onClose,
@@ -723,6 +727,15 @@ fun PlayerScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (song != null && isBilibiliSong(song)) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        BiliBadge()
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier

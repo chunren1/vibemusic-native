@@ -113,6 +113,33 @@ fun selectOpenedRecommend(
         ?: after.firstOrNull { it.name == importName && importName.isNotBlank() }
         ?: after.firstOrNull { it.name == recommendName }
 
+/**
+ * Pure: transient detail id for a treasure playlist that has NOT been
+ * imported. The "recommend:" prefix keeps it distinct from real server
+ * playlist ids so the detail screen can tell an unimported treasure view
+ * apart from a Mine list entry.
+ */
+fun recommendDetailId(recommendId: String): String = "recommend:$recommendId"
+
+/**
+ * Pure: display-only detail model for a treasure tap — name/cover/desc come
+ * from the recommend payload, songCount stays 0 until loadSongs resolves it
+ * from the loaded list. No import happens here; importing is an explicit
+ * [加入我的歌单] tap on the detail page.
+ */
+fun recommendToPlaylist(pl: RecommendPlaylist): Playlist = Playlist(
+    id = recommendDetailId(pl.id),
+    name = pl.name,
+    coverUrl = pl.picUrl,
+    songCount = 0,
+    description = pl.copywriter,
+    creator = ""
+)
+
+/** Pure: true when this detail page is an unimported treasure view. */
+fun isRecommendDetail(playlist: Playlist, recommendId: String?): Boolean =
+    recommendId != null && playlist.id == recommendDetailId(recommendId)
+
 /** Pure: compact play-count copy (125000 → "12.5万"). */
 fun formatPlayCount(count: Long): String {
     if (count < 0) return "0"

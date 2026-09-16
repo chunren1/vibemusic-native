@@ -318,39 +318,56 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
             drawCircle(color = c, radius = 1.6f * s, center = pt(12f, 12f), style = Fill)
         }
         AppIconKind.MODE_SEQUENTIAL -> {
-            line(pt(4f, 12f), pt(19f, 12f), w, c)
-            line(pt(15f, 8.5f), pt(19f, 12f), w, c)
-            line(pt(15f, 15.5f), pt(19f, 12f), w, c)
+            // Straight playback arrow: single shaft + one head. The lw bump
+            // (vs the base w) keeps the 2.6px-equivalent stroke legible at
+            // 24-48dp without merging into a blob.
+            val lw = w * 1.3f
+            line(pt(3.5f, 12f), pt(19f, 12f), lw, c)
+            line(pt(14.8f, 8f), pt(19f, 12f), lw, c)
+            line(pt(14.8f, 16f), pt(19f, 12f), lw, c)
         }
         AppIconKind.MODE_LOOP -> {
-            line(pt(7f, 8f), pt(17f, 8f), w, c)
-            line(pt(14f, 5.5f), pt(17f, 8f), w, c)
-            line(pt(14f, 10.5f), pt(17f, 8f), w, c)
-            line(pt(17f, 8f), pt(17f, 16f), w, c)
-            line(pt(17f, 16f), pt(7f, 16f), w, c)
-            line(pt(10f, 13.5f), pt(7f, 16f), w, c)
-            line(pt(10f, 18.5f), pt(7f, 16f), w, c)
-            line(pt(7f, 16f), pt(7f, 8f), w, c)
+            // Loop-all: sharp-corner circulation rect, one chevron per travel
+            // end (top runs right, bottom runs left). No numeral — the bare
+            // loop is what sets it apart from MODE_SINGLE.
+            val lw = w * 1.3f
+            line(pt(6.5f, 8f), pt(17.5f, 8f), lw, c)
+            line(pt(14.3f, 5.6f), pt(17.5f, 8f), lw, c)
+            line(pt(14.3f, 10.4f), pt(17.5f, 8f), lw, c)
+            line(pt(17.5f, 8f), pt(17.5f, 16f), lw, c)
+            line(pt(17.5f, 16f), pt(6.5f, 16f), lw, c)
+            line(pt(9.7f, 13.6f), pt(6.5f, 16f), lw, c)
+            line(pt(9.7f, 18.4f), pt(6.5f, 16f), lw, c)
+            line(pt(6.5f, 16f), pt(6.5f, 8f), lw, c)
         }
         AppIconKind.MODE_SINGLE -> {
-            line(pt(7f, 8f), pt(17f, 8f), w, c)
-            line(pt(14f, 5.5f), pt(17f, 8f), w, c)
-            line(pt(14f, 10.5f), pt(17f, 8f), w, c)
-            line(pt(17f, 8f), pt(17f, 16f), w, c)
-            line(pt(17f, 16f), pt(7f, 16f), w, c)
-            line(pt(10f, 13.5f), pt(7f, 16f), w, c)
-            line(pt(10f, 18.5f), pt(7f, 16f), w, c)
-            line(pt(7f, 16f), pt(7f, 8f), w, c)
-            line(pt(10.8f, 11.5f), pt(12f, 10.5f), w, c)
-            line(pt(12f, 10.5f), pt(12f, 14.5f), w, c)
+            // Single-loop: the same circulation rect as MODE_LOOP plus one
+            // chunky centered "1" (flag + stem, clear of the rect edges so
+            // the numeral never merges with the loop at small sizes).
+            val lw = w * 1.3f
+            line(pt(6.5f, 8f), pt(17.5f, 8f), lw, c)
+            line(pt(14.3f, 5.6f), pt(17.5f, 8f), lw, c)
+            line(pt(14.3f, 10.4f), pt(17.5f, 8f), lw, c)
+            line(pt(17.5f, 8f), pt(17.5f, 16f), lw, c)
+            line(pt(17.5f, 16f), pt(6.5f, 16f), lw, c)
+            line(pt(9.7f, 13.6f), pt(6.5f, 16f), lw, c)
+            line(pt(9.7f, 18.4f), pt(6.5f, 16f), lw, c)
+            line(pt(6.5f, 16f), pt(6.5f, 8f), lw, c)
+            val nw = w * 1.5f
+            line(pt(10.2f, 11.4f), pt(12.2f, 9.8f), nw, c)
+            line(pt(12.2f, 9.8f), pt(12.2f, 14.6f), nw, c)
         }
         AppIconKind.MODE_SHUFFLE -> {
-            line(pt(4f, 7f), pt(20f, 17f), w, c)
-            line(pt(16.8f, 17f), pt(20f, 17f), w, c)
-            line(pt(18.6f, 13.8f), pt(20f, 17f), w, c)
-            line(pt(4f, 17f), pt(20f, 7f), w, c)
-            line(pt(16.8f, 7f), pt(20f, 7f), w, c)
-            line(pt(18.6f, 10.2f), pt(20f, 7f), w, c)
+            // Shuffled crossing arrows: two straight diagonals with heads
+            // only at the right ends (tails stay headless so the left side
+            // never clots). Same X geometry as before, thicker stroke.
+            val lw = w * 1.3f
+            line(pt(4f, 7f), pt(20f, 17f), lw, c)
+            line(pt(16.6f, 17f), pt(20f, 17f), lw, c)
+            line(pt(18.4f, 13.6f), pt(20f, 17f), lw, c)
+            line(pt(4f, 17f), pt(20f, 7f), lw, c)
+            line(pt(16.6f, 7f), pt(20f, 7f), lw, c)
+            line(pt(18.4f, 10.4f), pt(20f, 7f), lw, c)
         }
     }
 }
@@ -416,8 +433,19 @@ fun CoverImage(
 data class SongRowModel(
     val title: String,
     val subtitle: String,
-    val coverUrl: String
+    val coverUrl: String,
+    val platform: String = ""
 )
+
+/**
+ * Pure: true when a track comes from Bilibili (platform match is
+ * case-insensitive + blank-tolerant; any other/blank platform is false).
+ */
+fun isBilibiliPlatform(platform: String): Boolean =
+    platform.trim().equals("bilibili", ignoreCase = true)
+
+/** Pure: song-level Bilibili check (delegates to [isBilibiliPlatform]). */
+fun isBilibiliSong(song: Song): Boolean = isBilibiliPlatform(song.platform)
 
 /**
  * Pure builder: blank name -> "(untitled)" (matches existing tests/parsers);
@@ -427,8 +455,27 @@ fun buildSongRowModel(song: Song, subtitleOverride: String? = null): SongRowMode
     SongRowModel(
         title = song.name.ifBlank { "(untitled)" },
         subtitle = subtitleOverride ?: song.artist,
-        coverUrl = song.coverUrl
+        coverUrl = song.coverUrl,
+        platform = song.platform
     )
+
+/**
+ * Tiny presentational source badge for Bilibili tracks ("B站" pill, cyan on
+ * muted surface — dark-theme only, no click behavior). Callers gate it with
+ * [isBilibiliPlatform]/[isBilibiliSong]; it never decides visibility itself.
+ */
+@Composable
+fun BiliBadge(modifier: Modifier = Modifier) {
+    Text(
+        text = "B站",
+        style = MaterialTheme.typography.labelSmall,
+        color = UiCyan,
+        maxLines = 1,
+        modifier = modifier
+            .background(UiMuted.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
 
 /** One Mine content entry: stable id + Chinese title + count subtitle. */
 data class MineEntry(
@@ -488,6 +535,7 @@ fun EntryRow(
     onClick: () -> Unit = {},
     onLongClick: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
+    badge: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     @OptIn(ExperimentalFoundationApi::class)
@@ -541,6 +589,11 @@ fun EntryRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (badge != null) {
+                Row(modifier = Modifier.padding(top = 2.dp)) {
+                    badge()
+                }
+            }
         }
         if (meta != null) {
             Spacer(Modifier.width(8.dp))
@@ -579,6 +632,11 @@ fun SongRow(
         meta = meta,
         onClick = onClick,
         onLongClick = onLongClick,
+        badge = if (isBilibiliPlatform(model.platform)) {
+            { BiliBadge() }
+        } else {
+            null
+        },
         trailing = {
             IconButton(
                 onClick = onOverflow,

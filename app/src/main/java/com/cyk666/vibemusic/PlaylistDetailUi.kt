@@ -65,7 +65,10 @@ fun PlaylistDetailScreen(
     onRenamePlaylist: (Playlist, String) -> Unit = { _, _ -> },
     onUpdateDescription: (Playlist, String) -> Unit = { _, _ -> },
     onDeletePlaylist: (Playlist) -> Unit = {},
-    onImportPlaylist: (String, String) -> Unit = { _, _ -> }
+    onImportPlaylist: (String, String) -> Unit = { _, _ -> },
+    // Non-null only on an unimported treasure view: explicit on-demand
+    // import ([加入我的歌单]). Null everywhere else (button hidden).
+    onJoinMine: (() -> Unit)? = null
 ) {
     var showOverflow by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
@@ -155,7 +158,8 @@ fun PlaylistDetailScreen(
                     vipCount = vipCount,
                     onPlayAll = {},
                     onShare = {},
-                    playEnabled = false
+                    playEnabled = false,
+                    onJoinMine = onJoinMine
                 )
                 Spacer(Modifier.padding(top = 8.dp))
                 DiscoverRetryRow(message = songsError, onRetry = onRetry)
@@ -168,7 +172,8 @@ fun PlaylistDetailScreen(
                     vipCount = vipCount,
                     onPlayAll = {},
                     onShare = {},
-                    playEnabled = false
+                    playEnabled = false,
+                    onJoinMine = onJoinMine
                 )
                 Spacer(Modifier.padding(top = 8.dp))
                 EmptyStateLine(
@@ -194,7 +199,8 @@ fun PlaylistDetailScreen(
                         vipCount = vipCount,
                         onPlayAll = onPlayAll,
                         onShare = { onShare(buildShareText(playlist.name, songs)) },
-                        playEnabled = true
+                        playEnabled = true,
+                        onJoinMine = onJoinMine
                     )
                 }
                 itemsIndexed(
@@ -331,7 +337,8 @@ private fun DetailHeader(
     vipCount: Int,
     onPlayAll: () -> Unit,
     onShare: () -> Unit,
-    playEnabled: Boolean
+    playEnabled: Boolean,
+    onJoinMine: (() -> Unit)? = null
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -398,6 +405,14 @@ private fun DetailHeader(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (onJoinMine != null) {
+                OutlinedButton(
+                    onClick = onJoinMine,
+                    modifier = Modifier.weight(1f).heightIn(min = 44.dp)
+                ) {
+                    Text("加入我的歌单")
+                }
+            }
             OutlinedButton(
                 onClick = onShare,
                 enabled = playEnabled,

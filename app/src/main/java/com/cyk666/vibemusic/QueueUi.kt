@@ -259,7 +259,8 @@ fun QueueScreen(
                             model = SongRowModel(
                                 title = row.title,
                                 subtitle = row.artist,
-                                coverUrl = row.coverUrl
+                                coverUrl = row.coverUrl,
+                                platform = row.platform
                             ),
                             meta = if (row.isCurrent && row.liveDurationMs > 0) {
                                 formatDuration((row.livePositionMs / 1000).toInt()) +
