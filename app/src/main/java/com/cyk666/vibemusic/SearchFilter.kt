@@ -88,6 +88,21 @@ fun clearedSearchAfterPlay(state: SearchViewState): SearchViewState = state.copy
     suggestVisible = false
 )
 
+/**
+ * R4-A1 gate-before-clear: pure verdict for the search-result tap handler.
+ * The search snapshot clears ONLY when the tap will actually start playback
+ * (playability gate passed + generation fresh); a stale landing or a failed
+ * gate (e.g. offline tap on an unplayable result) keeps [current] intact so
+ * the search page stays restorable. Callers must still early-return on the
+ * stale/gate-fail paths — this helper only decides the state, never acts.
+ */
+fun searchStateAfterPlayTap(
+    current: SearchViewState,
+    gatePlayable: Boolean,
+    isStale: Boolean
+): SearchViewState =
+    if (!isStale && gatePlayable) clearedSearchAfterPlay(current) else current
+
 /** Search body branch: mirrors the SearchScreen when-chain (single source of truth for tests). */
 enum class SearchBody {
     LOADING,

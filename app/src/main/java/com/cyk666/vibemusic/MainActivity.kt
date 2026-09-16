@@ -679,29 +679,22 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
-                // Search-play navigation: tapping a result clears the whole
-                // search UI snapshot at tap time, so Back from Player lands
-                // on a clean search page (no stale query/results/suggestions).
-                // History chips + hotwords come from persisted stores and stay.
-                val cleared = clearedSearchAfterPlay(
-                    SearchViewState(
-                        query = query,
-                        results = results,
-                        total = total,
-                        searched = searched,
-                        liveQuery = liveQuery,
-                        artistFilter = artistFilter,
-                        suggestVisible = suggestVisible
-                    )
+                // R4-A1 gate-before-clear: the search UI snapshot is captured
+                // at tap time but only cleared on the path that will actually
+                // start playback (gate passed + gen fresh). Tapping an
+                // unplayable result offline returns below with the whole
+                // snapshot intact, so Back lands on a restorable search page.
+                // History chips + hotwords come from persisted stores and stay
+                // either way.
+                val searchSnapshot = SearchViewState(
+                    query = query,
+                    results = results,
+                    total = total,
+                    searched = searched,
+                    liveQuery = liveQuery,
+                    artistFilter = artistFilter,
+                    suggestVisible = suggestVisible
                 )
-                query = cleared.query
-                results = cleared.results
-                total = cleared.total
-                searched = cleared.searched
-                liveQuery = cleared.liveQuery
-                artistFilter = cleared.artistFilter
-                suggestVisible = cleared.suggestVisible
-                debounceJob?.cancel()
                 val online = isNetworkAvailable(context)
                 playGen += 1
                 val gen = playGen
@@ -717,8 +710,17 @@ class MainActivity : ComponentActivity() {
                             OfflineAvailability()
                         }
                     }
-                    if (isStalePlayGen(gen, playGen)) return@launch
-                    if (!avail.isGatePlayable(song, online)) {
+                    val stale = isStalePlayGen(gen, playGen)
+                    val playable = avail.isGatePlayable(song, online)
+                    // Pure gate-before-clear verdict under the same guards:
+                    // only a fresh + playable tap may clear the snapshot.
+                    val nextSearch = searchStateAfterPlayTap(
+                        searchSnapshot,
+                        gatePlayable = playable,
+                        isStale = stale
+                    )
+                    if (stale) return@launch
+                    if (!playable) {
                         showError("无网络且未缓存")
                         return@launch
                     }
@@ -726,6 +728,14 @@ class MainActivity : ComponentActivity() {
                         placed.queue.map { it.toPlayMediaItem(context, avail) }
                     }
                     if (isStalePlayGen(gen, playGen)) return@launch
+                    query = nextSearch.query
+                    results = nextSearch.results
+                    total = nextSearch.total
+                    searched = nextSearch.searched
+                    liveQuery = nextSearch.liveQuery
+                    artistFilter = nextSearch.artistFilter
+                    suggestVisible = nextSearch.suggestVisible
+                    debounceJob?.cancel()
                     try {
                         queue = placed.queue
                         timelineSongs = placed.queue

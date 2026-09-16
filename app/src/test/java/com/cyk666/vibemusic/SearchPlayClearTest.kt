@@ -49,4 +49,61 @@ class SearchPlayClearTest {
         val cleared = clearedSearchAfterPlay(SearchViewState())
         assertEquals(SearchViewState(suggestVisible = false), cleared)
     }
+
+    // ---- R4-A1 gate-before-clear: ordering, not just copy semantics ----
+
+    @Test
+    fun `离线点播不可播_搜索快照原样保留`() {
+        val before = dirtyState()
+        val target = song("1")
+        // 按 handler 顺序先过 gate:空快照 + 离线 → 不可播
+        val gatePlayable = OfflineAvailability().isGatePlayable(target, false)
+        assertFalse(gatePlayable)
+        val after = searchStateAfterPlayTap(before, gatePlayable, isStale = false)
+        assertEquals(before, after)
+        assertEquals("周杰伦", after.query)
+        assertEquals(2, after.results.size)
+        assertEquals(2, after.total)
+        assertTrue(after.searched)
+        assertEquals("周杰伦", after.liveQuery)
+        assertEquals("周杰伦", after.artistFilter)
+        assertTrue(after.suggestVisible)
+    }
+
+    @Test
+    fun `在线点播可播且新鲜_才清空快照`() {
+        val before = dirtyState()
+        val target = song("1")
+        val gatePlayable = OfflineAvailability().isGatePlayable(target, true)
+        assertTrue(gatePlayable)
+        val after = searchStateAfterPlayTap(before, gatePlayable, isStale = false)
+        assertEquals(clearedSearchAfterPlay(before), after)
+        assertTrue(after.results.isEmpty())
+        assertFalse(after.searched)
+    }
+
+    @Test
+    fun `离线点播已缓存可播且新鲜_清空快照`() {
+        val target = song("1")
+        val avail = OfflineAvailability(cachedKeys = setOf(MediaCache.cacheKey(target)))
+        assertTrue(avail.isGatePlayable(target, false))
+        val after = searchStateAfterPlayTap(dirtyState(), true, isStale = false)
+        assertTrue(after.results.isEmpty())
+        assertEquals("", after.query)
+    }
+
+    @Test
+    fun `点播已过期_即使可播也不清空`() {
+        val before = dirtyState()
+        assertTrue(isStalePlayGen(completedGen = 1, latestGen = 2))
+        val after = searchStateAfterPlayTap(before, gatePlayable = true, isStale = true)
+        assertEquals(before, after)
+    }
+
+    @Test
+    fun `点播过期且不可播_快照保留`() {
+        val before = dirtyState()
+        val after = searchStateAfterPlayTap(before, gatePlayable = false, isStale = true)
+        assertEquals(before, after)
+    }
 }
