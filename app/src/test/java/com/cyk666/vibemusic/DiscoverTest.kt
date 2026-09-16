@@ -11,50 +11,6 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DiscoverTest {
 
-    // ---- banner ----
-
-    @Test
-    fun parseBanners_fullItems() {
-        val json = """
-            {"code":200,"message":"ok","data":[
-              {"name":"华语速爆新歌","coverUrl":"https://cover.example/a.jpg","desc":"精选歌单","playCount":123456},
-              {"name":"夜晚电台","coverUrl":"https://cover.example/b.jpg","desc":"深夜陪伴","playCount":"789"}
-            ]}
-        """.trimIndent()
-        val banners = parseDiscoverBanners(json)
-        assertEquals(2, banners.size)
-        assertEquals("华语速爆新歌", banners[0].name)
-        assertEquals("https://cover.example/a.jpg", banners[0].coverUrl)
-        assertEquals("精选歌单", banners[0].desc)
-        assertEquals(123456L, banners[0].playCount)
-        assertEquals(789L, banners[1].playCount)
-    }
-
-    @Test
-    fun parseBanners_missingDescAndPlayCountDefault() {
-        val json = """{"code":200,"message":"ok","data":[{"name":"裸奔","coverUrl":"https://x/y.jpg"}]}"""
-        val banners = parseDiscoverBanners(json)
-        assertEquals(1, banners.size)
-        assertEquals("", banners[0].desc)
-        assertEquals(0L, banners[0].playCount)
-    }
-
-    @Test
-    fun parseBanners_emptyListOk() {
-        val banners = parseDiscoverBanners("""{"code":200,"message":"ok","data":[]}""")
-        assertTrue(banners.isEmpty())
-    }
-
-    @Test
-    fun parseBanners_non200Throws() {
-        try {
-            parseDiscoverBanners("""{"code":500,"message":"boom","data":[]}""")
-            fail("expected RuntimeException")
-        } catch (e: RuntimeException) {
-            assertTrue((e.message ?: "").isNotBlank())
-        }
-    }
-
     // ---- personalized ----
 
     private fun personalizedEnvelope(songs: String, reason: String?): String {
@@ -206,23 +162,6 @@ class DiscoverTest {
         assertEquals("", pls[0].copywriter)
     }
 
-    // ---- banner aspect ----
-
-    @Test
-    fun bannerAspectRatio_isNetEaseWebRatio() {
-        assertEquals(2.35f, BANNER_ASPECT_RATIO)
-    }
-
-    @Test
-    fun selectBannerAspect_measuredWinsWhenValid() {
-        assertEquals(1.78f, selectBannerAspect(1.78f))
-        assertEquals(2.35f, selectBannerAspect(null))
-        assertEquals(2.35f, selectBannerAspect(Float.NaN))
-        assertEquals(2.35f, selectBannerAspect(Float.POSITIVE_INFINITY))
-        assertEquals(2.35f, selectBannerAspect(0f))
-        assertEquals(2.35f, selectBannerAspect(-1f))
-    }
-
     // ---- URL builders ----
 
     @Test
@@ -235,28 +174,6 @@ class DiscoverTest {
     fun buildRandomPath_count() {
         assertEquals("api/songs/random?count=8", buildRandomPath(8))
         assertEquals("api/songs/random?count=1", buildRandomPath(0))
-    }
-
-    // ---- TTL ----
-
-    @Test
-    fun isDiscoverStale_neverLoadedIsStale() {
-        assertTrue(isDiscoverStale(0L, 1_000_000L))
-        assertTrue(isDiscoverStale(-5L, 1_000_000L))
-    }
-
-    @Test
-    fun isDiscoverStale_freshWithinTtl() {
-        val now = 1_000_000L
-        assertFalse(isDiscoverStale(now - 60_000L, now))
-        assertFalse(isDiscoverStale(now - DISCOVER_CACHE_TTL_MS + 1_000L, now))
-    }
-
-    @Test
-    fun isDiscoverStale_oldBeyondTtl() {
-        val now = 1_000_000L
-        assertTrue(isDiscoverStale(now - DISCOVER_CACHE_TTL_MS, now))
-        assertTrue(isDiscoverStale(now - DISCOVER_CACHE_TTL_MS - 1L, now))
     }
 
     // ---- formatPlayCount ----

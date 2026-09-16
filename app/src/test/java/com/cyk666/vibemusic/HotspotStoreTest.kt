@@ -19,15 +19,6 @@ class HotspotStoreTest {
     // ---- codec round-trips ----
 
     @Test
-    fun banners_roundTrip() {
-        val list = listOf(
-            DiscoverBanner("b1", "https://c/1.jpg", "desc1", 12L),
-            DiscoverBanner("b2", "https://c/2.jpg")
-        )
-        assertEquals(list, decodeBanners(encodeBanners(list)))
-    }
-
-    @Test
     fun songs_roundTrip() {
         val songs = listOf(
             Song("1", "n", "a", "al", "https://c", 100, "netease", true),
@@ -65,7 +56,6 @@ class HotspotStoreTest {
 
     @Test
     fun decode_garbage_returnsNull() {
-        assertNull(decodeBanners("not-json"))
         assertNull(decodeDaily("{"))
         assertNull(decodeRecommendPlaylists("[1,2"))
         assertNull(decodePlaylists("{\"userId\":\"u\"}", "u"))
@@ -77,10 +67,10 @@ class HotspotStoreTest {
     @Test
     fun writeRead_roundTrip() = runBlocking {
         val ctx = context()
-        HotspotStore.write(ctx, "banners", encodeBanners(listOf(DiscoverBanner("n", "c"))))
-        val got = HotspotStore.read(ctx, "banners")
+        HotspotStore.write(ctx, "guess", songsToJson(listOf(Song("1", "n", "a", "al", "", 10, "netease"))))
+        val got = HotspotStore.read(ctx, "guess")
         assertTrue(got != null && got.first > 0L)
-        assertEquals("n", decodeBanners(got!!.second)?.first()?.name)
+        assertEquals("n", songsFromJson(got!!.second)?.first()?.name)
     }
 
     @Test

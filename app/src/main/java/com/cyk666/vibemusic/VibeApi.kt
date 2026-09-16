@@ -1234,11 +1234,6 @@ object VibeApi {
     // ---- Phase 9: discover (all GETs are public server-side; authed client
     // sends Bearer when logged in so personalized is auth-aware, guest OK) ----
 
-    suspend fun discoverBanners(): List<DiscoverBanner> {
-        val body = rawGet("api/songs/banner")
-        return parseDiscoverBanners(body)
-    }
-
     suspend fun personalized(refresh: Boolean = false): PersonalizedResult {
         val body = rawGet(buildPersonalizedPath(refresh))
         return parsePersonalized(body)

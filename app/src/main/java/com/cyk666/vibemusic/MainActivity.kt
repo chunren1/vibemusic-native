@@ -359,10 +359,8 @@ class MainActivity : ComponentActivity() {
             // songsGen + isStalePlaylistSongs above (see isStalePlayGen).
             var playGen by remember { mutableIntStateOf(0) }
 
-            // ---- discover state (memory only; 10-min TTL via discoverLastLoaded) ----
-            var discoverBanners by remember { mutableStateOf(listOf<DiscoverBanner>()) }
-            var discoverBannersLoading by remember { mutableStateOf(false) }
-            var discoverBannersError by remember { mutableStateOf<String?>(null) }
+            // ---- discover state (2026-09-17: banner section removed — design
+            // moved on; SWR = memory + disk seed, TTLs in HotspotCache.kt) ----
             var dailySongs by remember { mutableStateOf(listOf<Song>()) }
             var dailyReason by remember { mutableStateOf("") }
             var dailyLoading by remember { mutableStateOf(false) }
@@ -378,7 +376,6 @@ class MainActivity : ComponentActivity() {
             var discoverInitialErrorShown by remember { mutableStateOf(false) }
             // Track A SWR: per-section last-loaded timestamps (memory only).
             // Discover sections 30-min TTL, Mine playlists 5-min TTL.
-            var bannersLastLoaded by remember { mutableLongStateOf(0L) }
             var dailyLastLoaded by remember { mutableLongStateOf(0L) }
             var guessLastLoaded by remember { mutableLongStateOf(0L) }
             var hotLastLoaded by remember { mutableLongStateOf(0L) }
@@ -1078,6 +1075,12 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Exception) {
                         false
                     }
+                    // Page caches go too: a user-initiated clear must not leave
+                    // hotspot payloads to resurface on the next cold start.
+                    try {
+                        HotspotStore.clear(context)
+                    } catch (_: Exception) {
+                    }
                     cacheTick += 1
                     withContext(Dispatchers.Main) {
                         if (ok) showError("已清理缓存")
@@ -1318,31 +1321,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun loadDiscoverBanners(
-                markLoading: Boolean = true,
-                background: Boolean = false,
-                onDone: () -> Unit = {}
-            ) {
-                if (markLoading) discoverBannersLoading = true
-                if (!background) discoverBannersError = null
-                scope.launch {
-                    try {
-                        discoverBanners = VibeApi.discoverBanners()
-                        discoverBannersError = null
-                        bannersLastLoaded = System.currentTimeMillis()
-                        HotspotStore.write(context, "banners", encodeBanners(discoverBanners))
-                    } catch (e: Exception) {
-                        if (!background) {
-                            discoverBannersError = friendlyNetworkMessage(e)
-                            noteDiscoverInitialFailure(e)
-                        }
-                    } finally {
-                        discoverBannersLoading = false
-                        onDone()
-                    }
-                }
-            }
-
             fun loadDaily(
                 refresh: Boolean = false,
                 markLoading: Boolean = true,
@@ -1424,18 +1402,17 @@ class MainActivity : ComponentActivity() {
             fun loadDiscover(isPullRefresh: Boolean = false) {
                 val silent = isPullRefresh
                 if (silent) discoverRefreshing = true
-                var pending = 4
+                var pending = 3
                 fun oneDone() {
                     pending -= 1
                     if (pending > 0) return
                     if (silent) discoverRefreshing = false
-                    if (discoverBanners.isNotEmpty() || dailySongs.isNotEmpty() ||
+                    if (dailySongs.isNotEmpty() ||
                         guessSongs.isNotEmpty() || hotPlaylists.isNotEmpty()
                     ) {
                         discoverLastLoaded = System.currentTimeMillis()
                     }
                 }
-                loadDiscoverBanners(markLoading = !silent) { oneDone() }
                 loadDaily(markLoading = !silent) { oneDone() }
                 loadGuess(markLoading = !silent) { oneDone() }
                 loadHot(markLoading = !silent) { oneDone() }
@@ -2898,14 +2875,6 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(screen) {
                 if (screen is Screen.Discover && !discoverRefreshing) {
-                    if (discoverBanners.isEmpty()) {
-                        seedHotspot("banners") { ts, p ->
-                            decodeBanners(p)?.takeIf { it.isNotEmpty() }?.let {
-                                discoverBanners = it
-                                bannersLastLoaded = ts
-                            }
-                        }
-                    }
                     if (dailySongs.isEmpty()) {
                         seedHotspot("daily") { ts, p ->
                             decodeDaily(p)?.let { (reason, songs) ->
@@ -2933,11 +2902,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    swrSection(
-                        discoverBanners.isNotEmpty(), bannersLastLoaded,
-                        HotspotSection.BANNERS,
-                        discoverBannersLoading
-                    ) { mark, bg -> loadDiscoverBanners(mark, bg) }
                     swrSection(
                         dailySongs.isNotEmpty(), dailyLastLoaded,
                         HotspotSection.DAILY, dailyLoading
@@ -3136,19 +3100,6 @@ class MainActivity : ComponentActivity() {
                             when (s) {
                             is Screen.Discover -> DiscoverScreen(
                                 modifier = Modifier.padding(innerPadding),
-                                banners = discoverBanners,
-                                bannersLoading = discoverBannersLoading,
-                                bannersError = discoverBannersError,
-                                onRetryBanners = { loadDiscoverBanners() },
-                                onBannerTap = { b ->
-                                    val name = b.name.trim()
-                                    if (name.isNotEmpty()) {
-                                        debounceJob?.cancel()
-                                        query = name
-                                        runSearch(name)
-                                        screen = Screen.Search
-                                    }
-                                },
                                 dailySongs = dailyVisible,
                                 dailyReason = dailyReason,
                                 dailyLoading = dailyLoading,

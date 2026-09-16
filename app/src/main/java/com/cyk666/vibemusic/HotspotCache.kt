@@ -19,7 +19,6 @@ const val HOTSPOT_DISCOVER_TTL_MS = 30 * 60 * 1000L
 const val HOTSPOT_PLAYLISTS_TTL_MS = 5 * 60 * 1000L
 
 enum class HotspotSection {
-    BANNERS,
     DAILY,
     GUESS,
     HOT,
@@ -29,7 +28,6 @@ enum class HotspotSection {
 /** Pure: TTL for a hotspot section (playlists 5 min, everything else 30 min). */
 fun hotspotTtlMs(section: HotspotSection): Long = when (section) {
     HotspotSection.PLAYLISTS -> HOTSPOT_PLAYLISTS_TTL_MS
-    HotspotSection.BANNERS,
     HotspotSection.DAILY,
     HotspotSection.GUESS,
     HotspotSection.HOT -> HOTSPOT_DISCOVER_TTL_MS

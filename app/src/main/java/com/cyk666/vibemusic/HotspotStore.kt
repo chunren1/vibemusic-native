@@ -18,7 +18,7 @@ import java.io.File
 // reads as a miss (never show another account's lists).
 
 object HotspotStore {
-    private val ALLOWED_KEYS = setOf("banners", "daily", "guess", "hot", "playlists")
+    private val ALLOWED_KEYS = setOf("daily", "guess", "hot", "playlists")
 
     private fun dir(context: Context) = File(context.filesDir, "hotspot")
 
@@ -64,42 +64,20 @@ object HotspotStore {
             } catch (_: Exception) {
             }
         }
+    /**
+     * Remove every cached payload — settings "清缓存" parity with MediaCache:
+     * page caches must not survive a user-initiated clear (they surface again
+     * on the next cold start otherwise).
+     */
+    suspend fun clear(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            dir(context).listFiles()?.forEach { it.delete() }
+        } catch (_: Exception) {
+        }
+    }
 }
 
 // ---- pure payload codecs (decode null = cache miss) ----
-
-fun encodeBanners(list: List<DiscoverBanner>): String {
-    val arr = JSONArray()
-    for (b in list) {
-        arr.put(
-            JSONObject()
-                .put("name", b.name)
-                .put("coverUrl", b.coverUrl)
-                .put("desc", b.desc)
-                .put("playCount", b.playCount)
-        )
-    }
-    return arr.toString()
-}
-
-fun decodeBanners(json: String): List<DiscoverBanner>? = try {
-    val arr = JSONArray(json)
-    val out = ArrayList<DiscoverBanner>(arr.length())
-    for (i in 0 until arr.length()) {
-        val o = arr.getJSONObject(i)
-        out.add(
-            DiscoverBanner(
-                name = o.optString("name"),
-                coverUrl = o.optString("coverUrl"),
-                desc = o.optString("desc"),
-                playCount = o.optLong("playCount", 0L)
-            )
-        )
-    }
-    out
-} catch (_: Exception) {
-    null
-}
 
 fun encodeRecommendPlaylists(list: List<RecommendPlaylist>): String {
     val arr = JSONArray()

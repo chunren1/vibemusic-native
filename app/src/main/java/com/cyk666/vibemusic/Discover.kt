@@ -17,16 +17,8 @@ import java.util.Locale
  *
  * Covers load directly via https URLs with Coil (direct CDN works in-app today;
  * GET /api/image-proxy?url= exists as fallback but is NOT used unless a load fails).
- * Payloads are cached in memory only (Activity state, 10-min TTL); no DataStore.
+ * Payloads use SWR (memory + disk seed since 2026-09-17); TTLs in HotspotCache.kt.
  */
-
-/** Banner item: display-only (backend provides no id/link). */
-data class DiscoverBanner(
-    val name: String,
-    val coverUrl: String,
-    val desc: String = "",
-    val playCount: Long = 0L
-)
 
 /** GET /api/recommend/personalized result (guest OK, auth-aware server-side). */
 data class PersonalizedResult(
@@ -44,32 +36,6 @@ data class RecommendPlaylist(
     val copywriter: String = "",
     val playCount: Long = 0L
 )
-
-/** In-memory TTL: reload on tab revisit only when older than 10 min. */
-const val DISCOVER_CACHE_TTL_MS = 10 * 60 * 1000L
-
-/**
- * Banner width/height ratio (NetEase web-banner ratio 2.35:1). Fixed ratio
- * by design: measuring Coil intrinsic sizes per image would relayout the
- * carousel on every load (jank + per-region skeleton mismatch), so the
- * skeleton and the pager share this constant. If a measured ratio is ever
- * available, [selectBannerAspect] prefers it with this as fallback.
- */
-const val BANNER_ASPECT_RATIO = 2.35f
-
-/** Pure: measured width/height wins when finite and positive, else [BANNER_ASPECT_RATIO]. */
-fun selectBannerAspect(measuredRatio: Float?): Float =
-    if (measuredRatio != null && measuredRatio.isFinite() && measuredRatio > 0f) {
-        measuredRatio
-    } else {
-        BANNER_ASPECT_RATIO
-    }
-
-/** Pure: true when never loaded or older than [DISCOVER_CACHE_TTL_MS]. */
-fun isDiscoverStale(lastLoadedMs: Long, nowMs: Long): Boolean {
-    if (lastLoadedMs <= 0L) return true
-    return nowMs - lastLoadedMs >= DISCOVER_CACHE_TTL_MS
-}
 
 /** Pure: GET /api/recommend/personalized path (refresh=true bypasses server cache). */
 fun buildPersonalizedPath(refresh: Boolean): String =
@@ -193,26 +159,6 @@ private fun cleanDiscoverText(o: JSONObject, vararg keys: String): String {
         if (v.isNotEmpty() && !v.equals("null", ignoreCase = true)) return v
     }
     return ""
-}
-
-/** Pure: parse GET /api/songs/banner (missing desc → "", missing playCount → 0). */
-fun parseDiscoverBanners(json: String): List<DiscoverBanner> {
-    val root = JSONObject(json)
-    checkDiscoverEnvelope(root, "Banner")
-    val arr: JSONArray = root.optJSONArray("data") ?: return emptyList()
-    val out = ArrayList<DiscoverBanner>(arr.length())
-    for (i in 0 until arr.length()) {
-        val o = arr.optJSONObject(i) ?: continue
-        out.add(
-            DiscoverBanner(
-                name = o.optString("name"),
-                coverUrl = o.optString("coverUrl").ifBlank { o.optString("picUrl") },
-                desc = o.optString("desc"),
-                playCount = optLongFlexible(o, "playCount")
-            )
-        )
-    }
-    return out
 }
 
 /**

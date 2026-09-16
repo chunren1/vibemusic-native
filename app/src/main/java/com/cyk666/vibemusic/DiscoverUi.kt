@@ -316,11 +316,6 @@ private fun TreasureCell(
 @Composable
 fun DiscoverScreen(
     modifier: Modifier = Modifier,
-    banners: List<DiscoverBanner>,
-    bannersLoading: Boolean,
-    bannersError: String?,
-    onRetryBanners: () -> Unit,
-    onBannerTap: (DiscoverBanner) -> Unit,
     dailySongs: List<Song>,
     dailyReason: String,
     dailyLoading: Boolean,

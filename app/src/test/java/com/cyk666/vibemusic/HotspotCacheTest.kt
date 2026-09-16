@@ -46,7 +46,6 @@ class HotspotCacheTest {
     @Test
     fun ttl_discoverSectionsAre30Min() {
         assertEquals(30 * 60 * 1000L, HOTSPOT_DISCOVER_TTL_MS)
-        assertEquals(HOTSPOT_DISCOVER_TTL_MS, hotspotTtlMs(HotspotSection.BANNERS))
         assertEquals(HOTSPOT_DISCOVER_TTL_MS, hotspotTtlMs(HotspotSection.DAILY))
         assertEquals(HOTSPOT_DISCOVER_TTL_MS, hotspotTtlMs(HotspotSection.GUESS))
         assertEquals(HOTSPOT_DISCOVER_TTL_MS, hotspotTtlMs(HotspotSection.HOT))

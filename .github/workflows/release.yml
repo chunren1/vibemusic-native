@@ -100,11 +100,17 @@ jobs:
           else
             PRERELEASE_JSON=',"prerelease":false'
           fi
+          # (0) mirror the tag itself first: create-release requires the tag to
+          #     exist, and the API "create tag" needs a starting ref that a
+          #     fresh Gitee clone doesn't have — so push the tag (its commits
+          #     ride along). Token-in-URL is masked in the log.
+          git push -q "https://oauth2:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" \
+            "refs/tags/${TAG}" 2>&1 | sed 's|oauth2:[^@]*@|oauth2:***@|g' || true
           # (a) create release; 422 (already exists) → treat as success.
           CREATE_RESP=$(curl -sS --connect-timeout 10 --max-time 30 -w '\n%{http_code}' \
             -X POST "$API?access_token=${GITEE_TOKEN}" \
             -H "Content-Type: application/json;charset=UTF-8" \
-            --data "$(TAG="$TAG" NOTES="$NOTES" PRE="$PRERELEASE_JSON" python3 -c 'import json,os;d={"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"]};s=json.dumps(d);print(s[:-1]+os.environ["PRE"]+"}")')" \
+            --data "$(TAG="$TAG" NOTES="$NOTES" PRE="$PRERELEASE_JSON" python3 -c 'import json,os;d={"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"],"target_commitish":"main"};s=json.dumps(d);print(s[:-1]+os.environ["PRE"]+"}")')" \
             ) || CREATE_RESP=""
           CREATE_CODE=$(printf '%s' "$CREATE_RESP" | tail -n 1)
           CREATE_BODY=$(printf '%s' "$CREATE_RESP" | sed '$d')
@@ -130,7 +136,7 @@ jobs:
           echo "Gitee release id: $RELEASE_ID"
           # (b) attach the SAME APK file.
           ATTACH_CODE=$(curl -sS --connect-timeout 10 --max-time 120 -o /tmp/gitee_attach.json -w '%{http_code}' \
-            -X POST "${API}/${RELEASE_ID}/attach?access_token=${GITEE_TOKEN}" \
+            -X POST "${API}/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
             -F "file=@${APK_NAME}" || echo "curl-failed")
           echo "Gitee attach HTTP: $ATTACH_CODE"
           case "$ATTACH_CODE" in
