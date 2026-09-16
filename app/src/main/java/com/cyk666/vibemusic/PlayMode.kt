@@ -74,20 +74,19 @@ fun playModeIconKind(mode: PlayMode): AppIconKind = when (mode) {    PlayMode.SE
 fun playModeAnnouncement(mode: PlayMode): String = "已切换到：" + mode.label + "播放"
 
 /**
- * Slim meta line under the player controls: cache badge + active sleep
- * timer as muted text (no buttons). Null when there is nothing to show so
- * callers emit no dead whitespace.
+ * Slim meta line under the player controls: active sleep timer as muted
+ * text (no buttons). Null when there is nothing to show so callers emit
+ * no dead whitespace. The offline signal lives on the download button
+ * tint — [isCached] is kept only for call-site compat and no longer
+ * renders any 已缓存 text.
  */
 fun buildPlayerMetaLine(
     isCached: Boolean,
     sleepActive: Boolean,
     sleepLabel: String
 ): String? {
-    val parts = buildList {
-        if (isCached) add("已缓存")
-        if (sleepActive) add(sleepLabel)
-    }
-    return if (parts.isEmpty()) null else parts.joinToString(" · ")
+    if (!sleepActive) return null
+    return sleepLabel
 }
 
 /**

@@ -79,6 +79,24 @@ fun buildPersonalizedPath(refresh: Boolean): String =
 fun buildRandomPath(count: Int): String =
     "api/songs/random?count=" + count.coerceAtLeast(1)
 
+/**
+ * Pure cover gate: a HOME track renders only when it has a cover URL.
+ * Applied ONLY to HOME rows (Daily/Encounter/Treasure + 新歌速递);
+ * search/playlist pages keep their default-note placeholder path and
+ * must NOT use this filter.
+ */
+fun hasCover(song: Song): Boolean = song.coverUrl.isNotBlank()
+
+/** Pure: HOME-visible tracks = cover-gated, order preserved. */
+fun homeVisibleSongs(songs: List<Song>): List<Song> = songs.filter(::hasCover)
+
+/** Pure: a HOME treasure cell renders only when it has a cover URL. */
+fun hasPlaylistCover(playlist: RecommendPlaylist): Boolean = playlist.picUrl.isNotBlank()
+
+/** Pure: HOME-visible treasure playlists = cover-gated, order preserved. */
+fun homeVisiblePlaylists(playlists: List<RecommendPlaylist>): List<RecommendPlaylist> =
+    playlists.filter(::hasPlaylistCover)
+
 /** Pure: compact play-count copy (125000 → "12.5万"). */
 fun formatPlayCount(count: Long): String {
     if (count < 0) return "0"

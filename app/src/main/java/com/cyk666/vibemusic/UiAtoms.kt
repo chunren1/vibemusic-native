@@ -466,13 +466,24 @@ fun EntryRow(
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (coverUrl.isNotBlank() || coverSize > 0.dp) {
-            AsyncImage(
-                model = coverUrl.ifBlank { null },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
-            )
+        if (coverSize > 0.dp) {
+            if (coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = coverUrl.ifBlank { null },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier.size(coverSize)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(UiMuted.copy(alpha = 0.25f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = 24.dp)
+                }
+            }
             Spacer(Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {

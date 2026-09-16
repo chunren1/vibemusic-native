@@ -110,15 +110,15 @@ class PlayModeTest {
     }
 
     @Test
-    fun metaLine_cachedOnly() {
-        assertEquals("已缓存", buildPlayerMetaLine(true, false, "睡眠定时：关闭"))
+    fun `元信息行_缓存不再渲染文字`() {
+        assertEquals(null, buildPlayerMetaLine(true, false, "睡眠定时：关闭"))
     }
 
     @Test
-    fun metaLine_sleepOnlyWhenActive() {
+    fun `元信息行_仅睡眠定时激活时显示`() {
         val sleep = "睡眠定时：25分钟 (剩 12:00)"
         assertEquals(sleep, buildPlayerMetaLine(false, true, sleep))
-        assertEquals("已缓存 · $sleep", buildPlayerMetaLine(true, true, sleep))
+        assertEquals(sleep, buildPlayerMetaLine(true, true, sleep))
     }
 
     private fun context(): Context = RuntimeEnvironment.getApplication()

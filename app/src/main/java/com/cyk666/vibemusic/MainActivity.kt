@@ -57,8 +57,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -284,7 +282,6 @@ class MainActivity : ComponentActivity() {
             // ---- on-device auto-cache (ExoPlayer CacheDataSource): replay/airplane
             // serves from cache; cacheTick forces badge/size refresh after a wipe.
             var cacheTick by remember { mutableIntStateOf(0) }
-            var cachedBadge by remember { mutableStateOf(false) }
             var cacheSizeLabel by remember { mutableStateOf("计算中…") }
             // Phase 10: downloads dir usage for the Settings storage row.
             var downloadsSizeLabel by remember { mutableStateOf("计算中…") }
@@ -682,6 +679,29 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
+                // Search-play navigation: tapping a result clears the whole
+                // search UI snapshot at tap time, so Back from Player lands
+                // on a clean search page (no stale query/results/suggestions).
+                // History chips + hotwords come from persisted stores and stay.
+                val cleared = clearedSearchAfterPlay(
+                    SearchViewState(
+                        query = query,
+                        results = results,
+                        total = total,
+                        searched = searched,
+                        liveQuery = liveQuery,
+                        artistFilter = artistFilter,
+                        suggestVisible = suggestVisible
+                    )
+                )
+                query = cleared.query
+                results = cleared.results
+                total = cleared.total
+                searched = cleared.searched
+                liveQuery = cleared.liveQuery
+                artistFilter = cleared.artistFilter
+                suggestVisible = cleared.suggestVisible
+                debounceJob?.cancel()
                 val online = isNetworkAvailable(context)
                 playGen += 1
                 val gen = playGen
@@ -2760,18 +2780,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // 已缓存 badge + 缓存大小：song change / wipe 后在 IO 线程重算。
-            LaunchedEffect(activeSong?.sourceId, cacheTick) {
-                val url = activeSong?.streamUrl().orEmpty()
-                cachedBadge = withContext(Dispatchers.IO) {
-                    try {
-                        MediaCache.isCached(context, url)
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            }
-
             LaunchedEffect(screen, cacheTick) {
                 if (screen is Screen.Mine || screen is Screen.Settings) {
                     val bytes = withContext(Dispatchers.IO) {
@@ -2860,6 +2868,13 @@ class MainActivity : ComponentActivity() {
                 is Screen.Favorites, is Screen.Settings, is Screen.Playlists,
                 is Screen.PlaylistDetail -> 3
             }
+
+            // HOME cover gate: coverless tracks/playlists never render on
+            // HOME rows. Search/playlist pages keep their placeholder path
+            // and must NOT use these lists.
+            val dailyVisible = remember(dailySongs) { homeVisibleSongs(dailySongs) }
+            val guessVisible = remember(guessSongs) { homeVisibleSongs(guessSongs) }
+            val hotVisible = remember(hotPlaylists) { homeVisiblePlaylists(hotPlaylists) }
 
             MaterialTheme(colorScheme = ObsidianScheme) {
                 Scaffold(
@@ -2959,27 +2974,27 @@ class MainActivity : ComponentActivity() {
                                         screen = Screen.Search
                                     }
                                 },
-                                dailySongs = dailySongs,
+                                dailySongs = dailyVisible,
                                 dailyReason = dailyReason,
                                 dailyLoading = dailyLoading,
                                 dailyError = dailyError,
                                 onRetryDaily = { loadDaily() },
                                 onRefreshDaily = { loadDaily(refresh = true) },
                                 onPlayDaily = { idx ->
-                                    if (dailySongs.isNotEmpty()) {
-                                        playAt(dailySongs, idx.coerceIn(dailySongs.indices))
+                                    if (dailyVisible.isNotEmpty()) {
+                                        playAt(dailyVisible, idx.coerceIn(dailyVisible.indices))
                                     }
                                 },
-                                guessSongs = guessSongs,
+                                guessSongs = guessVisible,
                                 guessLoading = guessLoading,
                                 guessError = guessError,
                                 onRetryGuess = { loadGuess() },
                                 onPlayGuess = { idx ->
-                                    if (guessSongs.isNotEmpty()) {
-                                        playAt(guessSongs, idx.coerceIn(guessSongs.indices))
+                                    if (guessVisible.isNotEmpty()) {
+                                        playAt(guessVisible, idx.coerceIn(guessVisible.indices))
                                     }
                                 },
-                                hotPlaylists = hotPlaylists,
+                                hotPlaylists = hotVisible,
                                 hotLoading = hotLoading,
                                 hotError = hotError,
                                 onRetryHot = { loadHot() },
@@ -3215,7 +3230,6 @@ class MainActivity : ComponentActivity() {
                                 onOpenQueue = { screen = Screen.Queue },
                                 playMode = playMode,
                                 onCycleMode = ::cyclePlayMode,
-                                isCached = cachedBadge,
                                 onDownloadCurrent = {
                                     queue.getOrNull(currentIndex)?.let { downloadSong(it, false) }
                                 },
@@ -4113,7 +4127,10 @@ fun HeroControls(
     onPrev: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
-    heroSize: Dp = 64.dp
+    heroSize: Dp = 64.dp,
+    playMode: PlayMode = PlayMode.SEQUENTIAL,
+    onCycleMode: () -> Unit = {},
+    onOpenQueue: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -4121,13 +4138,23 @@ fun HeroControls(
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
+            onClick = onCycleMode,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp).semantics {
+                contentDescription = "播放模式：" + playMode.label + "，点击切换"
+            }
+        ) {
+            AppIcon(playModeIconKind(playMode), if (enabled) InkOnDark else GrayMuted)
+        }
+        Spacer(Modifier.width(8.dp))
+        IconButton(
             onClick = onPrev,
             enabled = enabled,
             modifier = Modifier.size(48.dp)
         ) {
             AppIcon(AppIconKind.PREV, if (enabled) InkOnDark else GrayMuted)
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(8.dp))
         Box(
             modifier = Modifier
                 .size(heroSize)
@@ -4142,13 +4169,21 @@ fun HeroControls(
                 size = heroSize * 0.45f
             )
         }
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(8.dp))
         IconButton(
             onClick = onNext,
             enabled = enabled,
             modifier = Modifier.size(48.dp)
         ) {
             AppIcon(AppIconKind.NEXT, if (enabled) InkOnDark else GrayMuted)
+        }
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onOpenQueue,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp)
+        ) {
+            AppIcon(AppIconKind.QUEUE, if (enabled) InkOnDark else GrayMuted)
         }
     }
 }
@@ -4250,7 +4285,6 @@ fun PlayerScreen(
     onOpenQueue: () -> Unit = {},
     playMode: PlayMode = PlayMode.SEQUENTIAL,
     onCycleMode: () -> Unit = {},
-    isCached: Boolean = false,
     onDownloadCurrent: () -> Unit = {},
     downloadingCurrent: Boolean = false,
     downloadedCurrent: Boolean = false,
@@ -4258,9 +4292,7 @@ fun PlayerScreen(
     onToggleFav: () -> Unit = {},
     sleepActive: Boolean = false,
     audioSessionId: Int = 0,
-    onOpenSearch: () -> Unit = {},
-    onComment: () -> Unit = {},
-    onShare: () -> Unit = {}
+    onOpenSearch: () -> Unit = {}
 ) {
     val song = queue.getOrNull(currentIndex)
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
@@ -4349,7 +4381,6 @@ fun PlayerScreen(
             label = "playerView"
         ) { v ->
             if (v == PlayerView.LYRICS && song != null) {
-            var showOverflow by remember(song.sourceId) { mutableStateOf(false) }
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -4469,54 +4500,40 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
                     IconButton(
-                        onClick = { showOverflow = true },
+                        onClick = onAddCurrentToPlaylist,
                         enabled = song != null,
                         modifier = Modifier.size(48.dp)
                     ) {
-                        AppIcon(AppIconKind.MORE, InkOnDark)
+                        AppIcon(AppIconKind.ADD, InkOnDark)
                     }
-                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
-                }
-                DropdownMenu(
-                    expanded = showOverflow,
-                    onDismissRequest = { showOverflow = false }
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (sleepActive) "睡眠定时：$sleepLabel" else "睡眠定时"
+                    IconButton(
+                        onClick = onDownloadCurrent,
+                        enabled = song != null && !downloadingCurrent,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        if (downloadingCurrent) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
                             )
-                        },
-                        onClick = {
-                            showOverflow = false
-                            onSleepClick()
+                        } else {
+                            AppIcon(
+                                AppIconKind.DOWNLOAD,
+                                if (downloadedCurrent) NeonCyan else InkOnDark
+                            )
                         }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("加到歌单") },
-                        onClick = {
-                            showOverflow = false
-                            onAddCurrentToPlaylist()
-                        },
-                        enabled = song != null
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                when {
-                                    downloadedCurrent -> "已缓存到本地"
-                                    downloadingCurrent -> "缓存中…"
-                                    else -> "缓存到本地"
-                                }
-                            )
-                        },
-                        onClick = {
-                            showOverflow = false
-                            onDownloadCurrent()
-                        },
-                        enabled = song != null && !downloadingCurrent && !downloadedCurrent
-                    )
+                    }
+                    IconButton(
+                        onClick = onSleepClick,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        AppIcon(
+                            AppIconKind.TIMER,
+                            if (sleepActive) NeonViolet else InkOnDark
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 PlayerSeekSection(
@@ -4578,7 +4595,7 @@ fun PlayerScreen(
                     }
                 }
                 buildPlayerMetaLine(
-                    isCached = isCached && song != null,
+                    isCached = false,
                     sleepActive = sleepActive,
                     sleepLabel = sleepLabel
                 )?.let { meta ->
@@ -4626,12 +4643,6 @@ fun PlayerScreen(
                             modifier = Modifier.size(48.dp)
                         ) {
                             AppIcon(AppIconKind.INFO, GrayMuted)
-                        }
-                        IconButton(
-                            onClick = onOpenQueue,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            AppIcon(AppIconKind.QUEUE, InkOnDark)
                         }
                     }
                 }
@@ -4733,22 +4744,10 @@ fun PlayerScreen(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
-                    IconButton(
-                        onClick = onComment,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.MESSAGE, InkOnDark)
-                    }
-                    IconButton(
-                        onClick = onShare,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.SHARE, InkOnDark)
-                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 PlayerSeekSection(
@@ -4764,7 +4763,10 @@ fun PlayerScreen(
                     onPrev = onPrev,
                     onPlayPause = onPlayPause,
                     onNext = onNext,
-                    heroSize = 64.dp
+                    heroSize = 64.dp,
+                    playMode = playMode,
+                    onCycleMode = onCycleMode,
+                    onOpenQueue = onOpenQueue
                 )
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -4772,16 +4774,6 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onCycleMode,
-                        enabled = song != null,
-                        modifier = Modifier.size(48.dp).semantics {
-                            contentDescription = "播放模式：" +
-                                playMode.label + "，点击切换"
-                        }
-                    ) {
-                        AppIcon(playModeIconKind(playMode), InkOnDark)
-                    }
                     IconButton(
                         onClick = onAddCurrentToPlaylist,
                         enabled = song != null,
@@ -4815,16 +4807,9 @@ fun PlayerScreen(
                             if (sleepActive) NeonViolet else InkOnDark
                         )
                     }
-                    IconButton(
-                        onClick = onOpenQueue,
-                        enabled = song != null,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.QUEUE, InkOnDark)
-                    }
                 }
                 buildPlayerMetaLine(
-                    isCached = isCached && song != null,
+                    isCached = false,
                     sleepActive = sleepActive,
                     sleepLabel = sleepLabel
                 )?.let { meta ->
@@ -5522,10 +5507,6 @@ fun MineScreen(
                 Text("先逛逛")
             }
             Spacer(Modifier.height(12.dp))
-            GoldDuoRow(onVip = onOpenSettings, onCash = onOpenSettings)
-            Spacer(Modifier.height(12.dp))
-            PromoBanner(onClick = onOpenSettings)
-            Spacer(Modifier.height(12.dp))
             MineTripleRow(
                 items = buildMineTriple(
                     favCount = 0,
@@ -5569,10 +5550,6 @@ fun MineScreen(
                 onDismiss = { showProfileView = false }
             )
         }
-        GoldDuoRow(onVip = onOpenSettings, onCash = onOpenSettings)
-        Spacer(Modifier.height(12.dp))
-        PromoBanner(onClick = onOpenSettings)
-        Spacer(Modifier.height(12.dp))
         MineTripleRow(
             items = buildMineTriple(
                 favCount = favCount,
@@ -5743,109 +5720,6 @@ private fun MineUserCard(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun GoldActionCard(
-    title: String,
-    sub: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .heightIn(min = 76.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Champagne.copy(alpha = 0.12f))
-            .clickable(onClick = onClick)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = Champagne,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = sub,
-            style = MaterialTheme.typography.bodySmall,
-            color = Champagne.copy(alpha = 0.75f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun GoldDuoRow(onVip: () -> Unit, onCash: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        GoldActionCard(
-            title = "会员中心",
-            sub = "畅听无损",
-            onClick = onVip,
-            modifier = Modifier.weight(1f)
-        )
-        GoldActionCard(
-            title = "领现金",
-            sub = "天天可领",
-            onClick = onCash,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun PromoBanner(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 84.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(NeonViolet, NeonCyan)
-                )
-            )
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "开通会员 · 畅听无损",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "高品质音质 · 专属歌单",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.85f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = "去看看",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        )
     }
 }
 

@@ -469,7 +469,6 @@ fun DiscoverScreen(
     onOpenHistory: () -> Unit = {}
 ) {
     var cardSheetFor by remember { mutableStateOf<Song?>(null) }
-    var homeTab by remember { mutableStateOf(0) }
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onPullRefresh,
@@ -499,13 +498,8 @@ fun DiscoverScreen(
                 ) {
                     HomeTabLabel(
                         text = "乐库",
-                        selected = homeTab == 0,
-                        onClick = { homeTab = 0 }
-                    )
-                    HomeTabLabel(
-                        text = "商城",
-                        selected = homeTab == 1,
-                        onClick = { homeTab = 1 }
+                        selected = true,
+                        onClick = { }
                     )
                     Spacer(Modifier.width(8.dp))
                     Row(

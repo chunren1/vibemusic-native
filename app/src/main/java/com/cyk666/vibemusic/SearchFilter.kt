@@ -58,6 +58,36 @@ fun filterAndSortSongs(
 fun isStaleSearchResult(completedGen: Int, latestGen: Int): Boolean =
     completedGen != latestGen
 
+/**
+ * Clearable search UI state snapshot. Tapping a search result plays it AND
+ * resets this whole snapshot (see [clearedSearchAfterPlay]) so Back lands
+ * on a clean search page — never the stale query/results.
+ */
+data class SearchViewState(
+    val query: String = "",
+    val results: List<Song> = emptyList(),
+    val total: Int = 0,
+    val searched: Boolean = false,
+    val liveQuery: String = "",
+    val artistFilter: String? = null,
+    val suggestVisible: Boolean = true
+)
+
+/**
+ * Pure: search-play navigation — clear query + results + suggestions in one
+ * step. History chips/hotwords (built from persisted stores, not this state)
+ * are untouched, so the clean page still offers entry points.
+ */
+fun clearedSearchAfterPlay(state: SearchViewState): SearchViewState = state.copy(
+    query = "",
+    results = emptyList(),
+    total = 0,
+    searched = false,
+    liveQuery = "",
+    artistFilter = null,
+    suggestVisible = false
+)
+
 /** Search body branch: mirrors the SearchScreen when-chain (single source of truth for tests). */
 enum class SearchBody {
     LOADING,
