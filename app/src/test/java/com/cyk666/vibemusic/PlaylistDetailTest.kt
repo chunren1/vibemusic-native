@@ -143,4 +143,76 @@ class PlaylistDetailTest {
             .put("vip", true)
         assertTrue(VibeApi.parsePlaylistSong(o).vip)
     }
+
+    @Test
+    fun `推荐详情路径_拼接source与id`() {
+        assertEquals(
+            "api/playlists/detail?source=netease&id=12345",
+            VibeApi.buildRecommendDetailPath("netease", "12345")
+        )
+    }
+
+    private fun recommendDetailEnvelope(): String = """
+        {
+          "code": 200,
+          "message": "ok",
+          "data": {
+            "id": "12345",
+            "name": "宝藏",
+            "coverUrl": "https://cover.example/x.jpg",
+            "songCount": 2,
+            "source": "netease",
+            "songs": [
+              {
+                "id": "1895330088",
+                "name": "予以",
+                "artist": "队长",
+                "album": "予以",
+                "coverUrl": "https://cover.example/x.jpg",
+                "duration": 231
+              },
+              {
+                "id": "999",
+                "name": "bare",
+                "artist": "anon"
+              }
+            ]
+          }
+        }
+    """.trimIndent()
+
+    @Test
+    fun `推荐详情解析_songs映射为Song`() {
+        val songs = VibeApi.parseRecommendDetailSongs(recommendDetailEnvelope())
+        assertEquals(2, songs.size)
+        val full = songs[0]
+        assertEquals("1895330088", full.sourceId)
+        assertEquals("予以", full.name)
+        assertEquals("队长", full.artist)
+        assertEquals("予以", full.album)
+        assertEquals("https://cover.example/x.jpg", full.coverUrl)
+        assertEquals(231, full.durationSec)
+        assertEquals("netease", full.platform)
+        val bare = songs[1]
+        assertEquals("999", bare.sourceId)
+        assertEquals("bare", bare.name)
+        assertEquals("netease", bare.platform)
+    }
+
+    @Test
+    fun `推荐详情解析_缺songs为空列表`() {
+        val json = """{"code":200,"message":"ok","data":{"id":"1","name":"空"}}"""
+        assertEquals(emptyList<Song>(), VibeApi.parseRecommendDetailSongs(json))
+    }
+
+    @Test
+    fun `推荐详情解析_非200抛错不吞成空列表`() {
+        val json = """{"code":404,"message":"歌单不存在","data":null}"""
+        try {
+            VibeApi.parseRecommendDetailSongs(json)
+            org.junit.Assert.fail("404 必须抛错")
+        } catch (e: RuntimeException) {
+            assertTrue(e.message.orEmpty().contains("404"))
+        }
+    }
 }

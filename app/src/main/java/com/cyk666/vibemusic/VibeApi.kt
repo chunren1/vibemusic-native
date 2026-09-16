@@ -1254,6 +1254,40 @@ object VibeApi {
         return parseRecommendPlaylists(body)
     }
 
+    /**
+     * Pure: GET /api/playlists/detail path (public server-side, guest OK —
+     * SecurityConfig whitelists it; the self-playlist
+     * GET /api/playlists/songs path stays login-gated for Mine lists only).
+     * Same source convention as importPlaylist ("netease" for treasure cells).
+     */
+    fun buildRecommendDetailPath(source: String, id: String): String =
+        "api/playlists/detail?source=$source&id=$id"
+
+    /**
+     * Public recommend detail → songs[] (no login gate, no import).
+     * Items are {id,name,artist,album,coverUrl,duration(sec)} — the existing
+     * [parsePlaylistSong] mapping covers them (id→sourceId fallback,
+     * platform defaults to "netease").
+     */
+    suspend fun recommendDetailSongs(source: String, id: String): List<Song> {
+        val body = rawGet(buildRecommendDetailPath(source, id))
+        return parseRecommendDetailSongs(body)
+    }
+
+    /** Pure: parse GET /api/playlists/detail data.songs[] → Song (absent → empty). */
+    fun parseRecommendDetailSongs(json: String): List<Song> {
+        val root = JSONObject(json)
+        checkEnvelope(root, "Recommend detail")
+        val arr: JSONArray = root.optJSONObject("data")?.optJSONArray("songs")
+            ?: JSONArray()
+        val out = ArrayList<Song>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            out.add(parsePlaylistSong(o))
+        }
+        return out
+    }
+
     // ---- Phase 8: account + favorites + history ----
 
     /** Multipart part name for POST /api/auth/avatar + /api/auth/bg-image. */

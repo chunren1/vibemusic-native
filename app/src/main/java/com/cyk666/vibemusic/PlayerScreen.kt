@@ -147,23 +147,14 @@ fun HeroControls(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            IconButton(
-                onClick = onCycleMode,
-                enabled = enabled,
-                modifier = Modifier.size(48.dp).semantics {
-                    contentDescription = "播放模式：" + playMode.label + "，点击切换"
-                }
-            ) {
-                AppIcon(playModeIconKind(playMode), if (enabled) InkOnDark else GrayMuted)
+        IconButton(
+            onClick = onCycleMode,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp).semantics {
+                contentDescription = "播放模式：" + playMode.label + "，点击切换"
             }
-            // 真机 48dp 下矢量字形仍可能糊成一团：模式名文字兜底可读性。
-            Text(
-                text = playMode.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (enabled) InkOnDark else GrayMuted,
-                maxLines = 1
-            )
+        ) {
+            AppIcon(playModeIconKind(playMode), if (enabled) InkOnDark else GrayMuted)
         }
         Spacer(Modifier.width(8.dp))
         IconButton(
@@ -570,23 +561,15 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        IconButton(
-                            onClick = onCycleMode,
-                            enabled = song != null,
-                            modifier = Modifier.size(48.dp).semantics {
-                                contentDescription = "播放模式：" +
-                                    playMode.label + "，点击切换"
-                            }
-                        ) {
-                            AppIcon(playModeIconKind(playMode), InkOnDark)
+                    IconButton(
+                        onClick = onCycleMode,
+                        enabled = song != null,
+                        modifier = Modifier.size(48.dp).semantics {
+                            contentDescription = "播放模式：" +
+                                playMode.label + "，点击切换"
                         }
-                        Text(
-                            text = playMode.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = InkOnDark,
-                            maxLines = 1
-                        )
+                    ) {
+                        AppIcon(playModeIconKind(playMode), InkOnDark)
                     }
                     IconButton(
                         onClick = onPrev,

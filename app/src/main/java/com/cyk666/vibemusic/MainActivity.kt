@@ -1266,6 +1266,46 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Recommend-source detail: PUBLIC detail path (guest OK server-side).
+            // loadSongs above stays the self-playlist path (Mine lists only) —
+            // the transient recommend:xxx id is never sent to it.
+            fun loadRecommendSongs(recommendId: String, transient: Playlist) {
+                selectedPlaylist = transient
+                playlistSongs = emptyList()
+                songsLoading = true
+                playlistSongsError = null
+                songsJob?.cancel()
+                songsGen += 1
+                val gen = songsGen
+                val plId = transient.id
+                songsJob = scope.launch {
+                    try {
+                        val songs = VibeApi.recommendDetailSongs("netease", recommendId)
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
+                        playlistSongs = songs
+                        playlistSongsError = null
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: AuthException) {
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
+                        showError(e.message ?: "密码错/登录过期，请重登")
+                        scope.launch {
+                            try {
+                                AuthStore.clear(context)
+                            } catch (_: Exception) {
+                            }
+                        }
+                        currentUser = null
+                    } catch (e: Exception) {
+                        if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
+                        playlistSongsError = diagnosableError("歌曲加载失败", e)
+                        showError(diagnosableError("歌曲加载失败", e))
+                    } finally {
+                        if (!isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) songsLoading = false
+                    }
+                }
+            }
+
             // ---- discover loaders (memory only; one Snackbar max on first load) ----
             fun noteDiscoverInitialFailure(e: Exception) {
                 if (!discoverInitialErrorShown) {
@@ -1728,7 +1768,7 @@ class MainActivity : ComponentActivity() {
                 }
                 recommendImportId = pl.id
                 val transient = recommendToPlaylist(pl)
-                loadSongs(transient)
+                loadRecommendSongs(pl.id, transient)
                 screen = Screen.PlaylistDetail(transient)
             }
 
@@ -3422,7 +3462,12 @@ class MainActivity : ComponentActivity() {
                                 songs = playlistSongs,
                                 songsLoading = songsLoading,
                                 songsError = playlistSongsError,
-                                onRetry = { loadSongs(s.playlist) },
+                                onRetry = {
+                                    val cur = s.playlist
+                                    val rid = recommendImportId
+                                    if (isRecommendDetail(cur, rid)) loadRecommendSongs(rid.orEmpty(), cur)
+                                    else loadSongs(cur)
+                                },
                                 onBack = { screen = Screen.Playlists },
                                 onGoSearch = { screen = Screen.Search },
                                 onPlayAll = {
