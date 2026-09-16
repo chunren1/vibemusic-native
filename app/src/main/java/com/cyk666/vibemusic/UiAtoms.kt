@@ -902,17 +902,3 @@ fun VipBadge(text: String = "VIP") {
             .padding(horizontal = 8.dp, vertical = 2.dp)
     )
 }
-
-/** Outlined quality chip (PLAYER title row, e.g. 标准). Visual only. */
-@Composable
-fun QualityChip(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = UiMuted,
-        maxLines = 1,
-        modifier = Modifier
-            .background(Color.Transparent, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-    )
-}

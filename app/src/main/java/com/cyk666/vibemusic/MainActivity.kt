@@ -4730,8 +4730,6 @@ fun PlayerScreen(
                     )
                     if (song != null) {
                         Spacer(Modifier.width(8.dp))
-                        QualityChip("标准")
-                        Spacer(Modifier.width(6.dp))
                         VipBadge()
                     }
                 }
