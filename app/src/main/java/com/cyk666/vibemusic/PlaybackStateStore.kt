@@ -184,22 +184,9 @@ object QueueStore {
     private val KEY_LAST_POSITION_SAVE_TS = longPreferencesKey("last_position_save_ts_ms")
 
     suspend fun saveQueue(context: Context, songs: List<Song>, index: Int) {
-        val arr = JSONArray()
-        for (s in songs) {
-            arr.put(
-                JSONObject()
-                    .put("sourceId", s.sourceId)
-                    .put("name", s.name)
-                    .put("artist", s.artist)
-                    .put("album", s.album)
-                    .put("coverUrl", s.coverUrl)
-                    .put("durationSec", s.durationSec)
-                    .put("platform", s.platform)
-                    .put("vip", s.vip)
-            )
-        }
+        val json = songsToJson(songs)
         context.playbackDataStore.edit { p ->
-            p[KEY_QUEUE] = arr.toString()
+            p[KEY_QUEUE] = json
             p[KEY_INDEX] = index
         }
     }
@@ -210,24 +197,10 @@ object QueueStore {
                 Pair(p[KEY_QUEUE].orEmpty(), p[KEY_INDEX] ?: 0)
             }.first()
             if (snap.first.isBlank()) return Pair(emptyList(), 0)
-            val arr = JSONArray(snap.first)
-            val list = ArrayList<Song>(arr.length())
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                list.add(
-                    Song(
-                        sourceId = o.optString("sourceId"),
-                        name = o.optString("name"),
-                        artist = o.optString("artist"),
-                        album = o.optString("album"),
-                        coverUrl = o.optString("coverUrl"),
-                        durationSec = o.optInt("durationSec"),
-                        platform = o.optString("platform").ifBlank { "netease" },
-                        vip = o.optBoolean("vip", false)
-                    )
-                )
-            }
-            Pair(list, snap.second)
+            // Corrupt payload: index is meaningless without a queue — zero it
+            // exactly like the old parse-throw path did (QueueStoreTest pins this).
+            val songs = songsFromJson(snap.first) ?: return Pair(emptyList(), 0)
+            Pair(songs, snap.second)
         } catch (_: Exception) {
             Pair(emptyList(), 0)
         }

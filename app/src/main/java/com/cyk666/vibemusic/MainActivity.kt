@@ -757,9 +757,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun persistPosition(force: Boolean = false) {                val song = queue.getOrNull(currentIndex) ?: return
+            fun persistPosition(force: Boolean = false, positionOverride: Long? = null) {
+                val song = queue.getOrNull(currentIndex) ?: return
                 if (song.sourceId.isBlank()) return
-                val pos = try {
+                val pos = positionOverride ?: try {
                     controller?.currentPosition ?: positionMs
                 } catch (_: Exception) {
                     positionMs
@@ -1206,6 +1207,9 @@ class MainActivity : ComponentActivity() {
                     try {
                         playlists = VibeApi.myPlaylists()
                         playlistsLastLoaded = System.currentTimeMillis()
+                        currentUser?.userId?.let { uid ->
+                            HotspotStore.write(context, "playlists", encodePlaylists(uid, playlists))
+                        }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                         scope.launch {
@@ -1326,6 +1330,7 @@ class MainActivity : ComponentActivity() {
                         discoverBanners = VibeApi.discoverBanners()
                         discoverBannersError = null
                         bannersLastLoaded = System.currentTimeMillis()
+                        HotspotStore.write(context, "banners", encodeBanners(discoverBanners))
                     } catch (e: Exception) {
                         if (!background) {
                             discoverBannersError = friendlyNetworkMessage(e)
@@ -1353,6 +1358,7 @@ class MainActivity : ComponentActivity() {
                         dailyReason = r.reason
                         dailyError = null
                         dailyLastLoaded = System.currentTimeMillis()
+                        HotspotStore.write(context, "daily", encodeDaily(dailyReason, dailySongs))
                     } catch (e: Exception) {
                         if (!background) {
                             dailyError = friendlyNetworkMessage(e)
@@ -1377,6 +1383,7 @@ class MainActivity : ComponentActivity() {
                         guessSongs = VibeApi.randomSongs(8)
                         guessError = null
                         guessLastLoaded = System.currentTimeMillis()
+                        HotspotStore.write(context, "guess", songsToJson(guessSongs))
                     } catch (e: Exception) {
                         if (!background) {
                             guessError = friendlyNetworkMessage(e)
@@ -1401,6 +1408,7 @@ class MainActivity : ComponentActivity() {
                         hotPlaylists = VibeApi.recommendPlaylists()
                         hotError = null
                         hotLastLoaded = System.currentTimeMillis()
+                        HotspotStore.write(context, "hot", encodeRecommendPlaylists(hotPlaylists))
                     } catch (e: Exception) {
                         if (!background) {
                             hotError = friendlyNetworkMessage(e)
@@ -2812,12 +2820,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Cold-start disk seed (2026-09-17): when in-memory state is empty
+            // (process death / Activity recreation), pull the last payload off
+            // disk so the SWR checks below see a cache hit instead of forcing a
+            // blocking reload. Disk ts becomes lastLoaded — the existing TTL
+            // logic stays the single freshness authority.
+            suspend fun seedHotspot(key: String, apply: (Long, String) -> Unit) {
+                val cached = HotspotStore.read(context, key) ?: return
+                apply(cached.first, cached.second)
+            }
+
             // Auto-load playlists when entering Mine while logged in.
             // Track A SWR: empty → blocking load (skeleton); fresh → show
             // instantly, no reload; stale → show cached + silent refresh.
             LaunchedEffect(screen, currentUser, authChecked) {
                 if ((screen is Screen.Mine || screen is Screen.Playlists) &&
                     currentUser != null && !playlistsLoading) {
+                    if (playlists.isEmpty()) {
+                        val uid = currentUser?.userId
+                        if (uid != null) {
+                            seedHotspot("playlists") { ts, p ->
+                                decodePlaylists(p, uid)?.takeIf { it.isNotEmpty() }?.let {
+                                    playlists = it
+                                    playlistsLastLoaded = ts
+                                }
+                            }
+                        }
+                    }
                     if (needsBlockingLoad(playlists.isNotEmpty())) {
                         loadPlaylists()
                     } else if (
@@ -2869,6 +2898,41 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(screen) {
                 if (screen is Screen.Discover && !discoverRefreshing) {
+                    if (discoverBanners.isEmpty()) {
+                        seedHotspot("banners") { ts, p ->
+                            decodeBanners(p)?.takeIf { it.isNotEmpty() }?.let {
+                                discoverBanners = it
+                                bannersLastLoaded = ts
+                            }
+                        }
+                    }
+                    if (dailySongs.isEmpty()) {
+                        seedHotspot("daily") { ts, p ->
+                            decodeDaily(p)?.let { (reason, songs) ->
+                                if (songs.isNotEmpty()) {
+                                    dailySongs = songs
+                                    if (dailyReason.isBlank()) dailyReason = reason
+                                    dailyLastLoaded = ts
+                                }
+                            }
+                        }
+                    }
+                    if (guessSongs.isEmpty()) {
+                        seedHotspot("guess") { ts, p ->
+                            songsFromJson(p)?.takeIf { it.isNotEmpty() }?.let {
+                                guessSongs = it
+                                guessLastLoaded = ts
+                            }
+                        }
+                    }
+                    if (hotPlaylists.isEmpty()) {
+                        seedHotspot("hot") { ts, p ->
+                            decodeRecommendPlaylists(p)?.takeIf { it.isNotEmpty() }?.let {
+                                hotPlaylists = it
+                                hotLastLoaded = ts
+                            }
+                        }
+                    }
                     swrSection(
                         discoverBanners.isNotEmpty(), bannersLastLoaded,
                         HotspotSection.BANNERS,
@@ -3318,6 +3382,11 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 ensureTimeline(c, restoreSaved = false)
                                                 c.seekTo(targetMs)
+                                                // Persist the seek target immediately: the
+                                                // controller position trails an async seek, and a
+                                                // process kill between now and the next tick would
+                                                // otherwise restore the pre-seek spot.
+                                                persistPosition(force = true, positionOverride = targetMs)
                                             }
                                         } catch (e: Exception) {
                                             showError(
