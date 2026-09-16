@@ -4948,30 +4948,6 @@ fun LoginScreen(
 }
 
 @Composable
-fun SettingsEntryRow(onOpen: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .clickable(onClick = onOpen)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = "设置",
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-            AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted)
-        }
-    }
-}
-
-@Composable
 fun CacheManageRow(
     cacheSizeLabel: String,
     showConfirm: Boolean,

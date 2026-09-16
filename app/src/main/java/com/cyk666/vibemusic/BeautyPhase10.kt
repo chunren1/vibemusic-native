@@ -43,8 +43,6 @@ private val P10Ink = Color(0xFFEDEDF2)
 /** Minimum touch target height for every tappable added/changed in Phase 10. */
 const val MIN_TOUCH_DP = 44
 
-fun Modifier.minTouch(): Modifier = this.heightIn(min = MIN_TOUCH_DP.dp)
-
 // ---- 1. Cover <-> lyrics toggle (pure) ----
 
 enum class PlayerView { COVER, LYRICS }

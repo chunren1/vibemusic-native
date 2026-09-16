@@ -11,14 +11,10 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-const val UPDATE_REPO_OWNER = "chunren1"
-const val UPDATE_REPO_NAME = "vibemusic-native"
 const val UPDATE_LATEST_URL =
     "https://api.github.com/repos/chunren1/vibemusic-native/releases/latest"
 
 /** Gitee mirror (primary update source; GitHub is the fallback). */
-const val UPDATE_GITEE_OWNER = "green-leavesQAQ"
-const val UPDATE_GITEE_REPO = "vibemusic-native"
 const val UPDATE_GITEE_LATEST_URL =
     "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases/latest"
 

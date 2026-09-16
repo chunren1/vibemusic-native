@@ -1,6 +1,5 @@
 package com.cyk666.vibemusic
 
-import com.squareup.moshi.Moshi
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -284,8 +283,6 @@ object VibeApi {
             chain.proceed(req)
         }
         .build()
-
-    val moshi: Moshi = Moshi.Builder().build()
 
     val service: VibeService = Retrofit.Builder()
         .baseUrl(BASE_URL)

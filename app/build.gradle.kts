@@ -77,7 +77,6 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.retrofit)
     implementation(libs.okhttp)
-    implementation(libs.moshi)
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     testImplementation(libs.junit)
