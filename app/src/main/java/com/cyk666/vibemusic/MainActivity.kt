@@ -689,7 +689,8 @@ class MainActivity : ComponentActivity() {
                     searched = searched,
                     liveQuery = liveQuery,
                     artistFilter = artistFilter,
-                    suggestVisible = suggestVisible
+                    suggestVisible = suggestVisible,
+                    error = searchError
                 )
                 val online = isNetworkAvailable(context)
                 playGen += 1
@@ -731,6 +732,7 @@ class MainActivity : ComponentActivity() {
                     liveQuery = nextSearch.liveQuery
                     artistFilter = nextSearch.artistFilter
                     suggestVisible = nextSearch.suggestVisible
+                    searchError = nextSearch.error
                     debounceJob?.cancel()
                     try {
                         queue = placed.queue

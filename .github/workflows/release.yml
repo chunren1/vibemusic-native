@@ -38,6 +38,13 @@ jobs:
       - name: Grant gradlew
         run: chmod +x gradlew
 
+      # R4-A4：发版前强制跑单测（验收门"单测全绿"由 CI 兜底，tag 直发不再无卡；失败即中止，避免白构建）
+      - name: Unit tests (release gate)
+        run: ./gradlew testDebugUnitTest --no-daemon
+        env:
+          VIBEMUSIC_KEYSTORE_PATH: /tmp/release.jks
+          VIBEMUSIC_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon
         env:

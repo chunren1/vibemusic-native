@@ -52,6 +52,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -369,23 +371,60 @@ private fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: 
  * convention; selected tab icons use filled + neon tint. Mode buttons keep
  * their 48dp IconButton target + text label at the call site (PlayerScreen).
  */
+/**
+ * R4-A2 无障碍：Canvas 自绘图标没有可读文本，IconButton 里只能靠这里给语义标签。
+ * 纯函数便于单测钉死；纯装饰用途（列表行内点缀等）调用处传 null 关闭播报。
+ */
+fun defaultAppIconLabel(kind: AppIconKind): String? = when (kind) {
+    AppIconKind.PLAY, AppIconKind.PLAY_CIRCLE -> "播放"
+    AppIconKind.PAUSE -> "暂停"
+    AppIconKind.PREV -> "上一首"
+    AppIconKind.NEXT -> "下一首"
+    AppIconKind.CLOSE -> "关闭"
+    AppIconKind.MORE -> "更多"
+    AppIconKind.HEART -> "收藏"
+    AppIconKind.DOWNLOAD -> "下载"
+    AppIconKind.ADD -> "添加"
+    AppIconKind.TIMER -> "定时"
+    AppIconKind.QUEUE -> "播放队列"
+    AppIconKind.SEARCH -> "搜索"
+    AppIconKind.SHARE -> "分享"
+    AppIconKind.INFO -> "提示"
+    AppIconKind.SETTINGS -> "设置"
+    AppIconKind.PERSON -> "我的"
+    AppIconKind.EXPLORE -> "发现"
+    AppIconKind.HISTORY -> "历史"
+    AppIconKind.TRENDING -> "热门"
+    AppIconKind.MODE_SEQUENTIAL, AppIconKind.MODE_LOOP,
+    AppIconKind.MODE_SINGLE, AppIconKind.MODE_SHUFFLE -> "播放模式"
+    // 纯装饰/导航指示类：不产生冗余播报
+    AppIconKind.CHECK, AppIconKind.CHEVRON_RIGHT, AppIconKind.CHEVRON_LEFT,
+    AppIconKind.MUSIC_NOTE, AppIconKind.MESSAGE -> null
+}
+
 @Composable
 fun AppIcon(
     kind: AppIconKind,
     tint: Color = UiMuted,
     filled: Boolean = true,
-    size: Dp = 24.dp
+    size: Dp = 24.dp,
+    contentDescription: String? = defaultAppIconLabel(kind)
 ) {
     if (isPlayModeKind(kind)) {
         Icon(
             imageVector = modeMaterialIcon(kind),
-            contentDescription = null,
+            contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier.size(size)
         )
         return
     }
-    Canvas(modifier = Modifier.size(size)) {
+    val a11y = if (contentDescription != null) {
+        Modifier.semantics { this.contentDescription = contentDescription }
+    } else {
+        Modifier
+    }
+    Canvas(modifier = Modifier.size(size).then(a11y)) {
         val s = size.toPx() / 24f
         drawKind(kind, tint, filled, s)
     }

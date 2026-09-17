@@ -70,7 +70,8 @@ data class SearchViewState(
     val searched: Boolean = false,
     val liveQuery: String = "",
     val artistFilter: String? = null,
-    val suggestVisible: Boolean = true
+    val suggestVisible: Boolean = true,
+    val error: String? = null
 )
 
 /**
@@ -85,7 +86,8 @@ fun clearedSearchAfterPlay(state: SearchViewState): SearchViewState = state.copy
     searched = false,
     liveQuery = "",
     artistFilter = null,
-    suggestVisible = false
+    suggestVisible = false,
+    error = null
 )
 
 /**

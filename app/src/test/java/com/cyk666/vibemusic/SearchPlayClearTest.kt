@@ -20,7 +20,8 @@ class SearchPlayClearTest {
         searched = true,
         liveQuery = "周杰伦",
         artistFilter = "周杰伦",
-        suggestVisible = true
+        suggestVisible = true,
+        error = "网络连接断开"
     )
 
     @Test
@@ -42,6 +43,30 @@ class SearchPlayClearTest {
         assertEquals("", cleared.liveQuery)
         assertNull(cleared.artistFilter)
         assertFalse(cleared.suggestVisible)
+    }
+
+    // ---- R4-A7: 清空快照必须连错误态一起清，否则"干净搜索页"会残留旧报错 ----
+
+    @Test
+    fun `播放搜索结果_清空错误态（不留旧报错）`() {
+        assertNull(clearedSearchAfterPlay(dirtyState()).error)
+    }
+
+    @Test
+    fun `播放在线可播_应用后错误态一并清空`() {
+        val target = song("1")
+        val gatePlayable = OfflineAvailability().isGatePlayable(target, true)
+        val after = searchStateAfterPlayTap(dirtyState(), gatePlayable, isStale = false)
+        assertNull(after.error)
+    }
+
+    @Test
+    fun `离线不可播_错误态随快照保留`() {
+        val target = song("1")
+        val gatePlayable = OfflineAvailability().isGatePlayable(target, false)
+        assertFalse(gatePlayable)
+        val after = searchStateAfterPlayTap(dirtyState(), gatePlayable, isStale = false)
+        assertEquals("网络连接断开", after.error)
     }
 
     @Test

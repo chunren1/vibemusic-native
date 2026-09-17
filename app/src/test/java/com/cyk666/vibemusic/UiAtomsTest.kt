@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -180,5 +181,41 @@ class UiAtomsTest {
     @Test(expected = IllegalArgumentException::class)
     fun `播放模式图标_非模式抛异常`() {
         modeMaterialIcon(AppIconKind.PLAY)
+    }
+
+    // ---- R4-A2: Canvas 图标无障碍标签 ----
+
+    @Test
+    fun `交互类图标必须有可读标签`() {
+        listOf(
+            AppIconKind.PLAY, AppIconKind.PAUSE, AppIconKind.PREV, AppIconKind.NEXT,
+            AppIconKind.CLOSE, AppIconKind.MORE, AppIconKind.HEART, AppIconKind.DOWNLOAD,
+            AppIconKind.ADD, AppIconKind.QUEUE, AppIconKind.SEARCH, AppIconKind.SHARE,
+            AppIconKind.SETTINGS, AppIconKind.TIMER, AppIconKind.MODE_SEQUENTIAL
+        ).forEach { kind ->
+            assertNotNull("$kind 缺少无障碍标签", defaultAppIconLabel(kind))
+        }
+    }
+
+    @Test
+    fun `关键动作标签文案钉死（防误改播报）`() {
+        assertEquals("播放", defaultAppIconLabel(AppIconKind.PLAY))
+        assertEquals("暂停", defaultAppIconLabel(AppIconKind.PAUSE))
+        assertEquals("上一首", defaultAppIconLabel(AppIconKind.PREV))
+        assertEquals("下一首", defaultAppIconLabel(AppIconKind.NEXT))
+        assertEquals("关闭", defaultAppIconLabel(AppIconKind.CLOSE))
+        assertEquals("播放队列", defaultAppIconLabel(AppIconKind.QUEUE))
+    }
+
+    @Test
+    fun `装饰类图标不播报（显式 null）`() {
+        assertNull(defaultAppIconLabel(AppIconKind.CHECK))
+        assertNull(defaultAppIconLabel(AppIconKind.MUSIC_NOTE))
+        assertNull(defaultAppIconLabel(AppIconKind.MESSAGE))
+    }
+
+    @Test
+    fun `全部图标枚举均有决策（新增枚举不会静默漏标签）`() {
+        AppIconKind.entries.forEach { defaultAppIconLabel(it) }
     }
 }
