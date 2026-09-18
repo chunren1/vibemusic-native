@@ -14,6 +14,8 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
@@ -23,8 +25,27 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/** Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
+/**
+ * Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
 fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
+
+/**
+ * 快速失败重试预算（2026-09-17 修"后台拿不到资源长时间静默"）。
+ *
+ * ExoPlayer 默认策略是 3 次重试 + 1s/2s/4s 指数退避：一首取不到播放链接的歌要 ≈9s 才把
+ * 错误抛到服务侧；叠加"同曲换新 URL 重试一次"（签名 URL 过期场景）后，下一首要近 20s
+ * 才响——听感就是"一直暂停，过了一会才跳下一首"。
+ * 收敛为 1 次重试 + 固定 800ms：单次失败 ≈2s 内落地，仍能扛一次网络抖动。
+ */
+const val STREAM_LOAD_RETRY_COUNT = 1
+const val STREAM_LOAD_RETRY_DELAY_MS = 800L
+
+/** Pure factory：1 次重试 + 固定短延迟（默认是 3 次 + 指数退避）。 */
+fun streamLoadErrorHandlingPolicy(): DefaultLoadErrorHandlingPolicy =
+    object : DefaultLoadErrorHandlingPolicy(STREAM_LOAD_RETRY_COUNT) {
+        override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+            STREAM_LOAD_RETRY_DELAY_MS
+    }
 
 /**
  * Offline-aware next index (pure): from [fromIndex], the first ahead index
@@ -274,6 +295,9 @@ class PlaybackService : MediaSessionService() {
         val schemeFactory = DataSource.Factory { SchemeDataSource(cacheSourceFactory) }
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(schemeFactory)
+            // 快失败：坏歌/取不到链接时尽快把错误交给 onPlayerError 跳下一首（见上方常量注释）。
+            // Media3 里重试预算挂在 MediaSourceFactory 上（ExoPlayer.Builder 无此方法）。
+            .setLoadErrorHandlingPolicy(streamLoadErrorHandlingPolicy())
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(
