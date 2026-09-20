@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -402,6 +403,39 @@ class MainActivity : ComponentActivity() {
                     UpdateChannel.STABLE
                 }
             }
+            // ---- 后台保活状态（vivo 实测：暂停后 2-3 分钟进程被清 → 通知栏播放键"点了没反应"；
+            // 根因是 Media3 暂停必退前台（框架硬编码），系统白名单是现实解，见设置页"后台保活"）----
+            var keepAliveIgnoring by remember { mutableStateOf(true) }
+            fun refreshKeepAlive() {
+                keepAliveIgnoring = try {
+                    val pm = context.getSystemService(PowerManager::class.java)
+                    pm?.isIgnoringBatteryOptimizations(context.packageName) == true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            fun openBatterySettings() {
+                val fallbacks = batteryOptActions(keepAliveIgnoring).map { action ->
+                    when (action) {
+                        BatteryOptAction.REQUEST_EXEMPTION -> Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        BatteryOptAction.OPEN_SETTINGS_LIST ->
+                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    }
+                }
+                for (intent in fallbacks) {
+                    try {
+                        context.startActivity(intent)
+                        return
+                    } catch (_: Exception) {
+                        // 该 ROM 没有这个设置页 → 按顺序退到下一个入口
+                    }
+                }
+            }
+            LaunchedEffect("keep-alive") { refreshKeepAlive() }
+
             var appVersionName by remember { mutableStateOf("") }
             LaunchedEffect("app-version") {
                 appVersionName = try {
@@ -2569,6 +2603,8 @@ class MainActivity : ComponentActivity() {
             DisposableEffect(lifecycleOwner) {
                 val obs = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_START) {
+                        // 用户可能刚从系统设置页回来（改了白名单/自启动）→ 重新读状态
+                        refreshKeepAlive()
                         val c = controller
                         val probeFailed = if (c == null) false
                         else try {
@@ -3564,6 +3600,8 @@ class MainActivity : ComponentActivity() {
                                 onSelectChannel = ::setUpdateChannel,
                                 onClearCache = ::clearMediaCache,
                                 onBack = { screen = Screen.Mine },
+                                keepAliveIgnoring = keepAliveIgnoring,
+                                onOpenBatterySettings = ::openBatterySettings,
                                 onLoginClick = {
                                     loginInitialRegister = false
                                     screen = Screen.Login
@@ -3662,12 +3700,12 @@ fun shouldReconnectController(controllerNull: Boolean, probeFailed: Boolean): Bo
 /**
  * Connection-failure toast copy (pure): keeps the raw reason diagnosable
  * and tells the user the one thing that actually fixes OEM background
- * kills — self-start + ignore-battery-optimization (MIUI path included).
- * The OS kill itself is outside app control (see PlaybackService
- * onTaskRemoved); this message is the documented guidance.
+ * kills — self-start + ignore-battery-optimization（设置页"后台保活"一键直达，
+ * 厂商路径见 KEEP_ALIVE_VENDOR_HINT）。The OS kill itself is outside app control
+ * (see PlaybackService onTaskRemoved); this message is the documented guidance.
  */
 fun controllerFailureMessage(reason: String): String =
-    "播放器连接失败: $reason。若后台常被杀，请给 VibeMusic 开自启动并忽略电池优化（MIUI：设置→省电与电池）"
+    "播放器连接失败: $reason。后台常被杀会致通知栏播放键失灵，请到「我的→设置→后台保活」一键开启"
 
 /**
  * Cold-start transport guard (pure): after process death the Activity restores

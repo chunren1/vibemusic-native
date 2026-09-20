@@ -28,7 +28,7 @@ class ControllerReconnectTest {
     fun failureMessage_carriesReasonAndBatteryGuidance() {
         val msg = controllerFailureMessage("timeout")
         assertTrue(msg.contains("timeout"))
-        assertTrue(msg.contains("电池"))
-        assertTrue(msg.contains("MIUI"))
+        // 指引改为指向设置页"后台保活"（厂商路径在各 ROM 不同，2026-09-18 起统一入口）
+        assertTrue(msg.contains("后台保活"))
     }
 }

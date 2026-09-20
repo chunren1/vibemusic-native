@@ -170,6 +170,41 @@ fun dirAudioBytes(dir: File): Long {
     }
 }
 
+// ---- 后台保活（2026-09-18）：框架内无解 → 现实解是系统白名单 ----
+//
+// 现象（vivo 实测）：被其他声音打断暂停 → 过 2-3 分钟进程被系统清理 → 点通知栏
+// 播放键只是拉起一个空会话（"闪一下没反应"）。根因是 Media3 1.5.1 通知前台判定
+// 硬编码 `shouldRunInForeground(session, false)`——暂停必然退前台，没有公开钩子能
+// 保住"暂停前台"；session 回调铺快照是禁区（1.0.10/1.0.27 两次回滚）。
+// 因此这里只做"状态 → 文案 / 跳转入口"的纯决策，引导用户把 App 加进系统白名单。
+
+data class KeepAliveRow(val title: String, val subtitle: String)
+
+/** 纯：后台保活行文案（[ignoring]=系统已忽略电池优化）。 */
+fun keepAliveRow(ignoring: Boolean): KeepAliveRow = if (ignoring) {
+    KeepAliveRow("后台保活", "已开启 · 暂停时后台不易被清理")
+} else {
+    KeepAliveRow("后台保活（建议开启）", "未开启：暂停久了通知栏播放键可能没反应 · 点此开启")
+}
+
+/** 白名单申请要打开的设置页（按优先级尝试）。 */
+enum class BatteryOptAction { REQUEST_EXEMPTION, OPEN_SETTINGS_LIST }
+
+/**
+ * 纯：申请入口列表——已开启返回空（无需动作）；未开启先试"直接申请白名单"页，
+ * 部分 ROM 无此页时由调用方按顺序退到"电池优化设置列表"页。
+ */
+fun batteryOptActions(ignoring: Boolean): List<BatteryOptAction> =
+    if (ignoring) emptyList()
+    else listOf(BatteryOptAction.REQUEST_EXEMPTION, BatteryOptAction.OPEN_SETTINGS_LIST)
+
+/** 纯：厂商保活指引（vivo/OriginOS 实测路径；激进清理需三项叠加才稳）。 */
+const val KEEP_ALIVE_VENDOR_HINT =
+    "vivo/OriginOS：①设置→电池→后台耗电管理→允许后台高耗电 ②应用与权限→权限管理→自启动 " +
+        "③最近任务长按卡片下拉锁定。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+
+/** Sums *.mp3 bytes under [dir] (offline downloads); no Context, unit-testable. */
+
 // ---- Shared atoms ----
 
 /** One short empty-state line + optional action button (no emoji soup). */

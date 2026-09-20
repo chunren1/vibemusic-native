@@ -278,6 +278,8 @@ fun SettingsScreen(
     onSelectChannel: (UpdateChannel) -> Unit = {},
     onClearCache: () -> Unit,
     onBack: () -> Unit,
+    keepAliveIgnoring: Boolean = false,
+    onOpenBatterySettings: () -> Unit = {},
     onLoginClick: () -> Unit = {},
     onLogout: () -> Unit = {},
     onChangePassword: (String, String) -> Unit = { _, _ -> },
@@ -492,6 +494,31 @@ fun SettingsScreen(
             )
             MineDivider()
             SettingsRowShell(title = storageRow.title, subtitle = storageRow.subtitle)
+            MineDivider()
+            // 后台保活：暂停后 Media3 必然退前台，vivo 约 2-3 分钟清进程 → 通知播放键失灵。
+            // 框架内无解，白名单是现实解（详见 PlaybackService 与 BeautyPhase10 注释）。
+            val keepAlive = keepAliveRow(keepAliveIgnoring)
+            SettingsRowShell(
+                title = keepAlive.title,
+                subtitle = keepAlive.subtitle,
+                showChevron = false,
+                onClick = if (keepAliveIgnoring) null else onOpenBatterySettings,
+                trailing = {
+                    if (keepAliveIgnoring) {
+                        Text(text = "✓", color = NeonViolet)
+                    } else {
+                        TextButton(onClick = onOpenBatterySettings) { Text("去开启") }
+                    }
+                }
+            )
+            if (!keepAliveIgnoring) {
+                Text(
+                    text = KEEP_ALIVE_VENDOR_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = GrayMuted,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+                )
+            }
         }
         SettingsSectionTitle("关于与退出")
         MineSectionCard {

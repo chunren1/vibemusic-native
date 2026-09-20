@@ -235,4 +235,42 @@ class BeautyPhase10Test {
         assertEquals(1f, miniProgressFraction(999_000L, 120_000L)!!, 0.001f)
         assertEquals(0f, miniProgressFraction(-5_000L, 120_000L)!!, 0.001f)
     }
+
+    // ---- 后台保活（2026-09-18）：白名单状态 → 文案/入口 的纯决策 ----
+
+    @Test
+    fun `后台保活_已开启显示已完成态`() {
+        val row = keepAliveRow(ignoring = true)
+        assertEquals("后台保活", row.title)
+        assertTrue(row.subtitle.contains("已开启"))
+    }
+
+    @Test
+    fun `后台保活_未开启带引导文案`() {
+        val row = keepAliveRow(ignoring = false)
+        assertTrue(row.title.contains("建议开启"))
+        assertTrue(row.subtitle.contains("通知栏播放键"))
+    }
+
+    @Test
+    fun `白名单入口_已开启无需动作`() {
+        assertTrue(batteryOptActions(ignoring = true).isEmpty())
+    }
+
+    @Test
+    fun `白名单入口_未开启先申请后回退设置列表`() {
+        assertEquals(
+            listOf(BatteryOptAction.REQUEST_EXEMPTION, BatteryOptAction.OPEN_SETTINGS_LIST),
+            batteryOptActions(ignoring = false)
+        )
+    }
+
+    @Test
+    fun `厂商指引_覆盖vivo三项与通知恢复提示`() {
+        assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("vivo"))
+        assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("后台高耗电"))
+        assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("自启动"))
+        assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("锁定"))
+        assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("通知正文"))
+    }
 }
