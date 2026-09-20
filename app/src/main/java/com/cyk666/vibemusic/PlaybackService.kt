@@ -17,7 +17,10 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.common.util.UnstableApi
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -78,14 +81,27 @@ fun selectNextOfflineIndex(
 }
 
 /**
- * Notification-path command with audible intent (verified against the
- * media3-session 1.5.1 API jar: MediaSession.Callback.onPlayerCommandRequest
- * receives each controller command for approval as
- * `int onPlayerCommandRequest(MediaSession, ControllerInfo, int)` — echo the
- * command to allow it). NARROW (post-1.0.11-ai rollback): ONLY
- * [Player.COMMAND_PLAY_PAUSE] may materialize the timeline. The 1.0.11-ai set
- * intercepted 9 command types and once surfaced a stale song, so every other
- * command — seeks and transport especially — passes through untouched.
+ * 进程被杀后从通知栏/媒体按钮"继续播放"的恢复点（纯函数，便于钉死）。
+ *
+ * 背景（Media3 1.5.1 源码 MediaSessionImpl.handleMediaControllerPlayRequest）：
+ * 当控制器请求播放、而播放器**没有当前曲目**时，Media3 会调用
+ * [MediaSession.Callback.onPlaybackResumption] 让 App 交回队列快照，由 Media3
+ * 自己铺轨并开始播放。清单里声明了 MediaButtonReceiver 就必须实现它（官方要求），
+ * 否则回调失败 → 在空播放器上执行播放 = 点了没反应（"通知播放键没反应"的真因）。
+ *
+ * 返回 -1 表示无队列快照，不可恢复（Media3 会退回空操作）。
+ */
+fun resumptionStartIndex(songs: List<Song>, savedIndex: Int): Int =
+    if (songs.isEmpty()) -1 else savedIndex.coerceIn(songs.indices)
+
+/** 恢复点位置：负值/异常一律从 0 开始（避免 seek 到非法位置）。 */
+fun resumptionStartPosition(savedMs: Long): Long = savedMs.coerceAtLeast(0L)
+
+/**
+ * 通知路径"带声意图"命令集合——历史遗迹，仅作语义说明与单测钉桩：
+ * 1.0.10-ai 曾用它做 Service 侧时间轴物化，1.0.11-ai 因拦截 9 类命令导致
+ * 通知栏串歌而整体回滚；现在没有生产调用点（进程被杀后的恢复改走官方
+ * [MediaSession.Callback.onPlaybackResumption]，见上）。
  */
 val SERVICE_MATERIALIZE_COMMANDS: Set<Int> = setOf(
     Player.COMMAND_PLAY_PAUSE
@@ -233,6 +249,7 @@ fun audioFocusConfig(): AudioFocusConfig = AudioFocusConfig(
  *   与用户点按恢复。无需（也无法）自行接管焦点。
  */
 
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     companion object {
@@ -498,6 +515,43 @@ class PlaybackService : MediaSessionService() {
             )
         } catch (_: Exception) {
         }
+        // 官方恢复钩子（清单里声明了 MediaButtonReceiver 就必须实现，见 Media3 文档）：
+        // 进程被杀后点通知播放键/媒体按钮 → 播放器无当前曲目 → Media3 调这里要队列快照，
+        // 交回后由 Media3 自己铺轨并开始播放（我们只返回数据，不接管任何 transport 命令，
+        // 与 1.0.10/1.0.11 被回滚的"命令拦截式物化"是不同机制）。
+        sessionBuilder.setCallback(object : MediaSession.Callback {
+            override fun onPlaybackResumption(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                serviceIoScope.launch {
+                    try {
+                        val (songs, index) = QueueStore.loadQueue(this@PlaybackService)
+                        val start = resumptionStartIndex(songs, index)
+                        if (start < 0) {
+                            future.setException(IllegalStateException("无队列快照，无法恢复播放"))
+                            return@launch
+                        }
+                        val position = try {
+                            QueueStore.loadPosition(this@PlaybackService, playKey(songs[start]))
+                        } catch (_: Exception) {
+                            0L
+                        }
+                        future.set(
+                            MediaSession.MediaItemsWithStartPosition(
+                                songs.map { it.toCachedMediaItem() },
+                                start,
+                                resumptionStartPosition(position)
+                            )
+                        )
+                    } catch (e: Exception) {
+                        future.setException(e)
+                    }
+                }
+                return future
+            }
+        })
         mediaSession = sessionBuilder.build()
     }
 
