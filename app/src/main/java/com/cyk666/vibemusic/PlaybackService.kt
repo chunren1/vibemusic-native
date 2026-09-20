@@ -662,6 +662,8 @@ class PlaybackService : MediaSessionService() {
             serviceIoScope.cancel()
         } catch (_: Exception) {
         }
+        // 补试回调持有本 Service：不清掉会把实例多留 FOCUS_RETRY_DELAY_MS 才被回收。
+        focusRetryHandler.removeCallbacksAndMessages(null)
         mediaSession?.run {
             player.release()
             release()
