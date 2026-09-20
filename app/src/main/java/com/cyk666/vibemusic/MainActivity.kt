@@ -3602,6 +3602,10 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Mine },
                                 keepAliveIgnoring = keepAliveIgnoring,
                                 onOpenBatterySettings = ::openBatterySettings,
+                                playDiagLine = playDiagLabel(
+                                    PlayDiag.lastCode(context),
+                                    PlayDiag.lastTs(context)
+                                ),
                                 onLoginClick = {
                                     loginInitialRegister = false
                                     screen = Screen.Login

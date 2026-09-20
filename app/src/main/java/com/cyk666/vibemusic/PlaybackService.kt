@@ -81,6 +81,20 @@ fun selectNextOfflineIndex(
 }
 
 /**
+ * 用户明确发起的播放被音频焦点拒绝后，是否值得补试一次。
+ *
+ * 与"被其他应用打断"区分开：打断发生在**正在播放**时（[playedBefore]=true），按既有策略
+ * 不自动恢复（用户点了才放）；而"点了播放却立刻被拒"是用户意图未被满足，补试一次
+ * （对端释放焦点后即可接上）符合预期，最多 [FOCUS_RETRY_MAX] 次。
+ */
+fun shouldRetryDeniedPlay(playedBefore: Boolean, retriesDone: Int): Boolean =
+    !playedBefore && retriesDone < FOCUS_RETRY_MAX
+
+/** 焦点被拒后的补试间隔（仅补试有限次，避免反复申请焦点）。 */
+const val FOCUS_RETRY_DELAY_MS = 5_000L
+const val FOCUS_RETRY_MAX = 2
+
+/**
  * 进程被杀后从通知栏/媒体按钮"继续播放"的恢复点（纯函数，便于钉死）。
  *
  * 背景（Media3 1.5.1 源码 MediaSessionImpl.handleMediaControllerPlayRequest）：
@@ -276,6 +290,12 @@ class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var consecFails = 0
 
+    // 焦点被拒补试（见 shouldRetryDeniedPlay）：wasPlayingBeforeFocusChange 区分
+    // "被打断"（发生在播放中，不自动恢复）与"点了播放被拒"（用户意图未满足，补试）。
+    private var wasPlayingBeforeFocusChange = false
+    private var focusRetries = 0
+    private val focusRetryHandler = Handler(Looper.getMainLooper())
+
     // Review item 5: the offline probe below fans out to per-song disk/cache
     // I/O, so it runs on IO; ExoPlayer transport (seek/prepare/play/stop)
     // posts back to the main thread that built the player. This service is
@@ -291,6 +311,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // 冷启动落一条诊断（进程曾被杀时，这是复现"通知播放键没反应"的第一手证据）
+        PlayDiag.mark(this, "cold")
         // Cache singleton warms on IO: dir create + DB open must never run
         // on Main (first tap / service recreate). The pipeline below
         // resolves the same singleton on ExoPlayer loader threads instead.
@@ -332,10 +354,25 @@ class PlaybackService : MediaSessionService() {
         player = exo
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
+                wasPlayingBeforeFocusChange = playing
                 if (playing) {
                     consecFails = 0
                     lastStreamRetryKey = null
                     lastStreamRetryIndex = -1
+                    focusRetries = 0
+                    PlayDiag.mark(this@PlaybackService, "playing")
+                }
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // 焦点不可用（含"用户点了播放但焦点申请被拒"）：Media3 会把 playWhenReady
+                // 直接置回 false（AudioFocusManager.requestAudioFocus 被拒 → DO_NOT_PLAY），
+                // 界面毫无变化 = 用户看到的"点了没反应"。
+                if (!playWhenReady &&
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                ) {
+                    PlayDiag.mark(this@PlaybackService, "focus-blocked")
+                    maybeRetryDeniedPlay()
                 }
             }
 
@@ -359,6 +396,7 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                PlayDiag.mark(this@PlaybackService, "error:${error.errorCodeName}")
                 // Local (downloaded-file) items are owned by MainActivity's
                 // self-heal path (delete + fall back to stream, or message
                 // when offline). Skipping here would race the heal and burn
@@ -530,6 +568,7 @@ class PlaybackService : MediaSessionService() {
                         val (songs, index) = QueueStore.loadQueue(this@PlaybackService)
                         val start = resumptionStartIndex(songs, index)
                         if (start < 0) {
+                            PlayDiag.mark(this@PlaybackService, "resume-fail:no-snapshot")
                             future.setException(IllegalStateException("无队列快照，无法恢复播放"))
                             return@launch
                         }
@@ -538,6 +577,7 @@ class PlaybackService : MediaSessionService() {
                         } catch (_: Exception) {
                             0L
                         }
+                        PlayDiag.mark(this@PlaybackService, "resume-ok:${songs.size}@$start")
                         future.set(
                             MediaSession.MediaItemsWithStartPosition(
                                 songs.map { it.toCachedMediaItem() },
@@ -546,6 +586,7 @@ class PlaybackService : MediaSessionService() {
                             )
                         )
                     } catch (e: Exception) {
+                        PlayDiag.mark(this@PlaybackService, "resume-fail:${e.javaClass.simpleName}")
                         future.setException(e)
                     }
                 }
@@ -553,6 +594,30 @@ class PlaybackService : MediaSessionService() {
             }
         })
         mediaSession = sessionBuilder.build()
+    }
+
+    /**
+     * 见 [shouldRetryDeniedPlay]：延迟补试一次——只有在"仍处于暂停待播"时才重发 play()
+     * （此时 playWhenReady=false→true 是一次真实状态切换，会重新申请音频焦点）。
+     */
+    private fun maybeRetryDeniedPlay() {
+        if (!shouldRetryDeniedPlay(wasPlayingBeforeFocusChange, focusRetries)) return
+        focusRetries++
+        focusRetryHandler.postDelayed({
+            val exo = player ?: return@postDelayed
+            val stillSilent = try {
+                !exo.isPlaying && !exo.playWhenReady
+            } catch (_: Exception) {
+                false
+            }
+            if (stillSilent) {
+                PlayDiag.mark(this, "focus-retry")
+                try {
+                    exo.play()
+                } catch (_: Exception) {
+                }
+            }
+        }, FOCUS_RETRY_DELAY_MS)
     }
 
     fun playQueue(songs: List<Song>, index: Int) {

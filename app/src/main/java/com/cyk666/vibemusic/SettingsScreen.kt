@@ -288,7 +288,8 @@ fun SettingsScreen(
     onPickBg: () -> Unit = {},
     authDiagCode: String = "",
     authDiagTimeMs: Long = 0L,
-    positionSaveTimeMs: Long = 0L
+    positionSaveTimeMs: Long = 0L,
+    playDiagLine: String = ""
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showChangePwd by remember(user?.username) { mutableStateOf(false) }
@@ -535,6 +536,14 @@ fun SettingsScreen(
                 },
                 showChevron = false
             )
+            if (playDiagLine.isNotBlank()) {
+                MineDivider()
+                SettingsRowShell(
+                    title = "播放诊断",
+                    subtitle = playDiagLine,
+                    showChevron = false
+                )
+            }
             MineDivider()
             SettingsRowShell(
                 title = aboutRow.title,
