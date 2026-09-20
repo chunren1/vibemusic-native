@@ -2,7 +2,6 @@ package com.cyk666.vibemusic
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.AudioAttributes
@@ -217,18 +216,22 @@ fun audioFocusConfig(): AudioFocusConfig = AudioFocusConfig(
     handleAudioBecomingNoisy = true
 )
 
-/** Player action for an Android audio-focus change. Only can-duck ducks. */
-enum class FocusLossAction { PAUSE, DUCK }
-
 /**
- * Pure policy mirror of the ExoPlayer wiring above: every focus change except
- * [AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK] pauses (and regain never
- * auto-resumes — user taps play); can-duck natively ducks the volume.
+ * 音频焦点策略（2026-09-18 依据 Media3 1.5.1 源码更正，此前注释与死代码描述有误）。
+ *
+ * 事实（AudioFocusManager.java / ExoPlayerImpl.java 实读，非猜测）：
+ * - 瞬时丢失 LOSS_TRANSIENT → PLAYER_COMMAND_WAIT_FOR_CALLBACK：playWhenReady **保持 true**，
+ *   仅加"压制"状态（静音）；焦点恢复 GAIN → PLAYER_COMMAND_PLAY_WHEN_READY → **原生自动续播**。
+ * - CAN_DUCK → 原生压低音量（本 App content type = MUSIC，走 duck 分支）。
+ * - 永久丢失 LOSS → PLAYER_COMMAND_DO_NOT_PLAY → playWhenReady=false（原因码 AUDIO_FOCUS_LOSS）；
+ *   对端释放焦点时框架**不会回发 GAIN**，因此"永久被抢"场景无法自动恢复（只能用户手动点）。
+ * - 原因码映射：只有 DO_NOT_PLAY 会给 AUDIO_FOCUS_LOSS，而它必然把 playWhenReady 置 false，
+ *   故不存在 (playWhenReady=true, AUDIO_FOCUS_LOSS) 组合——曾经据此写的"抑制自动恢复"
+ *   分支是死代码，已删除。
+ *
+ * ⇒ 结论：瞬时打断已是"静音等待+自动续播"；永久被抢只能靠白名单（见设置页"后台保活"）
+ *   与用户点按恢复。无需（也无法）自行接管焦点。
  */
-fun focusLossAction(focusChange: Int): FocusLossAction = when (focusChange) {
-    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> FocusLossAction.DUCK
-    else -> FocusLossAction.PAUSE
-}
 
 class PlaybackService : MediaSessionService() {
 
@@ -331,23 +334,6 @@ class PlaybackService : MediaSessionService() {
                 if (idx != lastStreamRetryIndex) {
                     lastStreamRetryKey = null
                     lastStreamRetryIndex = -1
-                }
-            }
-
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                // ExoPlayer auto-resumes (playWhenReady=true, reason AUDIO_FOCUS_LOSS)
-                // on focus regain after a transient loss; music-app policy is no
-                // auto-resume — user taps play. Re-pause exactly those resumes.
-                // Loss/noisy pauses arrive with playWhenReady=false (untouched);
-                // user taps arrive as USER_REQUEST (untouched); ducking changes no
-                // playWhenReady (untouched).
-                if (playWhenReady &&
-                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
-                ) {
-                    try {
-                        exo.pause()
-                    } catch (_: Exception) {
-                    }
                 }
             }
 

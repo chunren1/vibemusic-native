@@ -1,6 +1,5 @@
 package com.cyk666.vibemusic
 
-import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import org.junit.Assert.assertEquals
@@ -37,26 +36,7 @@ class AudioFocusConfigTest {
         assertEquals(C.AUDIO_CONTENT_TYPE_MUSIC, attrs.contentType)
     }
 
-    @Test
-    fun focusLoss_permanentLoss_pauses() {
-        assertEquals(FocusLossAction.PAUSE, focusLossAction(AudioManager.AUDIOFOCUS_LOSS))
-    }
-
-    @Test
-    fun focusLoss_transient_pauses() {
-        assertEquals(FocusLossAction.PAUSE, focusLossAction(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT))
-    }
-
-    @Test
-    fun focusLoss_canDuck_ducks() {
-        assertEquals(
-            FocusLossAction.DUCK,
-            focusLossAction(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
-        )
-    }
-
-    @Test
-    fun focusLoss_gain_neverResumes() {
-        assertEquals(FocusLossAction.PAUSE, focusLossAction(AudioManager.AUDIOFOCUS_GAIN))
-    }
+    // 焦点丢失/恢复策略已交还 Media3 原生处理（瞬时丢失=压制静音+恢复自动续播；
+    // 永久丢失=暂停且无回调），原先自绘的 FocusLossAction 策略与"抑制自动恢复"分支
+    // 均为死代码，2026-09-18 依据 Media3 1.5.1 源码删除（详见 PlaybackService 注释）。
 }
