@@ -2,21 +2,48 @@ package com.cyk666.vibemusic
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.media3.common.Player
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Context.playbackDataStore by preferencesDataStore(name = "playback")
+private val Context.playbackDataStore by preferencesDataStore(
+    name = "playback",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /** Throttled position-save gate: at most one write per 10s during playback. */
 const val POSITION_SAVE_INTERVAL_MS = 10_000L
+
+/**
+ * 进度/播放次数表的条目上限（round6 A2）：DataStore 每次 edit 都要重写整个文件，
+ * 而 keys 会随听过的歌无限增长 → 文件长期膨胀到数百 KB、每次写都是写放大。
+ * 裁剪保留"最近写入"的 max 条（Map 迭代序=最久→最新）。
+ */
+const val POSITIONS_MAX_ENTRIES = 200
+const val PLAY_COUNTS_MAX_ENTRIES = 500
+
+/** Pure: 只保留最后 max 条（超出时淘汰最久未更新的键）。 */
+fun <V> pruneOldestEntries(map: Map<String, V>, max: Int): Map<String, V> {
+    if (max <= 0 || map.size <= max) return map
+    val out = LinkedHashMap<String, V>()
+    val drop = map.size - max
+    var i = 0
+    for ((k, v) in map) {
+        if (i++ >= drop) out[k] = v
+    }
+    return out
+}
 
 /** Restore window: skip intros/outros, ignore unknown durations. */
 const val POSITION_RESTORE_MIN_MS = 5_000L
@@ -184,7 +211,9 @@ object QueueStore {
     private val KEY_LAST_POSITION_SAVE_TS = longPreferencesKey("last_position_save_ts_ms")
 
     suspend fun saveQueue(context: Context, songs: List<Song>, index: Int) {
-        val json = songsToJson(songs)
+        // 切歌在 Main 上调用本方法：大歌单的 JSON 序列化（百 KB 级）挪到 Default，
+        // 避免每次切歌都卡一下主线程（round6 A3）。
+        val json = withContext(Dispatchers.Default) { songsToJson(songs) }
         context.playbackDataStore.edit { p ->
             p[KEY_QUEUE] = json
             p[KEY_INDEX] = index
@@ -222,7 +251,9 @@ object QueueStore {
                     parsePlayCounts(p[KEY_PLAY_COUNTS].orEmpty()),
                     key
                 )
-                p[KEY_PLAY_COUNTS] = renderPlayCounts(updated)
+                p[KEY_PLAY_COUNTS] = renderPlayCounts(
+                    pruneOldestEntries(updated, PLAY_COUNTS_MAX_ENTRIES)
+                )
                 next = count
             }
             next
@@ -283,8 +314,11 @@ object QueueStore {
         try {
             context.playbackDataStore.edit { p ->
                 val updated = parsePositions(p[KEY_POSITIONS].orEmpty()).toMutableMap()
+                // 先移除再放回：让迭代序反映"最近播放"，裁剪时淘汰最久未播放的
+                updated.remove(key)
                 updated[key] = positionMs
-                p[KEY_POSITIONS] = renderPositions(updated)
+                val pruned = pruneOldestEntries(updated, POSITIONS_MAX_ENTRIES)
+                p[KEY_POSITIONS] = renderPositions(pruned)
                 // Proof-of-save for the Settings 登录诊断 row (Issue 2).
                 p[KEY_LAST_POSITION_SAVE_TS] = System.currentTimeMillis()
             }

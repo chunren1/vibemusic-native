@@ -18,7 +18,7 @@ import com.cyk666.vibemusic.OfflineStore.toLocalMediaItem
  * afterwards is a table lookup with zero file/cache I/O:
  * - [isOfflinePlayable] feeds [selectNextOfflineIndex] (single owner:
  *   PlaybackService transports, Activity only reports).
- * - [isGatePlayable] mirrors [isLocalOrCachedPlayable] for the point-play gate.
+ * - [isGatePlayable] is the single point-play gate (旧的孪生实现 isLocalOrCachedPlayable 已在 round6 删除).
  * - [Song.toPlayMediaItem] picks LOCAL vs STREAM from the snapshot; only
  *   path construction runs on the caller thread (no disk access).
  *
@@ -96,7 +96,7 @@ fun OfflineAvailability.isOfflinePlayable(song: Song): Boolean {
 }
 
 /**
- * Pure point-play gate, mirroring [isLocalOrCachedPlayable]: online always
+ * Pure point-play gate（点播唯一判定）: online always
  * plays (stream); offline needs a local download or cached bytes.
  */
 fun OfflineAvailability.isGatePlayable(song: Song, isOnline: Boolean): Boolean =

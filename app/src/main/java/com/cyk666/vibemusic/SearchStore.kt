@@ -1,14 +1,19 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 
-private val Context.searchDataStore by preferencesDataStore(name = "search")
+private val Context.searchDataStore by preferencesDataStore(
+    name = "search",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 const val SEARCH_HISTORY_MAX = 10
 

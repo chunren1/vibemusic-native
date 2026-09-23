@@ -3,8 +3,16 @@
     <cloud-backup>
         <!-- Auth token store must never leave the device. -->
         <exclude domain="file" path="datastore/auth.preferences_pb" />
+    <!-- 离线音频（可达数百 MB）与热点素材不进云备份/换机迁移：
+         超出 25MB 配额会让整包备份失败，且用户音频不应离开设备。
+         注：流媒体缓存在 cacheDir（系统本就不备份），无需排除。 -->
+        <exclude domain="file" path="offline" />
+        <exclude domain="file" path="hotspot" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="datastore/auth.preferences_pb" />
+        <!-- 离线音频/热点素材同样不走换机迁移（体积大且可重新下载） -->
+        <exclude domain="file" path="offline" />
+        <exclude domain="file" path="hotspot" />
     </device-transfer>
 </data-extraction-rules>

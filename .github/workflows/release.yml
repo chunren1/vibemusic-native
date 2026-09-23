@@ -57,6 +57,31 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "VibeMusic-${TAG}-release.apk"
           echo "APK_NAME=VibeMusic-${TAG}-release.apk" >> "$GITHUB_ENV"
 
+      # 交付三件套（README 承诺）：签名校验 + 版本一致性 + 校验和（round6 I9）
+      - name: Verify APK (signature + version + sha256)
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          APK="$APK_NAME"
+
+          echo "── 1) 签名校验 ──"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | head -5
+
+          echo "── 2) tag 与 Gradle 版本一致性 ──"
+          BADGING=$("$BT/aapt2" dump badging "$APK" | head -1)
+          VNAME=$(printf '%s' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          VCODE=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          if [ "v${VNAME}" != "$TAG" ]; then
+            echo "::error::tag($TAG) 与 APK versionName($VNAME) 不一致"
+            exit 1
+          fi
+          echo "tag=$TAG versionName=$VNAME versionCode=$VCODE ✓"
+
+          echo "── 3) 校验和 ──"
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          echo "SHA256=$SHA" >> "$GITHUB_ENV"
+          echo "APK sha256: $SHA"
+
       - name: Publish to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,7 +94,7 @@ jobs:
             NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名；正式通道收不到此版）"
           else
             PRERELEASE_FLAGS=""
-            NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名）"
+            NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名）\n\nAPK sha256: \`$SHA\`"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_NAME" --clobber

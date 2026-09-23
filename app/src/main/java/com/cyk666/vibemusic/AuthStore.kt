@@ -1,13 +1,18 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.authDataStore by preferencesDataStore(name = AuthStore.DATASTORE_NAME)
+private val Context.authDataStore by preferencesDataStore(
+    name = AuthStore.DATASTORE_NAME,
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /** Synchronous in-memory holder read by the OkHttp interceptor. Never log its content. */
 object AuthToken {

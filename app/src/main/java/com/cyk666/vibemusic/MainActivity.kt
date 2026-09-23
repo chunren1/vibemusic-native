@@ -3921,20 +3921,6 @@ fun Song.toPlayMediaItem(context: android.content.Context): MediaItem {
     }
 }
 
-fun isLocalOrCachedPlayable(context: android.content.Context, song: Song): Boolean {
-    try {
-        if (OfflineStore.isDownloaded(context, song)) return true
-    } catch (_: Exception) {
-    }
-    val cached = try {
-        MediaCache.cachedBytes(context, song.streamUrl())
-    } catch (_: Exception) {
-        0L
-    }
-    return offlinePlayDecision(isNetworkAvailable(context), cached) !=
-        OfflineDecision.BLOCK_WITH_MESSAGE
-}
-
 private fun String?.ifNullOrBlankDefault(default: String = "netease"): String =
     if (this.isNullOrBlank()) default else this
 

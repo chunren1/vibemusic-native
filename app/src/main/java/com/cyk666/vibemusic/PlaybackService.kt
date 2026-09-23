@@ -111,19 +111,15 @@ fun resumptionStartIndex(songs: List<Song>, savedIndex: Int): Int =
 /** 恢复点位置：负值/异常一律从 0 开始（避免 seek 到非法位置）。 */
 fun resumptionStartPosition(savedMs: Long): Long = savedMs.coerceAtLeast(0L)
 
-/**
- * 通知路径"带声意图"命令集合——历史遗迹，仅作语义说明与单测钉桩：
- * 1.0.10-ai 曾用它做 Service 侧时间轴物化，1.0.11-ai 因拦截 9 类命令导致
- * 通知栏串歌而整体回滚；现在没有生产调用点（进程被杀后的恢复改走官方
- * [MediaSession.Callback.onPlaybackResumption]，见上）。
- */
-val SERVICE_MATERIALIZE_COMMANDS: Set<Int> = setOf(
-    Player.COMMAND_PLAY_PAUSE
-)
-
-/** Pure: a session player command needs service-side timeline materialization. */
-fun isServiceMaterializeCommand(playerCommand: Int): Boolean =
-    playerCommand in SERVICE_MATERIALIZE_COMMANDS
+// ── 开发禁区（勿重犯）：通知/媒体按钮路径上的"带声意图"由 Media3 自己处理 ──
+// 1.0.10-ai 曾在 Service 侧做时间轴物化（拦截命令），1.0.11-ai 因拦截 9 类命令
+// 导致通知栏串歌而整体回滚；1.0.27-ai 又试了一次窄口径（仅 COMMAND_PLAY_PAUSE），
+// 1.0.28-ai 因"播放全死"报告第二次回滚。结论：这类拦截式实现在本项目两次实装
+// 两次失败，第三次不做——进程被杀后的恢复只走官方
+// [MediaSession.Callback.onPlaybackResumption]（见 onCreate 里的回调），
+// Activity 侧 ensureTimeline 是唯一的兜底物化路径。
+// 这里曾留有一组常量与单测做"语义钉桩"，于 round6（2026-09-23）清理为纯注释，
+// 因为零生产调用点的常量+测试本身就是会漂移的墓碑。
 
 /**
  * Retry key for the signed-URL single-retry: mediaId + player error code, so
@@ -223,8 +219,10 @@ fun skipErrorToast(title: String?, errorCodeName: String, outcome: SkipOutcome):
  * Resulting behavior (all handled inside ExoPlayer's AudioFocusManager /
  * AudioBecomingNoisyManager, no extra permissions — phone-call pause comes free
  * via transient/permanent focus loss, do NOT add READ_PHONE_STATE):
- * - permanent loss (other music/video app, phone call) → pause, stays paused;
- * - transient loss → pause, stays paused (no auto-resume, see listener below);
+ * - permanent loss (other music/video app) → pause, stays paused（框架不回发 GAIN，
+ *   只能用户手动恢复；另见下方 2026-09-18 的权威结论）；
+ * - transient loss（来电等）→ 压制（静音）但 playWhenReady 保持 true，焦点恢复后
+ *   由框架**自动续播**（此前这里写成"不自动续播"，与 AudioFocusManager 实读结论相反）；
  * - transient-can-duck → native volume duck (VOLUME_MULTIPLIER_DUCK);
  * - Bluetooth disconnect / wired-headset unplug → pause;
  * - MediaSession + notification follow player state automatically (no manual
@@ -525,15 +523,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
-        // NOTE (post-1.0.11-ai): the rolled-back materializer intercepted 9
-        // command types and once surfaced a stale song. The narrow successor
-        // above ([sessionCallback]) handles ONLY COMMAND_PLAY_PAUSE on an
-        // empty timeline; Activity-side ensureTimeline stays the recovery path
-        // for every other transport action. See lessons.
-        // NOTE (1.0.28-ai): session-callback materializer REMOVED again after
-        // 1.0.27-ai total-playback-death report (2nd incident; same suspect as
-        // 1.0.10-ai). Pure helpers + tests stay pinned; Activity ensureTimeline
-        // remains the single recovery path. See lessons.
+        // 禁区（详见文件头 KDoc 旁的"开发禁区"注释）：通知路径的"带声意图"不要用
+        // 拦截式 session 回调实现——1.0.10/1.0.11 与 1.0.27/1.0.28 两次实装两次回滚
+        // （串歌 / 播放全死）。恢复只走官方 onPlaybackResumption（下方 setCallback），
+        // Activity 侧 ensureTimeline 是唯一兜底物化路径。
         // Tap-to-open: without a session activity the notification tap does
         // nothing (users read it as "notification dead"). This only sets the
         // launch target — no callback / player-command logic touched.

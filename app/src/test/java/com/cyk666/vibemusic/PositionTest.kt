@@ -116,4 +116,40 @@ class PositionTest {
         QueueStore.savePosition(ctx, "netease:ts-probe", 61_000L)
         assertTrue(QueueStore.loadLastPositionSaveTs(ctx) > 0L)
     }
+
+    @Test
+    fun prune_keepsNewestEntries() {
+        val map = LinkedHashMap<String, Long>()
+        for (i in 1..5) map["k$i"] = i.toLong()
+        val pruned = pruneOldestEntries(map, 3)
+        assertEquals(listOf("k3", "k4", "k5"), pruned.keys.toList())
+        assertEquals(5L, pruned["k5"])
+    }
+
+    @Test
+    fun prune_noopWhenUnderLimit() {
+        val map = LinkedHashMap<String, Long>()
+        for (i in 1..3) map["k$i"] = i.toLong()
+        assertTrue(map === pruneOldestEntries(map, 3))
+        assertTrue(map === pruneOldestEntries(map, 200))
+    }
+
+    @Test
+    fun prune_genericOverIntValues() {
+        val counts = LinkedHashMap<String, Int>()
+        for (i in 1..4) counts["s$i"] = i
+        val pruned = pruneOldestEntries(counts, 2)
+        assertEquals(listOf("s3", "s4"), pruned.keys.toList())
+    }
+
+    @Test
+    fun store_positionsStayBoundedByLimit(): Unit = runBlocking {
+        val ctx = context()
+        // 写入超过上限的键：只应有最近 POSITIONS_MAX_ENTRIES 条留下
+        val over = POSITIONS_MAX_ENTRIES + 5
+        for (i in 1..over) QueueStore.savePosition(ctx, "prune:$i", i.toLong())
+
+        assertEquals(over.toLong(), QueueStore.loadPosition(ctx, "prune:$over"))
+        assertEquals("最久未播放的键应被裁剪", 0L, QueueStore.loadPosition(ctx, "prune:1"))
+    }
 }

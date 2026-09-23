@@ -55,3 +55,6 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 1. 一首坏源曾毒死整个队列只能重启 → 自动跳过 + transport 空闲态先 prepare。
 2. Activity 重建丢队列按钮全灰 → 时间线重建 + 快照恢复双保险。
 3. "播测试音（对照实验）"按钮是播歌对照组：响=链路问题，不响=模块问题，先对照再动手。
+4. **通知/媒体按钮路径不要用"拦截式 session 回调"做带声意图物化**：1.0.10-ai/1.0.11-ai（拦截 9 类命令 → 通知栏串歌）与 1.0.27-ai/1.0.28-ai（窄口径仅 PLAY_PAUSE → 播放全死）两次实装两次回滚，**第三次不做**。进程被杀后的恢复只走官方 `MediaSession.Callback.onPlaybackResumption`（见 `PlaybackService.onCreate`），Activity 侧 `ensureTimeline` 是唯一兜底物化路径。
+5. 焦点被拒≠卡死：Media3 会把 playWhenReady 置回 false 且**平台不再回调**，所以"点了没反应"必须由 App 侧有界补试兜（`shouldRetryDeniedPlay`）；瞬时丢失本身是框架自动续播，不要自己接管焦点。
+6. DataStore 三处都必须带 `corruptionHandler`（round6 起已加）：文件损坏时 DataStore 连写都会失败，表现为"进度/队列/搜索历史静默永久失效"，很难从现象反推。
