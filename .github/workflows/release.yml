@@ -182,13 +182,23 @@ jobs:
             exit 0
           fi
           echo "Gitee release id: $RELEASE_ID"
-          # (b) attach the SAME APK file.
-          ATTACH_CODE=$(curl -sS --connect-timeout 10 --max-time 120 -o /tmp/gitee_attach.json -w '%{http_code}' \
-            -X POST "${API}/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
-            -F "file=@${APK_NAME}" || echo "curl-failed")
-          echo "Gitee attach HTTP: $ATTACH_CODE"
+          # (b) attach the SAME APK file, with retries: the 3.4MB upload
+          #     over the runner→Gitee link intermittently stalls past the
+          #     old 120s cap (v2.0.0-ai: curl timeout, release created but
+          #     APK never attached — found only by listing assets).
+          ATTACH_CODE="curl-failed"
+          for attempt in 1 2 3; do
+            ATTACH_CODE=$(curl -sS --connect-timeout 15 --max-time 300 -o /tmp/gitee_attach.json -w '%{http_code}' \
+              -X POST "${API}/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
+              -F "file=@${APK_NAME}" || echo "curl-failed")
+            echo "Gitee attach HTTP: $ATTACH_CODE (attempt $attempt/3)"
+            case "$ATTACH_CODE" in
+              200|201) break ;;
+              *) sleep 30 ;;
+            esac
+          done
           case "$ATTACH_CODE" in
             200|201) echo "Gitee mirror OK: $TAG (release $RELEASE_ID)" ;;
-            *) echo "::warning::Gitee attach failed for tag $TAG (HTTP $ATTACH_CODE)" ;;
+            *) echo "::error::Gitee attach failed for tag $TAG after 3 attempts (HTTP $ATTACH_CODE) — GitHub release is canonical, re-attach manually" ;;
           esac
           exit 0
