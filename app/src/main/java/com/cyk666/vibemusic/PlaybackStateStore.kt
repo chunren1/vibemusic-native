@@ -49,6 +49,18 @@ fun <V> pruneOldestEntries(map: Map<String, V>, max: Int): Map<String, V> {
 const val POSITION_RESTORE_MIN_MS = 5_000L
 const val POSITION_RESTORE_END_MARGIN_MS = 10_000L
 
+/**
+ * Position expiry: a saved mid-track position older than this is treated as
+ * gone (restore from 0). Music restarts feel right; podcasts would keep
+ * forever — this app is the former. The record itself is kept (only the
+ * restore decision expires), so re-listening re-stamps it fresh.
+ */
+const val POSITION_EXPIRE_MS = 7L * 24L * 60L * 60L * 1000L
+
+/** Pure: true when a saved-at timestamp is too old to restore from. */
+fun isPositionExpired(savedAtMs: Long, nowMs: Long): Boolean =
+    savedAtMs <= 0L || nowMs - savedAtMs > POSITION_EXPIRE_MS
+
 /** Pure: restore only a mid-track position (past intro, before outro). */
 fun shouldRestorePosition(savedMs: Long, durationMs: Long): Boolean {
     if (durationMs <= 0L) return false
@@ -203,6 +215,7 @@ object QueueStore {
     private val KEY_SLEEP_MIN = intPreferencesKey("sleep_timer_min")
     private val KEY_SLEEP_DEADLINE = longPreferencesKey("sleep_deadline_ms")
     private val KEY_POSITIONS = stringPreferencesKey("positions_json")
+    private val KEY_POSITIONS_TS = stringPreferencesKey("positions_ts_json")
     private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_ms")
     private val KEY_UPDATE_CHANNEL = stringPreferencesKey("update_channel")
     private val KEY_HAS_LAUNCHED = booleanPreferencesKey("has_launched_before")
@@ -319,6 +332,14 @@ object QueueStore {
                 updated[key] = positionMs
                 val pruned = pruneOldestEntries(updated, POSITIONS_MAX_ENTRIES)
                 p[KEY_POSITIONS] = renderPositions(pruned)
+                // 并行时间戳表：同序写入、同规则裁剪；缺 ts 的老数据视为新鲜（升级宽限）
+                val tsUpdated = parsePositions(p[KEY_POSITIONS_TS].orEmpty()).toMutableMap()
+                tsUpdated.remove(key)
+                tsUpdated[key] = System.currentTimeMillis()
+                val nowKeys = pruned.keys
+                val prunedTs = LinkedHashMap<String, Long>()
+                for (k in tsUpdated.keys) if (k in nowKeys) prunedTs[k] = tsUpdated[k]!!
+                p[KEY_POSITIONS_TS] = renderPositions(prunedTs)
                 // Proof-of-save for the Settings 登录诊断 row (Issue 2).
                 p[KEY_LAST_POSITION_SAVE_TS] = System.currentTimeMillis()
             }
@@ -326,11 +347,18 @@ object QueueStore {
         }
     }
 
-    suspend fun loadPosition(context: Context, key: String): Long {
+    suspend fun loadPosition(context: Context, key: String): Long =
+        loadPosition(context, key, System.currentTimeMillis())
+
+    internal suspend fun loadPosition(context: Context, key: String, nowMs: Long): Long {
         if (key.isBlank()) return 0L
         return try {
             context.playbackDataStore.data.map { p ->
-                parsePositions(p[KEY_POSITIONS].orEmpty())[key] ?: 0L
+                val pos = parsePositions(p[KEY_POSITIONS].orEmpty())[key] ?: 0L
+                if (pos <= 0L) return@map 0L
+                val ts = parsePositions(p[KEY_POSITIONS_TS].orEmpty())[key]
+                // 老数据无时间戳：宽限为新鲜（升级后首次播放即盖新戳）
+                if (ts != null && isPositionExpired(ts, nowMs)) 0L else pos
             }.first().coerceAtLeast(0L)
         } catch (_: Exception) {
             0L

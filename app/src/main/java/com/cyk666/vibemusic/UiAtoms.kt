@@ -235,14 +235,12 @@ fun CoverImage(
             modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
         )
     } else {
-        Box(
-            modifier = modifier.size(size)
-                .clip(RoundedCornerShape(cornerDp))
-                .background(UiMuted.copy(alpha = 0.25f)),
-            contentAlignment = Alignment.Center
-        ) {
-            AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = iconSize)
-        }
+        AsyncImage(
+            model = R.drawable.cover_default,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
+        )
     }
 }
 
@@ -378,14 +376,12 @@ fun EntryRow(
                     modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
                 )
             } else {
-                Box(
-                    modifier = Modifier.size(coverSize)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(UiMuted.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = 24.dp)
-                }
+                AsyncImage(
+                    model = R.drawable.cover_default,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
+                )
             }
             Spacer(Modifier.width(12.dp))
         }

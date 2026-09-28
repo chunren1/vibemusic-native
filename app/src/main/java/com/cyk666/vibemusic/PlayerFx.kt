@@ -279,12 +279,12 @@ fun VinylCover(
         .shadow(16.dp, RoundedCornerShape(cornerDp))
         .clip(RoundedCornerShape(cornerDp))
     if (coverUrl.isNullOrBlank()) {
-        Box(
-            modifier = discModifier.background(UiMuted.copy(alpha = 0.25f)),
-            contentAlignment = Alignment.Center
-        ) {
-            AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = 64.dp)
-        }
+        AsyncImage(
+            model = R.drawable.cover_default,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = discModifier
+        )
         return
     }
     val request = remember(coverUrl, ctx) {

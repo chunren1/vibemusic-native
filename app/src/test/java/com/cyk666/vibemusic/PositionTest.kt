@@ -135,6 +135,33 @@ class PositionTest {
     }
 
     @Test
+    fun expiry_constantIsSevenDays() {
+        assertEquals(7L * 24L * 60L * 60L * 1000L, POSITION_EXPIRE_MS)
+    }
+
+    @Test
+    fun expiry_boundaries() {
+        val now = 1_000_000_000_000L
+        assertFalse(isPositionExpired(now - 1_000L, now))
+        assertFalse(isPositionExpired(now - POSITION_EXPIRE_MS, now))
+        assertTrue(isPositionExpired(now - POSITION_EXPIRE_MS - 1L, now))
+        assertTrue(isPositionExpired(0L, now))
+        assertTrue(isPositionExpired(-5L, now))
+    }
+
+    @Test
+    fun store_expiredPositionRestoresZeroButKeepsRecord(): Unit = runBlocking {
+        val ctx = context()
+        QueueStore.savePosition(ctx, "netease:expire-probe", 61_000L)
+        assertEquals(61_000L, QueueStore.loadPosition(ctx, "netease:expire-probe"))
+        // 8 天后：恢复为 0（从头播），记录本身保留
+        val future = System.currentTimeMillis() + 8L * 24L * 60L * 60L * 1000L
+        assertEquals(0L, QueueStore.loadPosition(ctx, "netease:expire-probe", future))
+        // 回到现在：依然可恢复（记录没被删）
+        assertEquals(61_000L, QueueStore.loadPosition(ctx, "netease:expire-probe"))
+    }
+
+    @Test
     fun prune_genericOverIntValues() {
         val counts = LinkedHashMap<String, Int>()
         for (i in 1..4) counts["s$i"] = i
