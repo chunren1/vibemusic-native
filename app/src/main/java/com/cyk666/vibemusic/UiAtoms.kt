@@ -205,7 +205,7 @@ fun coverModel(coverUrl: String): String? = absImgUrl(coverUrl).ifBlank { null }
  * direct AsyncImage usage; [CoverImage]/[EntryRow] already route here.
  */
 fun coverModelOrDefault(coverUrl: String): Any =
-    coverModel(coverUrl) ?: R.drawable.cover_default
+    absImgUrl(coverUrl).ifBlank { null } ?: R.drawable.cover_default
 
 /**
  * Pure gate: only positively-loadable cover URLs count as "has cover".
@@ -228,29 +228,16 @@ fun CoverImage(
     iconSize: Dp = 24.dp,
     modifier: Modifier = Modifier
 ) {
-    val model = remember(coverUrl) { coverModel(coverUrl) }
-    // Load-failure fallback (2026-09-17 cover incident): a URL that passes
-    // the gate can still 404 or fail at the CDN — show the same note
-    // placeholder instead of a blank hole.
     var failed by remember(coverUrl) { mutableStateOf(false) }
-    if (model != null && !failed) {
-        AsyncImage(
-            model = model,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            onState = { st ->
-                if (st is AsyncImagePainter.State.Error) failed = true
-            },
-            modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
-        )
-    } else {
-        AsyncImage(
-            model = R.drawable.cover_default,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
-        )
-    }
+    AsyncImage(
+        model = if (failed) R.drawable.cover_default else coverModelOrDefault(coverUrl),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        onState = { st ->
+            if (st is AsyncImagePainter.State.Error) failed = true
+        },
+        modifier = modifier.size(size).clip(RoundedCornerShape(cornerDp))
+    )
 }
 
 /** Display model for one song row: title fallback + subtitle in one place. */

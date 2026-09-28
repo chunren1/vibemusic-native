@@ -38,6 +38,21 @@ jobs:
       - name: Grant gradlew
         run: chmod +x gradlew
 
+      # 封面兜底门禁（2026-09-28 立规：四轮补洞教训）：封面渲染一律走
+      # coverModelOrDefault + error/fallback，裸调 coverModel() 直接红。
+      # 匹配 coverModel( 后面不是 O 的调用（排除 coverModelOrDefault），
+      # 再排除 fun 定义行自己。
+      - name: Cover fallback gate
+        run: |
+          HITS=$(grep -rnE "coverModel\([^O]" app/src/main/java || true)
+          HITS=$(printf '%s' "$HITS" | grep -vF "fun coverModel(" || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::裸调 coverModel() 会造成无封面白板，必须换成 coverModelOrDefault + error/fallback"
+            printf '%s\n' "$HITS"
+            exit 1
+          fi
+          echo "cover fallback gate ✓"
+
       # R4-A4：发版前强制跑单测（验收门"单测全绿"由 CI 兜底，tag 直发不再无卡；失败即中止，避免白构建）
       - name: Unit tests (release gate)
         run: ./gradlew testDebugUnitTest --no-daemon

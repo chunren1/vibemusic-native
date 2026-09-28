@@ -89,6 +89,8 @@ fun RecommendImportDialog(
                 model = coverModelOrDefault(playlist.picUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.cover_default),
+                fallback = painterResource(R.drawable.cover_default),
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -174,6 +176,8 @@ private fun HomeSongCard(
                 model = coverModelOrDefault(backCoverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.cover_default),
+                fallback = painterResource(R.drawable.cover_default),
                 modifier = Modifier
                     .size(56.dp)
                     .align(Alignment.TopEnd)
@@ -184,6 +188,8 @@ private fun HomeSongCard(
                 model = coverModelOrDefault(song.coverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.cover_default),
+                fallback = painterResource(R.drawable.cover_default),
                 modifier = Modifier
                     .size(56.dp)
                     .align(Alignment.BottomStart)
