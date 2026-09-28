@@ -194,6 +194,8 @@ fun BoxScope.PlayerBackdrop(coverUrl: String?) {
             .data(coverModel(coverUrl.orEmpty()))
             .size(PLAYER_BACKDROP_REQ_PX)
             .crossfade(true)
+            .fallback(R.drawable.cover_default)
+            .error(R.drawable.cover_default)
             .build()
     }
     val backdropModifier = if (supportsRenderEffectBlur()) {
@@ -292,6 +294,7 @@ fun VinylCover(
             .data(coverModel(coverUrl))
             .size(VINYL_COVER_REQ_PX)
             .crossfade(true)
+            .error(R.drawable.cover_default)
             .build()
     }
     AsyncImage(

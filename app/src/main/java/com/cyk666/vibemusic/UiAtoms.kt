@@ -377,21 +377,18 @@ fun EntryRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (coverSize > 0.dp) {
-            if (coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = coverModel(coverUrl),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
-                )
-            } else {
-                AsyncImage(
-                    model = R.drawable.cover_default,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
-                )
-            }
+            // Blank URL and load failure both fall back to the default cover:
+            // a URL that passes the gate can still 404 at the CDN.
+            var failed by remember(coverUrl) { mutableStateOf(false) }
+            AsyncImage(
+                model = if (failed) R.drawable.cover_default else coverModelOrDefault(coverUrl),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onState = { st ->
+                    if (st is AsyncImagePainter.State.Error) failed = true
+                },
+                modifier = Modifier.size(coverSize).clip(RoundedCornerShape(12.dp))
+            )
             Spacer(Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {

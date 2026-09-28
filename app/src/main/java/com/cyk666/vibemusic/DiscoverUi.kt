@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -245,9 +246,11 @@ private fun EncounterRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = coverModel(song.coverUrl),
+            model = coverModelOrDefault(song.coverUrl),
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            error = painterResource(R.drawable.cover_default),
+            fallback = painterResource(R.drawable.cover_default),
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(12.dp))
@@ -284,9 +287,11 @@ private fun TreasureCell(
         modifier = modifier.clickable(onClick = onTap)
     ) {
         AsyncImage(
-            model = coverModel(playlist.picUrl),
+            model = coverModelOrDefault(playlist.picUrl),
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            error = painterResource(R.drawable.cover_default),
+            fallback = painterResource(R.drawable.cover_default),
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)

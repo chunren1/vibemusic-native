@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -345,21 +346,14 @@ private fun DetailHeader(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (playlist.coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = coverModel(playlist.coverUrl),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
-                )
-            } else {
-                AsyncImage(
-                    model = R.drawable.cover_default,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
-                )
-            }
+            AsyncImage(
+                model = coverModelOrDefault(playlist.coverUrl),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.cover_default),
+                fallback = painterResource(R.drawable.cover_default),
+                modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
+            )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
