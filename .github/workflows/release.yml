@@ -23,6 +23,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle # 依赖+wrapper 缓存：tag 构建免重复下载（8 分钟发版的主要水分）
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3

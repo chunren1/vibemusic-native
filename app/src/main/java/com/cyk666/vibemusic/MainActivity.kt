@@ -1871,17 +1871,13 @@ class MainActivity : ComponentActivity() {
                         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
                         val safeTag = rel.tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
                         val apk = File(dir, "vibemusic-$safeTag.apk")
-                        if (!isDownloadComplete(apk, -1L)) {
-                            try {
-                                partFileFor(apk).delete()
-                            } catch (_: Exception) {
-                            }
+                        if (!isDownloadComplete(apk, rel.apkSize)) {
                             val fallback = fetchFallbackApkUrl(otherUpdateSourceUrl(rel.apkUrl))
                             downloadApk(
                                 rel.apkUrl,
                                 apk,
                                 fallbackApkUrl = fallback,
-                                expectedBytes = -1L
+                                expectedBytes = rel.apkSize
                             )
                         }
                         withContext(Dispatchers.Main) {

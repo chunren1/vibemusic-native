@@ -128,6 +128,52 @@ class UpdateCheckTest {
     }
 
     @Test
+    fun parseRelease_picksAssetSizeWhenPresent() {
+        val assets = """{"name":"app.apk","browser_download_url":"https://x/app.apk","size":12345678}"""
+        val r = parseLatestRelease(releaseJson(assets))
+        assertEquals("https://x/app.apk", r.apkUrl)
+        assertEquals(12345678L, r.apkSize)
+    }
+
+    @Test
+    fun parseRelease_missingSizeDefaultsUnknown() {
+        val assets = """{"name":"app.apk","browser_download_url":"https://x/app.apk"}"""
+        val r = parseLatestRelease(releaseJson(assets))
+        assertEquals(-1L, r.apkSize)
+    }
+
+    @Test
+    fun parseReleaseList_picksApkUrlAndSize() {
+        val json = """[{"tag_name":"v1.0.57-ai","name":"v","body":"b","prerelease":false,"assets":[{""" +
+            """"name":"a.apk","browser_download_url":"https://y/a.apk","size":777}]}]"""
+        val r = parseReleaseList(json)
+        assertEquals("https://y/a.apk", r?.apkUrl)
+        assertEquals(777L, r?.apkSize)
+    }
+
+    // ---- resume offset (pure) ----
+
+    @Test
+    fun resumeOffset_emptyPartStartsOver() {
+        assertEquals(0L, resumeOffsetFor(partLen = 0L, expectedBytes = 4096L))
+    }
+
+    @Test
+    fun resumeOffset_partialPartResumes() {
+        assertEquals(2048L, resumeOffsetFor(partLen = 2048L, expectedBytes = 4096L))
+    }
+
+    @Test
+    fun resumeOffset_oversizedPartStartsOver() {
+        assertEquals(0L, resumeOffsetFor(partLen = 5000L, expectedBytes = 4096L))
+    }
+
+    @Test
+    fun resumeOffset_unknownSizeResumesWhateverExists() {
+        assertEquals(100L, resumeOffsetFor(partLen = 100L, expectedBytes = -1L))
+    }
+
+    @Test
     fun parseRelease_missingAssetsThrows() {
         try {
             parseLatestRelease(releaseJson(null))
@@ -278,9 +324,12 @@ class UpdateCheckTest {
 
     // ---- streaming download over loopback (raw ServerSocket stub, no new deps) ----
 
-    private class StubApkServer(val bytes: ByteArray, val code: Int = 200) {
+    private class StubApkServer(val bytes: ByteArray, val code: Int = 200, val rangeAware: Boolean = false) {
         private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val port: Int get() = server.localPort
+        @Volatile
+        var seenRange: String? = null
+            private set
         @Volatile
         private var running = true
         private val thread = kotlin.concurrent.thread(isDaemon = true, name = "stub-apk") {
@@ -296,16 +345,49 @@ class UpdateCheckTest {
             try {
                 s.use { sock ->
                     val reader = BufferedReader(InputStreamReader(sock.getInputStream()))
+                    val headers = mutableMapOf<String, String>()
                     try {
+                        reader.readLine()
                         var line: String?
                         do {
                             line = reader.readLine()
+                            val idx = line?.indexOf(':') ?: -1
+                            if (line != null && line.isNotEmpty() && idx > 0) {
+                                headers[line.substring(0, idx).trim().lowercase()] =
+                                    line.substring(idx + 1).trim()
+                            }
                         } while (line != null && line.isNotEmpty())
                     } catch (_: Exception) {
                     }
                     val out = sock.getOutputStream()
+                    val range = headers["range"]
+                    if (range != null) seenRange = range
                     if (code != 200) {
                         out.write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                    } else if (rangeAware && range != null) {
+                        val start = Regex("bytes=(\\d+)-").find(range)?.groupValues?.get(1)?.toLongOrNull()
+                        if (start == null || start < 0L || start >= bytes.size) {
+                            out.write(
+                                ("HTTP/1.1 416 Range Not Satisfiable\r\n" +
+                                    "Content-Range: bytes */${bytes.size}\r\n" +
+                                    "Content-Length: 0\r\nConnection: close\r\n\r\n").toByteArray()
+                            )
+                        } else if (start == 0L) {
+                            out.write(
+                                ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.android.package-archive\r\n" +
+                                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+                            )
+                            out.write(bytes)
+                        } else {
+                            val rest = bytes.sliceArray(start.toInt() until bytes.size)
+                            out.write(
+                                ("HTTP/1.1 206 Partial Content\r\n" +
+                                    "Content-Type: application/vnd.android.package-archive\r\n" +
+                                    "Content-Range: bytes $start-${bytes.size - 1}/${bytes.size}\r\n" +
+                                    "Content-Length: ${rest.size}\r\nConnection: close\r\n\r\n").toByteArray()
+                            )
+                            out.write(rest)
+                        }
                     } else {
                         out.write(
                             ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.android.package-archive\r\n" +
@@ -337,6 +419,9 @@ class UpdateCheckTest {
     private fun serveApp(bytes: ByteArray, code: Int = 200): StubApkServer =
         StubApkServer(bytes, code)
 
+    private fun serveRangeApp(bytes: ByteArray): StubApkServer =
+        StubApkServer(bytes, 200, rangeAware = true)
+
     private fun loopbackUrl(server: StubApkServer): String = server.url()
 
     @Test
@@ -355,7 +440,7 @@ class UpdateCheckTest {
     }
 
     @Test
-    fun download_sizeMismatchThrowsAndLeavesNothing() {
+    fun download_sizeMismatchThrowsAndKeepsPartForResume() {
         val payload = ByteArray(1024) { it.toByte() }
         val server = serveApp(payload)
         try {
@@ -368,7 +453,8 @@ class UpdateCheckTest {
                 assertTrue((e.message ?: "").contains("incomplete"))
             }
             assertFalse(dest.exists())
-            assertFalse(partFileFor(dest).exists())
+            assertArrayEquals(payload, partFileFor(dest).readBytes())
+            partFileFor(dest).delete()
         } finally {
             server.stop()
         }
@@ -408,6 +494,60 @@ class UpdateCheckTest {
             assertFalse(dest.exists())
         } finally {
             dead.stop()
+        }
+    }
+
+    // ---- resume over loopback ----
+
+    @Test
+    fun download_resumesPartialPartViaRange() {
+        val payload = ByteArray(8192) { (it * 31).toByte() }
+        val server = serveRangeApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl5")
+            val dest = java.io.File(dir, "v.apk")
+            partFileFor(dest).parentFile?.mkdirs()
+            partFileFor(dest).writeBytes(payload.copyOf(3072))
+            val landed: java.io.File = runBlocking { downloadApk(loopbackUrl(server), dest) }
+            assertArrayEquals(payload, landed.readBytes())
+            assertFalse(partFileFor(dest).exists())
+            assertEquals("bytes=3072-", server.seenRange)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun download_serverIgnoringRangeRestartsFromScratch() {
+        val payload = ByteArray(2048) { it.toByte() }
+        val server = serveApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl6")
+            val dest = java.io.File(dir, "v.apk")
+            partFileFor(dest).parentFile?.mkdirs()
+            partFileFor(dest).writeBytes(ByteArray(512) { 0xFF.toByte() })
+            val landed: java.io.File = runBlocking { downloadApk(loopbackUrl(server), dest) }
+            assertArrayEquals(payload, landed.readBytes())
+            assertFalse(partFileFor(dest).exists())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun download_stalePartBeyondEndRestartsFromScratch() {
+        val payload = ByteArray(1024) { it.toByte() }
+        val server = serveRangeApp(payload)
+        try {
+            val dir = java.io.File(RuntimeEnvironment.getApplication().cacheDir, "upd-test/dl7")
+            val dest = java.io.File(dir, "v.apk")
+            partFileFor(dest).parentFile?.mkdirs()
+            partFileFor(dest).writeBytes(ByteArray(2048) { 0xFF.toByte() })
+            val landed: java.io.File = runBlocking { downloadApk(loopbackUrl(server), dest) }
+            assertArrayEquals(payload, landed.readBytes())
+            assertFalse(partFileFor(dest).exists())
+        } finally {
+            server.stop()
         }
     }
 }

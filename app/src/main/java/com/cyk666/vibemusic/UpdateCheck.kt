@@ -36,7 +36,12 @@ data class GithubRelease(
     val body: String,
     val apkUrl: String,
     /** GitHub/Gitee releases API 的 prerelease 标记；正式版为 false。 */
-    val prerelease: Boolean = false
+    val prerelease: Boolean = false,
+    /**
+     * Release 资产字节数（GitHub assets 自带 `size`；Gitee 附件接口不带则为 -1，
+     * 此时下载校验退化为 Content-Length/非空门，续传不受影响）。
+     */
+    val apkSize: Long = -1L
 )
 
 private fun numericCore(version: String): List<Int> {
@@ -100,27 +105,23 @@ fun parseLatestRelease(json: String): GithubRelease {
     if (tag.isBlank()) throw RuntimeException("Parse release failed: missing tag_name")
     val assets = root.optJSONArray("assets")
         ?: throw RuntimeException("Parse release failed: $tag has no assets array")
-    var apkUrl = ""
+    var apk: ApkAsset? = null
     for (i in 0 until assets.length()) {
         val o = assets.optJSONObject(i) ?: continue
-        val candidates = listOf(
-            o.optString("browser_download_url"),
-            o.optString("download_url"),
-            o.optString("url")
-        )
-        val url = candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
-        if (url != null) {
-            apkUrl = url
+        val found = pickApkFromAsset(o)
+        if (found != null) {
+            apk = found
             break
         }
     }
-    if (apkUrl.isBlank()) throw RuntimeException("Parse release failed: $tag has no .apk asset")
+    if (apk == null) throw RuntimeException("Parse release failed: $tag has no .apk asset")
     return GithubRelease(
         tag = tag,
         name = root.optString("name"),
         body = root.optString("body"),
-        apkUrl = apkUrl,
-        prerelease = root.optBoolean("prerelease", false)
+        apkUrl = apk.url,
+        prerelease = root.optBoolean("prerelease", false),
+        apkSize = apk.size
     )
 }
 
@@ -271,13 +272,18 @@ suspend fun fetchLatestForChannel(
 ): GithubRelease =
     if (channel == UpdateChannel.BETA) betaFetch() else stableFetch()
 
-private fun pickApkUrlFromAsset(o: JSONObject): String? {
+private data class ApkAsset(val url: String, val size: Long)
+
+private fun pickApkFromAsset(o: JSONObject): ApkAsset? {
     val candidates = listOf(
         o.optString("browser_download_url"),
         o.optString("download_url"),
         o.optString("url")
     )
-    return candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
+    val url = candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
+        ?: return null
+    val size = o.optLong("size", -1L).takeIf { it > 0L } ?: -1L
+    return ApkAsset(url, size)
 }
 
 /**
@@ -296,22 +302,23 @@ fun parseReleaseList(json: String): GithubRelease? {
         val tag = o.optString("tag_name")
         if (tag.isBlank()) continue
         val assets = o.optJSONArray("assets") ?: continue
-        var apkUrl = ""
+        var apk: ApkAsset? = null
         for (j in 0 until assets.length()) {
             val a = assets.optJSONObject(j) ?: continue
-            val url = pickApkUrlFromAsset(a)
-            if (url != null) {
-                apkUrl = url
+            val found = pickApkFromAsset(a)
+            if (found != null) {
+                apk = found
                 break
             }
         }
-        if (apkUrl.isBlank()) continue
+        if (apk == null) continue
         return GithubRelease(
             tag = tag,
             name = o.optString("name"),
             body = o.optString("body"),
-            apkUrl = apkUrl,
-            prerelease = o.optBoolean("prerelease", false)
+            apkUrl = apk.url,
+            prerelease = o.optBoolean("prerelease", false),
+            apkSize = apk.size
         )
     }
     return null
@@ -374,21 +381,20 @@ suspend fun downloadApk(apkUrl: String, destFile: File): File =
  * a killed process / full disk leaves only the `.part`, never a truncated
  * final file, so an interrupted download is never reused).
  *
- * Size gate: when [expectedBytes] > 0 (release-metadata size, once the
- * wiring task threads it through) the landed bytes must match exactly;
- * otherwise the response `Content-Length` (when the server sends one) must
- * match. Mismatch / empty / failed `renameTo` all throw and delete the
- * `.part` — [destFile] is only ever replaced by a fully-validated file.
+ * Size gate: when [expectedBytes] > 0 (release-asset size, [GithubRelease.apkSize])
+ * the landed bytes must match exactly; otherwise the response `Content-Length`
+ * (when the server sends one) must match the resumed offset plus received
+ * bytes. Empty / failed `renameTo` throw and drop the `.part`; an
+ * *incomplete* landing keeps the `.part` so the next attempt resumes via
+ * `Range` instead of restarting (stale/oversized parts restart once on 416,
+ * or immediately when the server answers 200 to a ranged request).
  *
  * Source fallback (mirrors [fetchLatestRelease] Gitee→GitHub): [apkUrl] is
  * tried first, then [fallbackApkUrl] on ANY first-source failure (HTTP /
- * truncated / empty). Pass the other source's release `apkUrl` as
- * [fallbackApkUrl] so Gitee attachment wobble falls back to GitHub.
- * Intended call-site change (wiring task, MainActivity NOT touched here):
- * `MainActivity.startUpdateDownload` keeps calling this with
- * `rel.apkUrl`, adds the other-source `apkUrl` as fallback, and replaces
- * its `!apk.exists() || apk.length() <= 0L` reuse gate with
- * `!isDownloadComplete(apk, expectedBytes)`.
+ * truncated / empty). Callers pass the other source's release `apkUrl` as
+ * [fallbackApkUrl] so Gitee attachment wobble falls back to GitHub; both
+ * sources serve the identical release file so a kept `.part` stays valid
+ * across the switch, and the size gate still rejects mixed garbage.
  */
 suspend fun downloadApk(
     apkUrl: String,
@@ -432,11 +438,25 @@ fun partFileFor(destFile: File): File {
 }
 
 /**
+ * Pure: resume offset into an interrupted download. A `.part` shorter than
+ * the known total resumes where it stopped; an empty/missing part, or one
+ * at/past the known total (stale), restarts from zero. Unknown total (<= 0,
+ * the Gitee case) resumes whatever exists — the server answers 416 if the
+ * offset is past EOF and the caller restarts fresh.
+ */
+fun resumeOffsetFor(partLen: Long, expectedBytes: Long): Long {
+    if (partLen <= 0L) return 0L
+    if (expectedBytes > 0L && partLen >= expectedBytes) return 0L
+    return partLen
+}
+
+/**
  * Pure: reuse gate for a landed apk. True only when the file exists,
  * non-empty, and — when [expectedBytes] > 0 — byte-identical in size.
- * Unknown size (<= 0) keeps the legacy non-empty gate (weak: prefer passing
- * the release-metadata size once available); pre-fix truncated files of
- * unknown size should be deleted once by the wiring task.
+ * Unknown size (<= 0) keeps the legacy non-empty gate (weak: the release
+ * sources that publish `size` — GitHub — now feed [GithubRelease.apkSize]
+ * through, so prefer exact); a leftover `.part` from an interrupted attempt
+ * is resumed by [downloadSingleApk], never silently reused as complete.
  * Intended call site (wiring task): `MainActivity.startUpdateDownload`
  * replaces `!apk.exists() || apk.length() <= 0L` with `!isDownloadComplete(apk, expectedBytes)`.
  */
@@ -486,24 +506,56 @@ fun isSameSignature(context: Context, apkFile: File): Boolean {
 }
 
 private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long): File {
-    val req = Request.Builder().url(url).get().build()
-    updateHttp.newCall(req).execute().use { res ->
-        if (!res.isSuccessful) {
-            throw RuntimeException("Download failed: HTTP ${res.code} ${res.message}")
-        }
-        val body = res.body ?: throw RuntimeException("Download failed: empty file")
-        val declared = body.contentLength()
-        val expect = if (expectedBytes > 0L) expectedBytes else declared
-        val part = partFileFor(destFile)
+    val part = partFileFor(destFile)
+    try {
+        part.parentFile?.mkdirs()
+    } catch (_: Exception) {
+    }
+    val existing = try {
+        if (part.exists()) part.length() else 0L
+    } catch (_: Exception) {
+        0L
+    }
+    var offset = resumeOffsetFor(existing, expectedBytes)
+    if (offset == 0L) {
         try {
-            part.parentFile?.mkdirs()
-            try {
-                if (part.exists()) part.delete()
-            } catch (_: Exception) {
+            if (part.exists()) part.delete()
+        } catch (_: Exception) {
+        }
+    }
+    var restarted = false
+    while (true) {
+        val builder = Request.Builder().url(url).get()
+        if (offset > 0L) builder.header("Range", "bytes=$offset-")
+        var retryFresh = false
+        updateHttp.newCall(builder.build()).execute().use { res ->
+            if (res.code == 416 && offset > 0L && !restarted) {
+                try {
+                    part.delete()
+                } catch (_: Exception) {
+                }
+                offset = 0L
+                restarted = true
+                retryFresh = true
+                return@use
             }
-            var total = 0L
+            if (!res.isSuccessful) {
+                throw RuntimeException("Download failed: HTTP ${res.code} ${res.message}")
+            }
+            val body = res.body ?: throw RuntimeException("Download failed: empty file")
+            if (offset > 0L && res.code == 200) {
+                try {
+                    part.delete()
+                } catch (_: Exception) {
+                }
+                offset = 0L
+            }
+            val declared = body.contentLength()
+            val expect = if (expectedBytes > 0L) expectedBytes
+            else if (declared >= 0L) offset + declared else -1L
+            var total = offset
             body.source().use { src ->
-                part.outputStream().buffered().use { out ->
+                java.io.FileOutputStream(part, offset > 0L).buffered().use { out ->
                     val buf = ByteArray(32 * 1024)
                     while (true) {
                         val n = src.read(buf)
@@ -514,19 +566,19 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
                     out.flush()
                 }
             }
-            if (total <= 0L) throw RuntimeException("Download failed: empty file")
+            if (total <= 0L) {
+                try {
+                    part.delete()
+                } catch (_: Exception) {
+                }
+                throw RuntimeException("Download failed: empty file")
+            }
             if (expect > 0L && total != expect) {
                 throw RuntimeException("Download failed: incomplete file ($total/$expect bytes)")
             }
             destFile.parentFile?.mkdirs()
             if (!part.renameTo(destFile)) throw RuntimeException("Download failed: cannot finalize file")
-        } catch (e: Exception) {
-            try {
-                part.delete()
-            } catch (_: Exception) {
-            }
-            throw e
         }
+        if (!retryFresh) return destFile
     }
-    return destFile
 }
