@@ -353,13 +353,12 @@ private fun DetailHeader(
                     modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
                 )
             } else {
-                Box(
+                AsyncImage(
+                    model = R.drawable.cover_default,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
-                        .background(UiSurface),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AppIcon(AppIconKind.MUSIC_NOTE, UiMuted, size = 40.dp)
-                }
+                )
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {

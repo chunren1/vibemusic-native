@@ -199,6 +199,15 @@ fun absImgUrl(path: String): String {
 fun coverModel(coverUrl: String): String? = absImgUrl(coverUrl).ifBlank { null }
 
 /**
+ * Pure: Coil model with built-in default cover — blank/unloadable URL falls
+ * back to the bundled default artwork instead of null, so inline AsyncImage
+ * call sites never render a gray hole. Prefer this over [coverModel] for any
+ * direct AsyncImage usage; [CoverImage]/[EntryRow] already route here.
+ */
+fun coverModelOrDefault(coverUrl: String): Any =
+    coverModel(coverUrl) ?: R.drawable.cover_default
+
+/**
  * Pure gate: only positively-loadable cover URLs count as "has cover".
  * Blank / "null" / non-http garbage is rejected; relative proxy paths count
  * (absImgUrl resolves them) — so the home gate never hides a playable cover.

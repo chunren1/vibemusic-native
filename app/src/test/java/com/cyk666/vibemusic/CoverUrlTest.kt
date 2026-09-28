@@ -61,6 +61,21 @@ class CoverUrlTest {
         assertEquals("$base/api/image-proxy?url=x", coverModel("/api/image-proxy?url=x"))
     }
 
+    // ---- coverModelOrDefault: inline-AsyncImage fallback ----
+
+    @Test
+    fun orDefault_blankAndNullLiteral_fallBackToBundledArt() {
+        assertEquals(R.drawable.cover_default, coverModelOrDefault(""))
+        assertEquals(R.drawable.cover_default, coverModelOrDefault("null"))
+        assertEquals(R.drawable.cover_default, coverModelOrDefault("  "))
+    }
+
+    @Test
+    fun orDefault_loadableUrl_passesThrough() {
+        assertEquals("https://cdn/x.jpg", coverModelOrDefault("https://cdn/x.jpg"))
+        assertEquals("$base/api/image-proxy?url=x", coverModelOrDefault("/api/image-proxy?url=x"))
+    }
+
     // ---- hasCoverUrl gate ----
 
     @Test

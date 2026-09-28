@@ -85,7 +85,7 @@ fun RecommendImportDialog(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = coverModel(playlist.picUrl),
+                model = coverModelOrDefault(playlist.picUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -170,7 +170,7 @@ private fun HomeSongCard(
     ) {
         Box(modifier = Modifier.size(72.dp)) {
             AsyncImage(
-                model = coverModel(backCoverUrl),
+                model = coverModelOrDefault(backCoverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -180,7 +180,7 @@ private fun HomeSongCard(
                     .background(UiMuted.copy(alpha = 0.25f))
             )
             AsyncImage(
-                model = coverModel(song.coverUrl),
+                model = coverModelOrDefault(song.coverUrl),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
