@@ -50,6 +50,10 @@ fun PlaylistDetailScreen(
     songs: List<Song>,
     songsLoading: Boolean,
     songsError: String? = null,
+    // True only when songs were loaded for this playlist: a refresh that
+    // still holds the previous playlist's list renders it (STALE_LIST)
+    // instead of flashing the empty view.
+    songsFresh: Boolean = true,
     onRetry: () -> Unit = {},
     onBack: () -> Unit = {},
     onGoSearch: () -> Unit = {},
@@ -89,6 +93,40 @@ fun PlaylistDetailScreen(
 
     val vipCount = remember(songs) { countVipSongs(songs) }
     val count = resolveDetailSongCount(songs, songsLoading, playlist.songCount)
+    val songListBlock: @Composable () -> Unit = {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            item(key = "detail-header") {
+                DetailHeader(
+                    playlist = playlist,
+                    count = count,
+                    vipCount = vipCount,
+                    onPlayAll = onPlayAll,
+                    onShare = { onShare(buildShareText(playlist.name, songs)) },
+                    playEnabled = true,
+                    onJoinMine = onJoinMine
+                )
+            }
+            itemsIndexed(
+                visibleSongs,
+                key = { idx, s -> s.sourceId + s.platform + idx }
+            ) { _, song ->
+                SongRow(
+                    model = buildSongRowModel(song),
+                    meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
+                    onClick = { onPlaySong(songs.indexOf(song).takeIf { it >= 0 } ?: 0) },
+                    onOverflow = { songSheetFor = song }
+                )
+            }
+        }
+    }
+    val contentState = resolveDetailContentState(
+        songs = songs,
+        songsLoading = songsLoading,
+        songsError = songsError,
+        songsFresh = songsFresh,
+        filtering = filtering,
+        visibleEmpty = visibleSongs.isEmpty()
+    )
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -146,12 +184,14 @@ fun PlaylistDetailScreen(
                 )
             }
         }
-        if (songsLoading && songs.isEmpty()) {
+        when (contentState) {
+            DetailContentState.LOADING -> {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 DetailHeaderSkeleton()
                 SearchSkeleton()
             }
-        } else if (songsError != null && songs.isEmpty()) {
+            }
+            DetailContentState.ERROR -> {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 DetailHeader(
                     playlist = playlist,
@@ -163,27 +203,33 @@ fun PlaylistDetailScreen(
                     onJoinMine = onJoinMine
                 )
                 Spacer(Modifier.padding(top = 8.dp))
-                DiscoverRetryRow(message = songsError, onRetry = onRetry)
+                DiscoverRetryRow(message = songsError.orEmpty(), onRetry = onRetry)
             }
-        } else if (songs.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
-                DetailHeader(
-                    playlist = playlist,
-                    count = count,
-                    vipCount = vipCount,
-                    onPlayAll = {},
-                    onShare = {},
-                    playEnabled = false,
-                    onJoinMine = onJoinMine
-                )
-                Spacer(Modifier.padding(top = 8.dp))
-                EmptyStateLine(
-                    text = "歌单是空的，去搜索页把喜欢的歌加进来吧",
-                    actionLabel = "去搜索",
-                    onAction = onGoSearch
-                )
             }
-        } else if (filtering && visibleSongs.isEmpty()) {
+            DetailContentState.EMPTY, DetailContentState.STALE_LIST -> {
+            if (contentState == DetailContentState.EMPTY) {
+                Column(Modifier.fillMaxSize().padding(16.dp)) {
+                    DetailHeader(
+                        playlist = playlist,
+                        count = count,
+                        vipCount = vipCount,
+                        onPlayAll = {},
+                        onShare = {},
+                        playEnabled = false,
+                        onJoinMine = onJoinMine
+                    )
+                    Spacer(Modifier.padding(top = 8.dp))
+                    EmptyStateLine(
+                        text = "歌单是空的，去搜索页把喜欢的歌加进来吧",
+                        actionLabel = "去搜索",
+                        onAction = onGoSearch
+                    )
+                }
+            } else {
+                songListBlock()
+            }
+            }
+            DetailContentState.FILTER_EMPTY -> {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 EmptyStateLine(
                     text = "没有匹配「${filterQuery.trim()}」的歌曲",
@@ -191,31 +237,8 @@ fun PlaylistDetailScreen(
                     onAction = { filterQuery = "" }
                 )
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                item(key = "detail-header") {
-                    DetailHeader(
-                        playlist = playlist,
-                        count = count,
-                        vipCount = vipCount,
-                        onPlayAll = onPlayAll,
-                        onShare = { onShare(buildShareText(playlist.name, songs)) },
-                        playEnabled = true,
-                        onJoinMine = onJoinMine
-                    )
-                }
-                itemsIndexed(
-                    visibleSongs,
-                    key = { idx, s -> s.sourceId + s.platform + idx }
-                ) { _, song ->
-                    SongRow(
-                        model = buildSongRowModel(song),
-                        meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
-                        onClick = { onPlaySong(songs.indexOf(song).takeIf { it >= 0 } ?: 0) },
-                        onOverflow = { songSheetFor = song }
-                    )
-                }
             }
+            DetailContentState.LIST -> songListBlock()
         }
     }
     if (showOverflow) {

@@ -215,4 +215,70 @@ class PlaylistDetailTest {
             assertTrue(e.message.orEmpty().contains("404"))
         }
     }
+
+    @Test
+    fun `内容态_首次加载中为空列表`() {
+        assertEquals(
+            DetailContentState.LOADING,
+            resolveDetailContentState(
+                songs = emptyList(), songsLoading = true, songsError = null,
+                songsFresh = true, filtering = false, visibleEmpty = true
+            )
+        )
+    }
+
+    @Test
+    fun `内容态_重进刷新中保留旧歌不闪空`() {
+        assertEquals(
+            DetailContentState.STALE_LIST,
+            resolveDetailContentState(
+                songs = listOf(song("a")), songsLoading = true, songsError = null,
+                songsFresh = false, filtering = false, visibleEmpty = false
+            )
+        )
+    }
+
+    @Test
+    fun `内容态_刷新失败有旧歌显示旧歌`() {
+        assertEquals(
+            DetailContentState.STALE_LIST,
+            resolveDetailContentState(
+                songs = listOf(song("a")), songsLoading = false, songsError = "超时",
+                songsFresh = false, filtering = false, visibleEmpty = false
+            )
+        )
+    }
+
+    @Test
+    fun `内容态_首次失败无旧歌才显示错误`() {
+        assertEquals(
+            DetailContentState.ERROR,
+            resolveDetailContentState(
+                songs = emptyList(), songsLoading = false, songsError = "超时",
+                songsFresh = true, filtering = false, visibleEmpty = true
+            )
+        )
+    }
+
+    @Test
+    fun `内容态_加载完成空列表才是真空`() {
+        assertEquals(
+            DetailContentState.EMPTY,
+            resolveDetailContentState(
+                songs = emptyList(), songsLoading = false, songsError = null,
+                songsFresh = true, filtering = false, visibleEmpty = true
+            )
+        )
+    }
+
+    @Test
+    fun `内容态_同歌单内筛选无匹配走筛选空`() {
+        assertEquals(
+            DetailContentState.FILTER_EMPTY,
+            resolveDetailContentState(
+                songs = listOf(song("a")), songsLoading = false, songsError = null,
+                songsFresh = true, filtering = true, visibleEmpty = true
+            )
+        )
+    }
 }

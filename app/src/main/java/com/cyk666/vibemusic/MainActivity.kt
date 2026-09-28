@@ -320,6 +320,9 @@ class MainActivity : ComponentActivity() {
             var playlistSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
             var songsLoading by remember { mutableStateOf(false) }
             var playlistSongsError by remember { mutableStateOf<String?>(null) }
+            // Which playlist id playlistSongs was loaded for: a refresh that
+            // still holds the previous playlist's list must not render EMPTY.
+            var songsLoadedFor by remember { mutableStateOf<String?>(null) }
             // Same Job-cancel + generation guards as runSearch: fast playlist
             // switching must not land stale songs into the new selection.
             var songsJob by remember { mutableStateOf<Job?>(null) }
@@ -1260,6 +1263,7 @@ class MainActivity : ComponentActivity() {
                         val songs = VibeApi.playlistSongs(pl.id)
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         playlistSongs = songs
+                        songsLoadedFor = plId
                         playlistSongsError = null
                     } catch (e: CancellationException) {
                         throw e
@@ -1300,6 +1304,7 @@ class MainActivity : ComponentActivity() {
                         val songs = VibeApi.recommendDetailSongs("netease", recommendId)
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         playlistSongs = songs
+                        songsLoadedFor = plId
                         playlistSongsError = null
                     } catch (e: CancellationException) {
                         throw e
@@ -3494,6 +3499,7 @@ class MainActivity : ComponentActivity() {
                                 songs = playlistSongs,
                                 songsLoading = songsLoading,
                                 songsError = playlistSongsError,
+                                songsFresh = songsLoadedFor == s.playlist.id,
                                 onRetry = {
                                     val cur = s.playlist
                                     val rid = recommendImportId

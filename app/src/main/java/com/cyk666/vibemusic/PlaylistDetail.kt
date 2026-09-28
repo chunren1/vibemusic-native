@@ -67,3 +67,37 @@ fun isStalePlaylistSongs(
     currentId: String?,
     landedId: String
 ): Boolean = completedGen != latestGen || currentId != landedId
+
+/**
+ * Detail content states: six explicit branches so a refresh of an
+ * already-loaded playlist never flashes the empty view.
+ */
+enum class DetailContentState {
+    LOADING,
+    STALE_LIST,
+    ERROR,
+    EMPTY,
+    FILTER_EMPTY,
+    LIST
+}
+
+/**
+ * Pure: resolve which detail branch to render. songsFresh is true only when
+ * the list was loaded for the currently opened playlist — a refresh that
+ * reuses a previous playlist's list renders STALE_LIST instead of EMPTY.
+ */
+fun resolveDetailContentState(
+    songs: List<Song>,
+    songsLoading: Boolean,
+    songsError: String?,
+    songsFresh: Boolean,
+    filtering: Boolean,
+    visibleEmpty: Boolean
+): DetailContentState = when {
+    songs.isEmpty() && songsLoading -> DetailContentState.LOADING
+    !songsFresh -> DetailContentState.STALE_LIST
+    songs.isEmpty() && songsError != null -> DetailContentState.ERROR
+    songs.isEmpty() -> DetailContentState.EMPTY
+    filtering && visibleEmpty -> DetailContentState.FILTER_EMPTY
+    else -> DetailContentState.LIST
+}
