@@ -226,6 +226,7 @@ class MainActivity : ComponentActivity() {
             var searchError by remember { mutableStateOf<String?>(null) }
             var searchJob by remember { mutableStateOf<Job?>(null) }
             var searchGen by remember { mutableIntStateOf(0) }
+            val searchResultCache = remember { SearchResultCache() }
             // 500ms debounce auto-search job (cancelled + superseded on each keystroke).
             var debounceJob by remember { mutableStateOf<Job?>(null) }
             // Query text that produced `results` (generation-guarded); 联想 live
@@ -536,12 +537,30 @@ class MainActivity : ComponentActivity() {
                 searchJob?.cancel()
                 searchGen += 1
                 val gen = searchGen
+                val cached = searchResultCache.get(kw)
+                if (cached != null) {
+                    results = cached.songs
+                    total = cached.total
+                    searched = true
+                    searchError = null
+                    loading = false
+                    liveQuery = kw
+                    artistFilter = null
+                    scope.launch {
+                        try {
+                            searchHistory = SearchStore.addHistory(context, kw)
+                        } catch (_: Exception) {
+                        }
+                    }
+                    return
+                }
                 loading = true
                 searchError = null
                 searchJob = scope.launch {
                     try {
                         val r = VibeApi.search(kw)
                         if (isStaleSearchResult(gen, searchGen)) return@launch
+                        searchResultCache.put(kw, r.list, r.total)
                         results = r.list
                         total = r.total
                         searched = true

@@ -149,6 +149,53 @@ fun selectSearchBody(
  */
 fun shouldAutoSearchOnLaunch(query: String): Boolean = query.trim().isNotEmpty()
 
+/** Repeat searches within this window render instantly from memory, no network. */
+const val SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L
+
+/** Process-lifetime repeat-search entries; beyond this the oldest drops. */
+const val SEARCH_CACHE_MAX_ENTRIES = 20
+
+/** One cached search: the exact list/total the network returned, plus write time. */
+data class CachedSearch(val songs: List<Song>, val total: Int, val atMs: Long)
+
+/**
+ * Process-lifetime LRU of recent search results. Key is the trimmed keyword
+ * ([VibeApi.search] always runs page 1 / size 20, so no page dim needed).
+ * Fav hearts stay live: rows render from the ambient favIds set, never from
+ * the cached Song objects. Pass [nowMs] in tests; production uses the clock.
+ */
+class SearchResultCache(
+    private val maxEntries: Int = SEARCH_CACHE_MAX_ENTRIES,
+    private val ttlMs: Long = SEARCH_CACHE_TTL_MS,
+    private val clock: () -> Long = System::currentTimeMillis
+) {
+    private val map = LinkedHashMap<String, CachedSearch>(maxEntries, 0.75f, true)
+
+    fun get(keyword: String, nowMs: Long = clock()): CachedSearch? {
+        val entry = map[keyword.trim()] ?: return null
+        if (nowMs - entry.atMs > ttlMs) {
+            map.remove(keyword.trim())
+            return null
+        }
+        return entry
+    }
+
+    fun put(keyword: String, songs: List<Song>, total: Int, nowMs: Long = clock()) {
+        val key = keyword.trim()
+        if (key.isEmpty()) return
+        map[key] = CachedSearch(songs, total, nowMs)
+        while (map.size > maxEntries) {
+            map.remove(map.keys.first())
+        }
+    }
+
+    fun clear() {
+        map.clear()
+    }
+
+    fun size(): Int = map.size
+}
+
 /**
  * 联想 overlay 可见性事件（dismiss/re-show 触发器，纯状态机）：
  * SELECT = 点选一条联想/历史项（立即隐藏，结果干净露出）；
