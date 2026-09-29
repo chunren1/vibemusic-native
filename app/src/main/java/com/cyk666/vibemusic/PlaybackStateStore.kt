@@ -218,6 +218,7 @@ object QueueStore {
     private val KEY_POSITIONS_TS = stringPreferencesKey("positions_ts_json")
     private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check_ms")
     private val KEY_UPDATE_CHANNEL = stringPreferencesKey("update_channel")
+    private val KEY_ORIENTATION_MODE = stringPreferencesKey("orientation_mode")
     private val KEY_HAS_LAUNCHED = booleanPreferencesKey("has_launched_before")
     private val KEY_LAST_AUTH_FAIL = stringPreferencesKey("last_auth_fail")
     private val KEY_LAST_AUTH_FAIL_TS = longPreferencesKey("last_auth_fail_ts_ms")
@@ -414,6 +415,25 @@ object QueueStore {
             }.first()
         } catch (_: Exception) {
             UpdateChannel.STABLE
+        }
+    }
+
+    suspend fun saveOrientationMode(context: Context, mode: OrientationMode) {
+        try {
+            context.playbackDataStore.edit { p ->
+                p[KEY_ORIENTATION_MODE] = mode.name
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadOrientationMode(context: Context): OrientationMode {
+        return try {
+            context.playbackDataStore.data.map { p ->
+                parseOrientationMode(p[KEY_ORIENTATION_MODE])
+            }.first()
+        } catch (_: Exception) {
+            OrientationMode.LOCK_PORTRAIT
         }
     }
 

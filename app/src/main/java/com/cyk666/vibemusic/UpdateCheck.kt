@@ -251,6 +251,22 @@ fun updateChannelSubtitle(channel: UpdateChannel): String =
     if (channel == UpdateChannel.BETA) "测试版 · 含预发布版本，可能不稳定"
     else "正式版 · 只接收稳定更新"
 
+/** 屏幕方向偏好：默认锁定竖屏（旋转会重建 Activity 丢界面态），跟随系统则交还传感器。 */
+enum class OrientationMode {
+    LOCK_PORTRAIT,
+    FOLLOW_SYSTEM
+}
+
+/** Pure: resolve a persisted orientation-mode string. Blank/unknown → LOCK_PORTRAIT (default). */
+fun parseOrientationMode(raw: String?): OrientationMode =
+    if (raw?.trim().equals("FOLLOW_SYSTEM", ignoreCase = true)) OrientationMode.FOLLOW_SYSTEM
+    else OrientationMode.LOCK_PORTRAIT
+
+/** Pure: settings 屏幕方向 row subtitle describing what each mode does. */
+fun orientationModeSubtitle(mode: OrientationMode): String =
+    if (mode == OrientationMode.FOLLOW_SYSTEM) "跟随系统 · 旋转会重建界面并回到首页"
+    else "锁定竖屏 · 旋转不再丢界面"
+
 /**
  * Pure: one-line note shown in the update dialog when the release is a
  * prerelease; null for stable releases (dialog unchanged).

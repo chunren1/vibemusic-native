@@ -222,6 +222,48 @@ fun UpdateChannelRow(
 }
 
 @Composable
+fun OrientationModeRow(
+    mode: OrientationMode,
+    onSelect: (OrientationMode) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "屏幕方向",
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = orientationModeSubtitle(mode),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        TextButton(
+            onClick = { onSelect(OrientationMode.LOCK_PORTRAIT) },
+            enabled = mode != OrientationMode.LOCK_PORTRAIT
+        ) {
+            Text(if (mode == OrientationMode.LOCK_PORTRAIT) "✓锁定竖屏" else "锁定竖屏")
+        }
+        TextButton(
+            onClick = { onSelect(OrientationMode.FOLLOW_SYSTEM) },
+            enabled = mode != OrientationMode.FOLLOW_SYSTEM
+        ) {
+            Text(if (mode == OrientationMode.FOLLOW_SYSTEM) "✓跟随系统" else "跟随系统")
+        }
+    }
+}
+
+@Composable
 fun VersionRow(
     versionLabel: String,
     checking: Boolean,
@@ -276,6 +318,8 @@ fun SettingsScreen(
     onCheckUpdate: () -> Unit,
     updateChannel: UpdateChannel = UpdateChannel.STABLE,
     onSelectChannel: (UpdateChannel) -> Unit = {},
+    orientationMode: OrientationMode = OrientationMode.LOCK_PORTRAIT,
+    onSelectOrientation: (OrientationMode) -> Unit = {},
     onClearCache: () -> Unit,
     onBack: () -> Unit,
     keepAliveIgnoring: Boolean = false,
@@ -554,6 +598,10 @@ fun SettingsScreen(
         UpdateChannelRow(
             channel = updateChannel,
             onSelect = onSelectChannel
+        )
+        OrientationModeRow(
+            mode = orientationMode,
+            onSelect = onSelectOrientation
         )
         VersionRow(
             versionLabel = versionLabel,

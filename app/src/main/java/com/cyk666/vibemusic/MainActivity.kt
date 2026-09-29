@@ -3,6 +3,7 @@ package com.cyk666.vibemusic
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -372,6 +373,33 @@ class MainActivity : ComponentActivity() {
                     } catch (_: Exception) {
                     }
                 }
+            }
+            var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
+            fun applyOrientationMode(mode: OrientationMode) {
+                requestedOrientation = if (mode == OrientationMode.FOLLOW_SYSTEM) {
+                    ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                } else {
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+            }
+            fun setOrientationMode(mode: OrientationMode) {
+                orientationMode = mode
+                applyOrientationMode(mode)
+                scope.launch {
+                    try {
+                        QueueStore.saveOrientationMode(context, mode)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            LaunchedEffect("orientation-mode") {
+                val loaded = try {
+                    QueueStore.loadOrientationMode(context)
+                } catch (_: Exception) {
+                    OrientationMode.LOCK_PORTRAIT
+                }
+                orientationMode = loaded
+                applyOrientationMode(loaded)
             }
             LaunchedEffect("update-channel") {
                 updateChannel = try {
@@ -3574,6 +3602,8 @@ class MainActivity : ComponentActivity() {
                                 onCheckUpdate = ::runManualUpdateCheck,
                                 updateChannel = updateChannel,
                                 onSelectChannel = ::setUpdateChannel,
+                                orientationMode = orientationMode,
+                                onSelectOrientation = ::setOrientationMode,
                                 onClearCache = ::clearMediaCache,
                                 onBack = { screen = Screen.Mine },
                                 keepAliveIgnoring = keepAliveIgnoring,
