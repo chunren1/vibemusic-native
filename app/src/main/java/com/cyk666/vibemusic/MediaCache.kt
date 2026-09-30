@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.database.ExoDatabaseProvider
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -93,6 +94,51 @@ object MediaCache {
         if (url.isBlank()) return 0L
         return try {
             get(context).getCachedBytes(url, 0L, Long.MAX_VALUE).coerceAtLeast(0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Prefetch warm-up: pull head bytes of [song]'s stream through the cache
+     * pipeline so the next-track switch starts from warm bytes. BLOCKING
+     * network+disk I/O — call ONLY on Dispatchers.IO. Never throws.
+     */
+    fun warmUp(
+        context: Context,
+        song: Song,
+        upstream: DataSource.Factory,
+        maxBytes: Long = 256L * 1024L
+    ): Long {
+        if (song.sourceId.isBlank() || song.sourceId.startsWith("local:")) return 0L
+        if (maxBytes <= 0L) return 0L
+        return try {
+            val app = context.applicationContext ?: context
+            val url = song.streamUrl()
+            if (get(app).getCachedBytes(url, 0L, maxBytes).coerceAtLeast(0L) >= maxBytes) return 0L
+            val source = cachedDataSourceFactory(app, upstream).createDataSource()
+            val spec = DataSpec(android.net.Uri.parse(url))
+            var total = 0L
+            val buf = ByteArray(32 * 1024)
+            try {
+                if (source.open(spec) < 0) return 0L
+                while (total < maxBytes) {
+                    val n = try {
+                        source.read(buf, 0, buf.size)
+                    } catch (_: Exception) {
+                        break
+                    }
+                    if (n <= 0) break
+                    total += n
+                }
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    source.close()
+                } catch (_: Exception) {
+                }
+            }
+            total.coerceAtLeast(0L)
         } catch (_: Exception) {
             0L
         }

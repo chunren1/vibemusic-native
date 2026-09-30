@@ -19,6 +19,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -194,6 +195,52 @@ const val KEEP_ALIVE_VENDOR_HINT =
     "vivo/OriginOS：①设置→电池→后台耗电管理→允许后台高耗电 ②应用与权限→权限管理→自启动 " +
         "③最近任务长按卡片下拉锁定。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
 
+/**
+ * Pure: 按厂商返回保活指引（Build.MANUFACTURER 小写后传入；未知厂商回退通用版）。
+ * KEEP_ALIVE_VENDOR_HINT 保持 vivo 原文不动（存量单测钉死），这里只做路由。
+ */
+fun oemGuideFor(manufacturer: String): String {
+    val m = manufacturer.trim().lowercase()
+    return when {
+        "xiaomi" in m || "redmi" in m ->
+            "小米/MIUI：①设置→应用设置→授权管理→自启动管理→允许 ②设置→电池与性能→应用省电策略→无限制 " +
+                "③最近任务长按卡片下拉锁定。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+        "huawei" in m || "honor" in m ->
+            "华为/荣耀：①设置→应用→应用启动管理→允许自启动+关联启动+后台活动 ②设置→电池→应用耗电管理→允许后台高耗电 " +
+                "③最近任务长按卡片加锁。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+        "oppo" in m || "oneplus" in m || "realme" in m ->
+            "OPPO/一加：①设置→电池→应用耗电管理→允许后台运行 ②设置→应用管理→自启动管理→允许 " +
+                "③最近任务长按卡片锁定。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+        "vivo" in m || "iqoo" in m -> KEEP_ALIVE_VENDOR_HINT
+        "samsung" in m ->
+            "三星：①设置→电池→后台使用限制→从不休眠的应用→添加本 App ②设置→应用→自启动→允许 " +
+                "③最近任务锁定本 App。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+        else ->
+            "通用：①系统设置→电池→忽略电池优化→允许本 App ②允许自启动 ③最近任务锁定本 App 卡片 " +
+                "④确认通知权限已开启。若播放键仍无反应，点一下通知正文回到 App 即可恢复"
+    }
+}
+
+/** 后台保活自查两项（纯展示模型，状态由调用方从系统 API 读取）。 */
+data class KeepAliveCheck(val batteryIgnoring: Boolean, val notificationsEnabled: Boolean)
+
+/** Pure: 自查是否全过（白名单 + 通知权限缺一不可）。 */
+fun keepAliveAllOk(check: KeepAliveCheck): Boolean =
+    check.batteryIgnoring && check.notificationsEnabled
+
+/** Pure: 通知权限行文案。 */
+fun notificationCheckLabel(enabled: Boolean): String =
+    if (enabled) "通知权限：已开启 · 播放控制可显示"
+    else "通知权限：未开启 · 播放控制无法显示，请开启"
+
+/** Pure: 自查汇总行（设置页自查卡片副标题）。 */
+fun keepAliveCheckSummary(check: KeepAliveCheck): String = when {
+    check.batteryIgnoring && check.notificationsEnabled -> "自查通过 · 白名单与通知均正常"
+    !check.batteryIgnoring && !check.notificationsEnabled -> "2 项待处理：白名单未开 · 通知未开"
+    !check.batteryIgnoring -> "1 项待处理：白名单未开"
+    else -> "1 项待处理：通知未开"
+}
+
 /** Sums *.mp3 bytes under [dir] (offline downloads); no Context, unit-testable. */
 
 // ---- Shared atoms ----
@@ -203,7 +250,10 @@ const val KEEP_ALIVE_VENDOR_HINT =
 fun EmptyStateLine(
     text: String,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+    actionEnabled: Boolean = true
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -218,9 +268,19 @@ fun EmptyStateLine(
             Spacer(Modifier.padding(top = 4.dp))
             OutlinedButton(
                 onClick = onAction,
+                enabled = actionEnabled,
                 modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
             ) {
                 Text(actionLabel)
+            }
+        }
+        if (secondaryActionLabel != null && onSecondaryAction != null) {
+            Spacer(Modifier.padding(top = 4.dp))
+            TextButton(
+                onClick = onSecondaryAction,
+                modifier = Modifier.heightIn(min = MIN_TOUCH_DP.dp)
+            ) {
+                Text(secondaryActionLabel)
             }
         }
     }

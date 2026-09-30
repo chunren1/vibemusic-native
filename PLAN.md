@@ -121,6 +121,16 @@ Media3 `MediaSessionService` + 通知栏。
 
 二期（本次不排）：assistant AI 聊天、歌单文件导出、桌面歌词、Android Auto。
 
+> 歌词 batch（2026-09-30）锁屏/桌面歌词范围结论：**defer，维持二期**。
+> - 锁屏逐行歌词：需每次换行更新 MediaSession metadata + 通知重建（约每 3~5s 一次），
+>   通知抖动+耗电，且各 OEM 锁屏样式不保证透出逐行文本；静态全量歌词塞 description
+>   又与播放进度脱节——投入约 1~2 天，收益低，不做。
+> - 桌面悬浮歌词：需 SYSTEM_ALERT_WINDOW 权限申请链 + 常驻悬浮窗 Service + 播放位置
+>   同步 + 保活，新增权限与常驻组件，投入约 3~5 天（含 OEM 适配），不属于本次 batch。
+> - 本 batch 已交付：无歌词原因说明 + 一键换源、单曲 ±2s 手动校准（持久化）。
+>   悬浮/锁屏若将来立项，前置条件是本 batch 的 effective-clock（applyLyricOffset）
+>   直接复用为同步时钟源。
+
 ## 6. AI 军规（本计划最高优先级）
 
 1. 一次一改，一改一装机，真机验证；不攒改动。

@@ -180,6 +180,56 @@ fun CacheManageRow(
 }
 
 @Composable
+fun KeepAliveSelfCheckRow(
+    check: KeepAliveCheck,
+    oemGuide: String,
+    onOpenBatterySettings: () -> Unit,
+    onOpenNotificationSettings: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SettingsRowShell(
+            title = "保活自查",
+            subtitle = keepAliveCheckSummary(check),
+            showChevron = false,
+            trailing = {
+                Text(
+                    text = if (keepAliveAllOk(check)) "✓" else "!",
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        )
+        SettingsRowShell(
+            title = if (check.batteryIgnoring) "白名单：已开启" else "白名单：未开启",
+            subtitle = "暂停久了不被系统清理靠它",
+            showChevron = false,
+            onClick = if (check.batteryIgnoring) null else onOpenBatterySettings,
+            trailing = {
+                if (!check.batteryIgnoring) {
+                    TextButton(onClick = onOpenBatterySettings) { Text("去开启") }
+                }
+            }
+        )
+        SettingsRowShell(
+            title = notificationCheckLabel(check.notificationsEnabled),
+            subtitle = "通知关了就看不到播放控制",
+            showChevron = false,
+            onClick = if (check.notificationsEnabled) null else onOpenNotificationSettings,
+            trailing = {
+                if (!check.notificationsEnabled) {
+                    TextButton(onClick = onOpenNotificationSettings) { Text("去开启") }
+                }
+            }
+        )
+        Text(
+            text = oemGuide.ifBlank { KEEP_ALIVE_VENDOR_HINT },
+            style = MaterialTheme.typography.bodySmall,
+            color = GrayMuted,
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+        )
+    }
+}
+
+@Composable
 fun UpdateChannelRow(
     channel: UpdateChannel,
     onSelect: (UpdateChannel) -> Unit
@@ -324,6 +374,9 @@ fun SettingsScreen(
     onBack: () -> Unit,
     keepAliveIgnoring: Boolean = false,
     onOpenBatterySettings: () -> Unit = {},
+    notificationsEnabled: Boolean = true,
+    oemGuide: String = KEEP_ALIVE_VENDOR_HINT,
+    onOpenNotificationSettings: () -> Unit = {},
     onLoginClick: () -> Unit = {},
     onLogout: () -> Unit = {},
     onChangePassword: (String, String) -> Unit = { _, _ -> },
@@ -464,6 +517,16 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
             }
+            MineDivider()
+            val keepAliveCheck = remember(keepAliveIgnoring, notificationsEnabled) {
+                KeepAliveCheck(keepAliveIgnoring, notificationsEnabled)
+            }
+            KeepAliveSelfCheckRow(
+                check = keepAliveCheck,
+                oemGuide = oemGuide,
+                onOpenBatterySettings = onOpenBatterySettings,
+                onOpenNotificationSettings = onOpenNotificationSettings
+            )
         }
         SettingsSectionTitle("关于与退出")
         MineSectionCard {

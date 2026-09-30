@@ -223,6 +223,7 @@ object QueueStore {
     private val KEY_LAST_AUTH_FAIL = stringPreferencesKey("last_auth_fail")
     private val KEY_LAST_AUTH_FAIL_TS = longPreferencesKey("last_auth_fail_ts_ms")
     private val KEY_LAST_POSITION_SAVE_TS = longPreferencesKey("last_position_save_ts_ms")
+    private val KEY_LYRIC_OFFSETS = stringPreferencesKey("lyric_offsets_json")
 
     suspend fun saveQueue(context: Context, songs: List<Song>, index: Int) {
         // 切歌在 Main 上调用本方法：大歌单的 JSON 序列化（百 KB 级）挪到 Default，
@@ -482,6 +483,37 @@ object QueueStore {
             context.playbackDataStore.data.map { p ->
                 p[KEY_LAST_POSITION_SAVE_TS] ?: 0L
             }.first().coerceAtLeast(0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Manual karaoke offset per song, keyed by playKey (<platform>:<sourceId>)
+     * like positions. Zero is not stored (entry removed) so the map only
+     * holds real calibrations; same JSON codec + prune idiom as positions.
+     */
+    suspend fun saveLyricOffset(context: Context, key: String, offsetMs: Long) {
+        if (key.isBlank()) return
+        try {
+            context.playbackDataStore.edit { p ->
+                val updated = parsePositions(p[KEY_LYRIC_OFFSETS].orEmpty()).toMutableMap()
+                updated.remove(key)
+                val v = clampLyricOffset(offsetMs)
+                if (v != 0L) updated[key] = v
+                p[KEY_LYRIC_OFFSETS] =
+                    renderPositions(pruneOldestEntries(updated, POSITIONS_MAX_ENTRIES))
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadLyricOffset(context: Context, key: String): Long {
+        if (key.isBlank()) return 0L
+        return try {
+            context.playbackDataStore.data.map { p ->
+                parsePositions(p[KEY_LYRIC_OFFSETS].orEmpty())[key] ?: 0L
+            }.first().let { clampLyricOffset(it) }
         } catch (_: Exception) {
             0L
         }

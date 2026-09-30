@@ -32,11 +32,17 @@ interface VibeService {
     fun search(
         @Query("keyword") keyword: String,
         @Query("page") page: Int = 1,
-        @Query("size") size: Int = 20
+        @Query("size") size: Int = 20,
+        @Query("platform") platform: String? = null
     ): Call<ResponseBody>
 }
 
-data class SearchResult(val list: List<Song>, val total: Int)
+data class SearchResult(
+    val list: List<Song>,
+    val total: Int,
+    /** 空结果回退建议（后端拼音别名/纠错下发），无建议时 null；加性字段，老包直接忽略。 */
+    val suggestedKeyword: String? = null
+)
 
 data class LoggedInUser(
     val userId: String,
@@ -586,8 +592,13 @@ object VibeApi {
 
     // ---- search (guest untouched: no token -> no header) ----
 
-    suspend fun search(keyword: String, page: Int = 1, size: Int = 20): SearchResult {
-        val body = awaitCall(service.search(keyword, page, size))
+    suspend fun search(
+        keyword: String,
+        page: Int = 1,
+        size: Int = 20,
+        platform: String? = null
+    ): SearchResult {
+        val body = awaitCall(service.search(keyword, page, size, platform))
         return parseSearch(body)
     }
 
@@ -614,7 +625,28 @@ object VibeApi {
                 )
             }
         }
-        return SearchResult(out, data.optInt("total", out.size))
+        // 加性字段：老后端无此键时 optString 回 ""，统一折 null（调用方只判 null）
+        val suggested = data.optString("suggestedKeyword").ifBlank { null }
+        return SearchResult(out, data.optInt("total", out.size), suggested)
+    }
+
+    /**
+     * 热门搜索关键词云端同步（GET /api/songs/hotwords，公开接口）。
+     * 失败抛错由调用方落回本地 SEARCH_HOTWORDS，此处只做解析。
+     */
+    suspend fun hotwords(): List<String> = parseHotwords(rawGet("api/songs/hotwords"))
+
+    /** Pure 热搜信封解析：data 数组转字符串列表；缺 data 时回空列表（调用方落回本地表）。 */
+    fun parseHotwords(json: String): List<String> {
+        val root = JSONObject(json)
+        checkEnvelope(root, "Hotwords")
+        val arr = root.optJSONArray("data") ?: return emptyList()
+        val out = ArrayList<String>(arr.length())
+        for (i in 0 until arr.length()) {
+            val w = arr.optString(i).trim()
+            if (w.isNotEmpty() && !out.contains(w)) out.add(w)
+        }
+        return out
     }
 
     // ---- auth (raw OkHttp so POST JSON stays dependency-free) ----

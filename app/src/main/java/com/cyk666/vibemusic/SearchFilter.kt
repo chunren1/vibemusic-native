@@ -242,6 +242,58 @@ const val LIVE_SUGGEST_MAX = 5
 const val SUGGEST_TOTAL_MAX = 8
 
 /**
+ * 拼音全拼/首字母 → 标准热词（与后端 SearchQueryHints.PINYIN_ALIASES 同源；
+ * 热词增删时两边同步。全量拼音库因包体积暂缓，此处仅覆盖热词）。
+ */
+val SEARCH_PINYIN_ALIASES: Map<String, String> = mapOf(
+    "zhoujielun" to "周杰伦",
+    "zjl" to "周杰伦",
+    "chenyixun" to "陈奕迅",
+    "cyx" to "陈奕迅",
+    "linjunjie" to "林俊杰",
+    "ljj" to "林俊杰",
+    "dengziqi" to "邓紫棋",
+    "dzq" to "邓紫棋",
+    "qingtian" to "晴天",
+    "qt" to "晴天",
+    "daoxiang" to "稻香",
+    "dx" to "稻香",
+    "yequ" to "夜曲",
+    "yq" to "夜曲",
+    "qilixiang" to "七里香",
+    "qlx" to "七里香",
+    "gaobaiqiqiu" to "告白气球",
+    "gbqq" to "告白气球",
+    "rege" to "热歌",
+    "rg" to "热歌"
+)
+
+/**
+ * 归一化搜索输入：去首尾空白、转小写、压缩连续空白（CJK 原样保留）。
+ * 全半角折叠由后端 NFKC 承担，此处只做联想匹配用的轻归一。
+ */
+fun normalizeSearchInput(input: String): String =
+    input.trim().lowercase().replace(Regex("\\s+"), " ")
+
+/**
+ * 拼音/首字母解析：命中别名返回标准词，否则 null（大小写与空格不敏感）。
+ */
+fun resolveSearchAlias(input: String): String? {
+    val key = normalizeSearchInput(input).replace(" ", "")
+    if (key.isEmpty()) return null
+    return SEARCH_PINYIN_ALIASES[key]
+}
+
+/** 分源重查平台（code 走后端 platform 参数，label 仅展示）。 */
+val SEARCH_PLATFORMS: List<Pair<String, String>> = listOf(
+    "netease" to "网易云",
+    "qq" to "QQ",
+    "migu" to "咪咕",
+    "kugou" to "酷狗",
+    "bilibili" to "B站"
+)
+
+/**
  * Pure 联想 builder: history substring matches first, then hotword substring
  * matches, then live top-5 song names (the caller gates [liveResults] to the
  * latest completed search via the generation counter — only pass them when
@@ -270,6 +322,8 @@ fun buildSuggestions(
     for (w in hotwords) {
         if (w.contains(q, ignoreCase = true)) add(w, SuggestSource.HOTWORD)
     }
+    // 拼音/首字母直达（如 zjl → 周杰伦）：无匹配时不加行，有则去重并入
+    resolveSearchAlias(q)?.let { add(it, SuggestSource.HOTWORD) }
     var liveAdded = 0
     for (s in liveResults) {
         if (liveAdded >= LIVE_SUGGEST_MAX || out.size >= SUGGEST_TOTAL_MAX) break

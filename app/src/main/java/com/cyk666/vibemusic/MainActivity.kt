@@ -108,6 +108,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -243,6 +244,9 @@ class MainActivity : ComponentActivity() {
             var searchGuessSongs by remember { mutableStateOf(listOf<Song>()) }
             var searchGuessLoading by remember { mutableStateOf(false) }
             var searchGuessError by remember { mutableStateOf<String?>(null) }
+            // 空结果回退建议（后端下发，换词即清）与云端热搜（拉取失败沿用本地表）
+            var searchSuggested by remember { mutableStateOf<String?>(null) }
+            var cloudHotwords by remember { mutableStateOf(SEARCH_HOTWORDS) }
             var queue by remember { mutableStateOf<List<Song>>(emptyList()) }
             var currentIndex by remember { mutableIntStateOf(0) }
             // Raw controller timeline (durations unknown); durations resolve from
@@ -412,12 +416,43 @@ class MainActivity : ComponentActivity() {
             // ---- 后台保活状态（vivo 实测：暂停后 2-3 分钟进程被清 → 通知栏播放键"点了没反应"；
             // 根因是 Media3 暂停必退前台（框架硬编码），系统白名单是现实解，见设置页"后台保活"）----
             var keepAliveIgnoring by remember { mutableStateOf(true) }
+            var notificationsEnabled by remember { mutableStateOf(true) }
             fun refreshKeepAlive() {
                 keepAliveIgnoring = try {
                     val pm = context.getSystemService(PowerManager::class.java)
                     pm?.isIgnoringBatteryOptimizations(context.packageName) == true
                 } catch (_: Exception) {
                     false
+                }
+                notificationsEnabled = try {
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+                } catch (_: Exception) {
+                    true
+                }
+            }
+            fun openNotificationSettings() {
+                val pkg = context.packageName
+                val intent = try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
+                        }
+                    } else {
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$pkg")
+                        }
+                    }
+                } catch (_: Exception) {
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        try {
+                            data = Uri.parse("package:$pkg")
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                try {
+                    context.startActivity(intent)
+                } catch (_: Exception) {
                 }
             }
             fun openBatterySettings() {
@@ -483,6 +518,11 @@ class MainActivity : ComponentActivity() {
             // ---- lyrics cache (activity-level, memory only, per sourceId) ----
             var lyricStates by remember { mutableStateOf(mapOf<String, LyricUiState>()) }
             val activeSong = queue.getOrNull(currentIndex)
+            // Lyrics batch: per-song manual karaoke offset (persisted, keyed
+            // by playKey like positions) + one-tap source-switch busy flag.
+            var lyricOffsets by remember { mutableStateOf(mapOf<String, Long>()) }
+            var lyricSwitching by remember { mutableStateOf(false) }
+            val activeLyricKey = activeSong?.let(::playKey).orEmpty()
             LaunchedEffect(activeSong?.sourceId) {
                 val id = activeSong?.sourceId
                 if (id.isNullOrBlank()) return@LaunchedEffect
@@ -492,6 +532,15 @@ class MainActivity : ComponentActivity() {
                     lyricStates + (id to LyricUiState.Ok(VibeApi.lyric(id)))
                 } catch (_: Exception) {
                     lyricStates + (id to LyricUiState.Failed)
+                }
+            }
+            LaunchedEffect(activeLyricKey) {
+                if (activeLyricKey.isBlank()) return@LaunchedEffect
+                if (lyricOffsets.containsKey(activeLyricKey)) return@LaunchedEffect
+                lyricOffsets = try {
+                    lyricOffsets + (activeLyricKey to QueueStore.loadLyricOffset(context, activeLyricKey))
+                } catch (_: Exception) {
+                    lyricOffsets
                 }
             }
             LaunchedEffect(sleepDeadlineMs) {
@@ -528,7 +577,31 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun runSearch(keyword: String) {
+            // Lyrics batch: drop the failed/cached entry so the sourceId-keyed
+            // LaunchedEffect above refetches (retry for LOAD_FAILED).
+            fun retryLyric() {
+                val id = activeSong?.sourceId
+                if (id.isNullOrBlank()) return
+                lyricStates = lyricStates - id
+            }
+
+            // Lyrics batch: manual karaoke offset — memory map first (UI snaps
+            // instantly), DataStore persist behind (survives process death).
+            fun onLyricOffsetChange(offsetMs: Long) {
+                val song = queue.getOrNull(currentIndex) ?: return
+                if (song.sourceId.isBlank()) return
+                val key = playKey(song)
+                val v = clampLyricOffset(offsetMs)
+                lyricOffsets = lyricOffsets + (key to v)
+                scope.launch {
+                    try {
+                        QueueStore.saveLyricOffset(context, key, v)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            fun runSearch(keyword: String, platform: String? = null) {
                 val kw = keyword.trim()
                 if (kw.isEmpty()) {
                     showError("请输入搜索关键词")
@@ -537,12 +610,15 @@ class MainActivity : ComponentActivity() {
                 searchJob?.cancel()
                 searchGen += 1
                 val gen = searchGen
-                val cached = searchResultCache.get(kw)
+                // 分源重查走独立缓存键，不污染全源结果
+                val cacheKey = if (platform == null) kw else "$kw@$platform"
+                val cached = searchResultCache.get(cacheKey)
                 if (cached != null) {
                     results = cached.songs
                     total = cached.total
                     searched = true
                     searchError = null
+                    searchSuggested = null
                     loading = false
                     liveQuery = kw
                     artistFilter = null
@@ -556,15 +632,17 @@ class MainActivity : ComponentActivity() {
                 }
                 loading = true
                 searchError = null
+                searchSuggested = null
                 searchJob = scope.launch {
                     try {
-                        val r = VibeApi.search(kw)
+                        val r = VibeApi.search(kw, platform = platform)
                         if (isStaleSearchResult(gen, searchGen)) return@launch
-                        searchResultCache.put(kw, r.list, r.total)
+                        searchResultCache.put(cacheKey, r.list, r.total)
                         results = r.list
                         total = r.total
                         searched = true
                         searchError = null
+                        searchSuggested = r.suggestedKeyword
                         liveQuery = kw
                         artistFilter = null
                         try {
@@ -576,6 +654,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         if (isStaleSearchResult(gen, searchGen)) return@launch
                         searchError = friendlyNetworkMessage(e)
+                        searchSuggested = null
                         // A failed attempt still counts as searched: the result
                         // branch owns the error UI, otherwise a first-search
                         // failure renders a blank screen with no retry.
@@ -810,6 +889,35 @@ class MainActivity : ComponentActivity() {
                         persistQueue()
                     } catch (e: Exception) {
                         showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+            }
+
+            // Lyrics batch: one-tap switch to the same song on another source
+            // (netease/qq/kugou lyric coverage differs). Declared after
+            // playSingleFromSearch (local funs resolve in order) and reuses
+            // that search-tap path, so queue placement + gates stay identical.
+            fun switchLyricSource() {
+                val song = queue.getOrNull(currentIndex) ?: return
+                if (lyricSwitching) return
+                scope.launch {
+                    lyricSwitching = true
+                    try {
+                        val kw = listOf(song.name, song.artist)
+                            .filter { it.isNotBlank() }.joinToString(" ")
+                        if (kw.isBlank()) {
+                            showError("歌名未知，无法换源")
+                            return@launch
+                        }
+                        val res = VibeApi.search(kw, 1, 20)
+                        val alt = pickAlternateSource(res.list, song)
+                        if (alt == null) showError("没找到这首歌的其他版本")
+                        else playSingleFromSearch(alt)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        showError("换源失败: ${friendlyNetworkMessage(e)}")
+                    } finally {
+                        lyricSwitching = false
                     }
                 }
             }
@@ -2689,6 +2797,14 @@ class MainActivity : ComponentActivity() {
                     searchHistory = SearchStore.loadHistory(context)
                 } catch (_: Exception) {
                 }
+                // 热搜云端同步：失败沿用本地 SEARCH_HOTWORDS，不打断启动
+                scope.launch {
+                    try {
+                        val remote = VibeApi.hotwords()
+                        if (remote.isNotEmpty()) cloudHotwords = remote
+                    } catch (_: Exception) {
+                    }
+                }
                 if (shouldAutoSearchOnLaunch(query)) runSearch(query)
                 loadSearchGuess()
                 // Self-update: once per cold start + 24h throttle; silent unless newer.
@@ -3266,10 +3382,25 @@ class MainActivity : ComponentActivity() {
                                 downloadedKeys = downloadedKeys,
                                 favIds = favIds,
                                 onToggleFav = ::toggleFav,
+                                suggestedKeyword = searchSuggested,
+                                onSuggestionSearch = { s ->
+                                    debounceJob?.cancel()
+                                    suggestVisible = reduceSuggestOverlayVisible(
+                                        suggestVisible,
+                                        SuggestOverlayEvent.SELECT
+                                    )
+                                    query = s
+                                    runSearch(s)
+                                },
+                                onPlatformSearch = { code ->
+                                    debounceJob?.cancel()
+                                    if (query.trim().isNotEmpty()) runSearch(query, code)
+                                },
+                                hotwords = cloudHotwords,
                                 suggestions = run {
                                     val built = buildSuggestions(
                                         searchHistory,
-                                        SEARCH_HOTWORDS,
+                                        cloudHotwords,
                                         if (query.trim().isNotBlank() &&
                                             query.trim() == liveQuery
                                         ) {
@@ -3310,6 +3441,11 @@ class MainActivity : ComponentActivity() {
                                 positionMs = positionMs,
                                 durationMs = durationMs,
                                 lyricState = lyricStates[activeSong?.sourceId],
+                                lyricOffsetMs = lyricOffsets[activeLyricKey] ?: 0L,
+                                onLyricOffsetChange = { onLyricOffsetChange(it) },
+                                onSwitchLyricSource = { switchLyricSource() },
+                                lyricSwitching = lyricSwitching,
+                                onRetryLyric = { retryLyric() },
                                 sleepLabel = sleepLabel,
                                 onSleepClick = { showSleepDialog = true },
                                 onPlayPause = {
@@ -3627,6 +3763,15 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screen = Screen.Mine },
                                 keepAliveIgnoring = keepAliveIgnoring,
                                 onOpenBatterySettings = ::openBatterySettings,
+                                notificationsEnabled = notificationsEnabled,
+                                oemGuide = remember {
+                                    try {
+                                        oemGuideFor(Build.MANUFACTURER.orEmpty())
+                                    } catch (_: Exception) {
+                                        KEEP_ALIVE_VENDOR_HINT
+                                    }
+                                },
+                                onOpenNotificationSettings = ::openNotificationSettings,
                                 playDiagLine = playDiagLabel(
                                     PlayDiag.lastCode(context),
                                     PlayDiag.lastTs(context)

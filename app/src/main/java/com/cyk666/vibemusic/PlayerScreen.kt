@@ -276,6 +276,48 @@ private fun PlayerSeekSection(
 }
 
 @Composable
+private fun LyricOffsetRow(
+    offsetMs: Long,
+    onStep: (Int) -> Unit,
+    onReset: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(
+            onClick = { onStep(-1) },
+            enabled = offsetMs > -LYRIC_OFFSET_MAX_MS,
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            Text("−0.1秒")
+        }
+        Text(
+            text = "歌词校准 " + formatLyricOffset(offsetMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = GrayMuted,
+            maxLines = 1
+        )
+        TextButton(
+            onClick = { onStep(1) },
+            enabled = offsetMs < LYRIC_OFFSET_MAX_MS,
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            Text("+0.1秒")
+        }
+        if (offsetMs != 0L) {
+            TextButton(
+                onClick = onReset,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text("复位")
+            }
+        }
+    }
+}
+
+@Composable
 fun PlayerScreen(
     modifier: Modifier = Modifier,
     queue: List<Song>,
@@ -284,6 +326,11 @@ fun PlayerScreen(
     positionMs: Long,
     durationMs: Long,
     lyricState: LyricUiState?,
+    lyricOffsetMs: Long = 0L,
+    onLyricOffsetChange: (Long) -> Unit = {},
+    onSwitchLyricSource: () -> Unit = {},
+    lyricSwitching: Boolean = false,
+    onRetryLyric: () -> Unit = {},
     sleepLabel: String,
     onSleepClick: () -> Unit,
     onPlayPause: () -> Unit,
@@ -307,7 +354,11 @@ fun PlayerScreen(
     val song = queue.getOrNull(currentIndex)
     val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
         .filterNot { isBlankLyricLine(it.text) || isMusicSymbolLine(it.text) }
-    val currentLine = lines.indexOfLast { it.timeSec * 1000 <= positionMs }
+    // Manual per-song karaoke offset: the effective clock drives the active
+    // line, the sweep, and the cover preview — one shift, everywhere.
+    val offsetMs = clampLyricOffset(lyricOffsetMs)
+    val effPositionMs = applyLyricOffset(positionMs, offsetMs)
+    val currentLine = lines.indexOfLast { it.timeSec * 1000 <= effPositionMs }
     val lyricsListState = rememberLazyListState()
     var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
     var showHints by remember { mutableStateOf(false) }
@@ -466,42 +517,60 @@ fun PlayerScreen(
                     when (lyricState) {
                         null, LyricUiState.Loading -> SearchSkeleton()
                         LyricUiState.Failed -> EmptyStateLine(
-                            text = "歌词加载失败",
-                            actionLabel = "返回封面",
-                            onAction = { view = PlayerView.COVER }
+                            text = LyricEmptyReason.LOAD_FAILED.copy,
+                            actionLabel = "重试",
+                            onAction = onRetryLyric,
+                            secondaryActionLabel = "返回封面",
+                            onSecondaryAction = { view = PlayerView.COVER }
                         )
                         is LyricUiState.Ok -> if (lines.isEmpty()) {
+                            val reason = describeLyricEmpty(lyricState, song, 0)
                             EmptyStateLine(
-                                text = "暂无歌词",
-                                actionLabel = "返回封面",
-                                onAction = { view = PlayerView.COVER }
+                                text = reason?.copy
+                                    ?: LyricEmptyReason.NO_LYRIC.copy,
+                                actionLabel = if (lyricSwitching) "换源中…" else "换源试试",
+                                onAction = onSwitchLyricSource,
+                                actionEnabled = !lyricSwitching,
+                                secondaryActionLabel = "返回封面",
+                                onSecondaryAction = { view = PlayerView.COVER }
                             )
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                state = lyricsListState,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
-                                    val active = idx == currentLine
-                                    val lineStartMs = (line.timeSec * 1000).toLong()
-                                    val nextStartMs = lines.getOrNull(idx + 1)
-                                        ?.let { (it.timeSec * 1000).toLong() }
-                                    val lineEndMs = when {
-                                        nextStartMs != null && nextStartMs > lineStartMs -> nextStartMs
-                                        durationMs > 0 -> durationMs
-                                        else -> positionMs.coerceAtLeast(lineStartMs) + 4_000L
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                LyricOffsetRow(
+                                    offsetMs = offsetMs,
+                                    onStep = { onLyricOffsetChange(stepLyricOffset(offsetMs, it)) },
+                                    onReset = { onLyricOffsetChange(0L) }
+                                )
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    state = lyricsListState,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    itemsIndexed(lines, key = { idx, _ -> idx }) { idx, line ->
+                                        val active = idx == currentLine
+                                        val lineStartMs = (line.timeSec * 1000).toLong()
+                                        val nextStartMs = lines.getOrNull(idx + 1)
+                                            ?.let { (it.timeSec * 1000).toLong() }
+                                        val lineEndMs = when {
+                                            nextStartMs != null && nextStartMs > lineStartMs -> nextStartMs
+                                            durationMs > 0 -> durationMs
+                                            else -> effPositionMs.coerceAtLeast(lineStartMs) + 4_000L
+                                        }
+                                        KaraokeLine(
+                                            line = line,
+                                            positionMs = if (active) {
+                                                applyLyricOffset(lyricNowMs, offsetMs)
+                                            } else {
+                                                effPositionMs
+                                            },
+                                            lineEndMs = lineEndMs,
+                                            isActive = active,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { view = PlayerView.COVER }
+                                                .padding(vertical = 6.dp, horizontal = 16.dp)
+                                        )
                                     }
-                                    KaraokeLine(
-                                        line = line,
-                                        positionMs = if (active) lyricNowMs else positionMs,
-                                        lineEndMs = lineEndMs,
-                                        isActive = active,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { view = PlayerView.COVER }
-                                            .padding(vertical = 6.dp, horizontal = 16.dp)
-                                    )
                                 }
                             }
                         }
@@ -746,7 +815,7 @@ fun PlayerScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = lyricPreviewLine(lines, positionMs) ?: "暂无歌词",
+                        text = lyricPreviewLine(lines, effPositionMs) ?: "暂无歌词",
                         style = MaterialTheme.typography.bodySmall,
                         color = Champagne.copy(alpha = 0.85f),
                         maxLines = 1,

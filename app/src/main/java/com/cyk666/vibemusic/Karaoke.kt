@@ -322,6 +322,101 @@ fun karaokeSweepClipRight(widthPx: Float, fraction: Float): Float {
     return (w * fraction.coerceIn(0f, 1f)).coerceIn(0f, w)
 }
 
+// ---- Lyrics batch: manual karaoke offset (per-song, persisted) ----
+
+/** Manual karaoke offset range: ±2s covers slow-LRC skew; step 0.1s is tappable. */
+const val LYRIC_OFFSET_MAX_MS = 2_000L
+const val LYRIC_OFFSET_STEP_MS = 100L
+
+/**
+ * Pure: clamp a manual karaoke offset into ±[LYRIC_OFFSET_MAX_MS].
+ * NaN-proof by construction (Long domain, no float math).
+ */
+fun clampLyricOffset(offsetMs: Long): Long =
+    offsetMs.coerceIn(-LYRIC_OFFSET_MAX_MS, LYRIC_OFFSET_MAX_MS)
+
+/**
+ * Pure: step the offset by [steps] × [LYRIC_OFFSET_STEP_MS], clamped.
+ * Positive steps push the highlight earlier (lyrics lead the vocal).
+ */
+fun stepLyricOffset(currentMs: Long, steps: Int): Long =
+    clampLyricOffset(currentMs + steps * LYRIC_OFFSET_STEP_MS)
+
+/**
+ * Pure: effective lyric clock = playback position shifted by the manual
+ * offset. Positive offset advances the highlight (for LRC that lags the
+ * vocal); negative delays it. Never negative — line lookup uses <= against
+ * line starts, so a negative clock simply precedes the first line.
+ */
+fun applyLyricOffset(positionMs: Long, offsetMs: Long): Long =
+    (positionMs + clampLyricOffset(offsetMs)).coerceAtLeast(0L)
+
+/**
+ * Pure: Chinese offset label for the calibration row.
+ * Zero → "±0秒" (truthful neutral, doubles as the reset affordance hint).
+ */
+fun formatLyricOffset(offsetMs: Long): String {
+    val v = clampLyricOffset(offsetMs)
+    if (v == 0L) return "±0秒"
+    val sign = if (v > 0) "+" else "−"
+    val abs = kotlin.math.abs(v)
+    return "$sign${abs / 1000}.${(abs % 1000) / 100}秒"
+}
+
+// ---- Lyrics batch: no-lyric fallback reason ----
+
+/**
+ * Why the lyrics view is empty. Every branch carries user-facing Chinese
+ * copy — empty states must explain why, never a bare 暂无歌词.
+ */
+enum class LyricEmptyReason(val copy: String) {
+    /** Transport failure (LyricUiState.Failed): retry may help. */
+    LOAD_FAILED("歌词加载失败，请检查网络后重试"),
+    /** Bilibili has no guest lyric source (backend returns [] by design). */
+    NO_BILI_SOURCE("B站歌曲暂无歌词源，可换其他版本试试"),
+    /** Any other platform returned zero usable lines. */
+    NO_LYRIC("这首歌暂无歌词，可换其他版本试试");
+}
+
+/**
+ * Pure: resolve the empty-state reason.
+ *
+ * @param state current lyric fetch state (null/Loading = not empty yet).
+ * @param song current song (platform decides the bili branch).
+ * @param visibleLines lines surviving the blank/symbol filter — the filter
+ *   can empty a non-empty payload (e.g. a "♪"-only LRC), which is NO_LYRIC,
+ *   not a load failure.
+ * @return null when there is something to show (or still loading).
+ */
+fun describeLyricEmpty(
+    state: LyricUiState?,
+    song: Song?,
+    visibleLines: Int
+): LyricEmptyReason? {
+    if (state == null || state is LyricUiState.Loading) return null
+    if (state is LyricUiState.Failed) return LyricEmptyReason.LOAD_FAILED
+    if (visibleLines > 0) return null
+    if (song != null && isBilibiliSong(song)) return LyricEmptyReason.NO_BILI_SOURCE
+    return LyricEmptyReason.NO_LYRIC
+}
+
+// ---- Lyrics batch: one-tap switch to same song on other source ----
+
+/**
+ * Pure: pick the best alternate-source candidate for the same song.
+ * Skips the current item itself (same sourceId); prefers a DIFFERENT
+ * platform (netease↔qq↔kugou cross-source lyric odds), else the first
+ * different sourceId. Blank-sourceId candidates are never playable.
+ * Null = no other version found (caller shows 没找到… instead of switching).
+ */
+fun pickAlternateSource(candidates: List<Song>, current: Song): Song? {
+    val others = candidates.filter {
+        it.sourceId.isNotBlank() && it.sourceId != current.sourceId
+    }
+    if (others.isEmpty()) return null
+    return others.firstOrNull { it.platform != current.platform } ?: others.first()
+}
+
 /**
  * Sweep-fill karaoke line: a dim base text plus a bright overlay clipped to
  * the [karaokeSweepFraction] width, so the current line fills smoothly

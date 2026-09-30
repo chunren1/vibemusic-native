@@ -11,6 +11,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -48,6 +49,71 @@ fun streamLoadErrorHandlingPolicy(): DefaultLoadErrorHandlingPolicy =
         override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
             STREAM_LOAD_RETRY_DELAY_MS
     }
+
+// ── 播放批次 (a)：下一首预热 + 快启动缓冲 ──
+
+/** 预热拉取头字节数：首个 ~256KB 覆盖大多数歌曲的解码启动段。 */
+const val PREFETCH_WARM_BYTES = 256L * 1024L
+
+/** 切歌耗时预算：预热命中时下首应在该时间内出声（logcat 度量口径）。 */
+const val FAST_SWITCH_BUDGET_MS = 500L
+
+/**
+ * Pure: 预热目标下标。单曲循环预热本曲；否则取下一首，末尾且列表循环则回绕；
+ * 乱序时 Exo 洗牌顺序服务侧不可预知，返回 null（交由 Exo 自己的预缓冲）。
+ */
+fun selectPrefetchIndex(
+    queue: List<Song>,
+    currentIndex: Int,
+    repeatOne: Boolean,
+    repeatAll: Boolean
+): Int? {
+    if (queue.isEmpty() || currentIndex !in queue.indices) return null
+    if (repeatOne) return currentIndex
+    val next = currentIndex + 1
+    if (next in queue.indices) return next
+    if (repeatAll && queue.size > 1) return 0
+    return null
+}
+
+/** Pure: 切歌耗时是否命中快切预算（logcat "fast-switch" 度量口径）。 */
+fun isFastSwitch(elapsedMs: Long): Boolean = elapsedMs in 0L..FAST_SWITCH_BUDGET_MS
+
+/**
+ * 快启动缓冲：音乐切歌优先，首播/重缓冲门槛低于 Exo 默认（2500/5000ms），
+ * 最小/最大缓冲也按音频收敛（默认 50s 面向长视频）。纯构造器，无副作用。
+ */
+fun playbackLoadControl(): DefaultLoadControl = DefaultLoadControl.Builder()
+    .setBufferDurationsMs(
+        15_000,
+        30_000,
+        1_000,
+        2_000
+    )
+    .build()
+
+// ── 播放批次 (b)：弱网退避重试 ──
+
+/** 弱网同曲退避重试上限（loader 层 1 次之外，服务层最多再补 2 次）。 */
+const val WEAK_RETRY_MAX = 2
+
+/** Pure: 弱网第 [attempt] 次重试的等待（800ms 起指数退避，5s 封顶）。 */
+fun weakRetryDelayMs(attempt: Int): Long {
+    val a = attempt.coerceAtLeast(0)
+    val shift = a.coerceAtMost(3)
+    return (STREAM_LOAD_RETRY_DELAY_MS shl shift).coerceAtMost(5_000L)
+}
+
+/** Pure: 弱网错误码（超时/建连失败——404/鉴权等应用层错误不归此路径）。 */
+fun isWeakNetworkError(errorCode: Int): Boolean = when (errorCode) {
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+    PlaybackException.ERROR_CODE_TIMEOUT -> true
+    else -> false
+}
+
+/** Pure: 弱网同曲重试预算（loader 层快失败之后，服务层延迟补试）。 */
+fun shouldRetryWeakNetwork(attemptDone: Int): Boolean = attemptDone < WEAK_RETRY_MAX
 
 /**
  * Offline-aware next index (pure): from [fromIndex], the first ahead index
@@ -282,6 +348,18 @@ class PlaybackService : MediaSessionService() {
          */
         @Volatile
         var lastSkipOutcome: SkipOutcome? = null
+
+        /**
+         * Fast-switch metrics (reporting only, never feeds a playback decision).
+         * [lastSwitchElapsedMs] = 上次切歌到出声的耗时（onMediaItemTransition →
+         * 下一次 onIsPlaying=true 的间隔；-1 = 尚未度量）；[lastPrefetchBytes] =
+         * 上次预热拉到的字节数（0 = 跳过/失败）。
+         */
+        @Volatile
+        var lastSwitchElapsedMs: Long = -1L
+
+        @Volatile
+        var lastPrefetchBytes: Long = 0L
     }
 
     private var mediaSession: MediaSession? = null
@@ -307,6 +385,20 @@ class PlaybackService : MediaSessionService() {
     private var lastStreamRetryKey: String? = null
     private var lastStreamRetryIndex: Int = -1
 
+    private val httpUpstream: DataSource.Factory = DefaultHttpDataSource.Factory()
+
+    // 弱网退避重试计数（同曲同错误 episode 内累计；出声/切轨清零）。
+    private var weakRetryAttempt = 0
+
+    // 快切度量起点：每次切轨（transition）记录，首次出声时结算。
+    private var switchStartMs = -1L
+
+    // 预热去重：同一下标只暖一次（切轨/出声都会触发，episode 内去重）。
+    private var lastPrefetchIndex: Int = -1
+
+    // 同轨重试抑制一次切歌计时（replaceMediaItem 不算窗口切换）。
+    private var suppressSwitchStart = false
+
     override fun onCreate() {
         super.onCreate()
         // 冷启动落一条诊断（进程曾被杀时，这是复现"通知播放键没反应"的第一手证据）
@@ -325,7 +417,7 @@ class PlaybackService : MediaSessionService() {
         // unchanged. Offline replay works for fully-cached items; a partially-cached
         // item errors on the cache hole (upstream unreachable) → auto-skip/message
         // path handles it (see MainActivity.onPlayerError).
-        val upstream = DefaultHttpDataSource.Factory()
+        val upstream = httpUpstream
         val cacheSourceFactory = MediaCache.cachedDataSourceFactory(this, upstream)
         // Scheme routing: file:// download items read straight from disk via
         // FileDataSource; http(s) keeps flowing cache→upstream byte-identical
@@ -340,6 +432,7 @@ class PlaybackService : MediaSessionService() {
             .setLoadErrorHandlingPolicy(streamLoadErrorHandlingPolicy())
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(playbackLoadControl())
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(audioFocusConfig().usage)
@@ -357,8 +450,22 @@ class PlaybackService : MediaSessionService() {
                     consecFails = 0
                     lastStreamRetryKey = null
                     lastStreamRetryIndex = -1
+                    weakRetryAttempt = 0
                     focusRetries = 0
                     PlayDiag.mark(this@PlaybackService, "playing")
+                    if (switchStartMs > 0L) {
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - switchStartMs
+                        lastSwitchElapsedMs = elapsed
+                        switchStartMs = -1L
+                        try {
+                            android.util.Log.d(
+                                "VibePrefetch",
+                                "fast-switch elapsed=${elapsed}ms hit=${isFastSwitch(elapsed)}"
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                    prefetchNext()
                 }
             }
 
@@ -387,6 +494,15 @@ class PlaybackService : MediaSessionService() {
                     lastStreamRetryKey = null
                     lastStreamRetryIndex = -1
                 }
+                // 快切度量起点：同轨重试的 replace 不算切歌（调用方置位抑制一次）。
+                if (suppressSwitchStart) {
+                    suppressSwitchStart = false
+                } else {
+                    switchStartMs = android.os.SystemClock.elapsedRealtime()
+                }
+                weakRetryAttempt = 0
+                lastPrefetchIndex = -1
+                prefetchNext()
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -482,6 +598,46 @@ class PlaybackService : MediaSessionService() {
                     null
                 }
                 val errMediaId = errItem?.mediaId.orEmpty()
+                // 弱网退避：超时/建连失败类错误先延迟同曲补试（指数退避），
+                // 不消耗签名 URL 的单次重试预算；预算耗尽才落到下面的换 URL/跳歌。
+                if (errIndex >= 0 && errItem != null &&
+                    !errMediaId.startsWith("local:") &&
+                    isWeakNetworkError(error.errorCode) &&
+                    shouldRetryWeakNetwork(weakRetryAttempt)
+                ) {
+                    val attempt = weakRetryAttempt++
+                    val delay = weakRetryDelayMs(attempt)
+                    lastSkipOutcome = SkipOutcome.RETRIED_SAME_ITEM
+                    try {
+                        android.util.Log.d(
+                            "VibeWeakRetry",
+                            "weak retry idx=$errIndex attempt=$attempt delay=${delay}ms"
+                        )
+                    } catch (_: Exception) {
+                    }
+                    serviceMainHandler.postDelayed({
+                        val cur = player
+                        if (cur == null || cur !== exo) return@postDelayed
+                        val stillSame = try {
+                            cur.currentMediaItemIndex == errIndex &&
+                                cur.currentMediaItem?.mediaId == errMediaId
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (!stillSame) return@postDelayed
+                        try {
+                            suppressSwitchStart = true
+                            cur.replaceMediaItem(
+                                errIndex,
+                                songFromMediaItem(errItem).toCachedMediaItem()
+                            )
+                            cur.prepare()
+                            cur.play()
+                        } catch (_: Exception) {
+                        }
+                    }, delay)
+                    return
+                }
                 if (errIndex >= 0 && errItem != null &&
                     shouldRetrySameItem(
                         errMediaId,
@@ -495,6 +651,7 @@ class PlaybackService : MediaSessionService() {
                     lastStreamRetryIndex = errIndex
                     lastSkipOutcome = SkipOutcome.RETRIED_SAME_ITEM
                     try {
+                        suppressSwitchStart = true
                         exo.replaceMediaItem(
                             errIndex,
                             songFromMediaItem(errItem).toCachedMediaItem()
@@ -589,12 +746,63 @@ class PlaybackService : MediaSessionService() {
         mediaSession = sessionBuilder.build()
     }
 
+    private fun prefetchNext() {
+        val exo = player ?: return
+        val count = try {
+            exo.mediaItemCount
+        } catch (_: Exception) {
+            return
+        }
+        if (count <= 1) return
+        val current = try {
+            exo.currentMediaItemIndex
+        } catch (_: Exception) {
+            return
+        }
+        val repeatOne = try {
+            exo.repeatMode == Player.REPEAT_MODE_ONE
+        } catch (_: Exception) {
+            false
+        }
+        val repeatAll = try {
+            exo.repeatMode == Player.REPEAT_MODE_ALL
+        } catch (_: Exception) {
+            false
+        }
+        val shuffleOn = try {
+            exo.shuffleModeEnabled
+        } catch (_: Exception) {
+            false
+        }
+        if (shuffleOn) return
+        val songs = (0 until count).map { i ->
+            try {
+                songFromMediaItem(exo.getMediaItemAt(i))
+            } catch (_: Exception) {
+                Song("", "", "", "", "", 0, "")
+            }
+        }
+        val target = selectPrefetchIndex(songs, current, repeatOne, repeatAll) ?: return
+        if (target == lastPrefetchIndex) return
+        val song = songs.getOrNull(target) ?: return
+        if (song.sourceId.isBlank()) return
+        lastPrefetchIndex = target
+        val app = this
+        serviceIoScope.launch {
+            val bytes = MediaCache.warmUp(app, song, httpUpstream, PREFETCH_WARM_BYTES)
+            lastPrefetchBytes = bytes
+            try {
+                android.util.Log.d("VibePrefetch", "prefetch idx=$target bytes=$bytes")
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /**
      * 见 [shouldRetryDeniedPlay]：延迟补试一次——只有在"仍处于暂停待播"时才重发 play()
      * （此时 playWhenReady=false→true 是一次真实状态切换，会重新申请音频焦点）。
      */
-    private fun maybeRetryDeniedPlay() {
-        if (!shouldRetryDeniedPlay(wasPlayingBeforeFocusChange, focusRetries)) return
+    private fun maybeRetryDeniedPlay() {        if (!shouldRetryDeniedPlay(wasPlayingBeforeFocusChange, focusRetries)) return
         focusRetries++
         focusRetryHandler.postDelayed({
             val exo = player ?: return@postDelayed

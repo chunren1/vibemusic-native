@@ -190,7 +190,13 @@ fun SearchScreen(
     suggestions: List<Suggestion> = emptyList(),
     onSuggestionSelect: (Suggestion) -> Unit = {},
     favIds: Set<String> = emptySet(),
-    onToggleFav: (Song) -> Unit = {}
+    onToggleFav: (Song) -> Unit = {},
+    // 空结果回退：后端下发的改写建议 + 分源重查入口（调用方决定是否发起二次搜索）
+    suggestedKeyword: String? = null,
+    onSuggestionSearch: (String) -> Unit = {},
+    onPlatformSearch: (String) -> Unit = {},
+    // 热搜云端同步值（默认本地表，调用方拉到云端后覆盖）
+    hotwords: List<String> = SEARCH_HOTWORDS
 ) {
     val artists = remember(results) { distinctArtists(results) }
     val visible = remember(results, artistFilter, sort) {
@@ -304,7 +310,7 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(SEARCH_HOTWORDS, key = { "w-$it" }) { w ->
+                items(hotwords, key = { "w-$it" }) { w ->
                     FilterChip(
                         selected = false,
                         onClick = { onHistorySelect(w) },
@@ -421,7 +427,44 @@ fun SearchScreen(
                         onRetry = onRetrySearch
                     )
                     else -> if (results.isEmpty()) {
-                        EmptyStateLine(text = "没有搜到，换个关键词试试")
+                        // 空结果回退：一键重试 + 建议词直达 + 分源重查
+                        val suggestion = suggestedKeyword?.trim().orEmpty()
+                        if (suggestion.isNotEmpty() && suggestion != query.trim()) {
+                            EmptyStateLine(
+                                text = "没有搜到“${query.trim()}”",
+                                actionLabel = "试试“$suggestion”",
+                                onAction = { onSuggestionSearch(suggestion) },
+                                secondaryActionLabel = "重试",
+                                onSecondaryAction = onRetrySearch
+                            )
+                        } else {
+                            EmptyStateLine(
+                                text = "没有搜到，换个关键词试试",
+                                actionLabel = "重试",
+                                onAction = onRetrySearch
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "分源找歌",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(
+                                SEARCH_PLATFORMS,
+                                key = { (code, _) -> "pf-$code" }
+                            ) { (code, label) ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onPlatformSearch(code) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
                     } else {
                         EmptyStateLine(
                             text = "该歌手无结果",
