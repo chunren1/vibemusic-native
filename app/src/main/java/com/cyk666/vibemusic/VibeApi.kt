@@ -1826,6 +1826,51 @@ object VibeApi {
         }
     }
 
+    // ---- search-history cloud sync (auth required) ----
+    //
+    // Backend: SearchHistoryController @RequestMapping("api/search/history") —
+    // GET list → Result<[keyword...]>; POST "sync" {keywords} → Result<[keyword...]>
+    // (post-sync list); DELETE clears. Standard {code,data,message} envelope.
+
+    const val SEARCH_HISTORY_LIST_PATH = "api/search/history"
+    const val SEARCH_HISTORY_UPSERT_PATH = "api/search/history/sync"
+
+    /** Pure builder: POST upsert body (full latest-first keyword list). */
+    fun buildSearchHistoryBody(history: List<String>): String {
+        val arr = JSONArray()
+        history.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            .take(SEARCH_HISTORY_MAX).forEach { arr.put(it) }
+        return JSONObject().put("keywords", arr).toString()
+    }
+
+    /** Pure: GET list envelope → trimmed keyword list (absent/malformed → empty). */
+    fun parseSearchHistoryList(json: String): List<String> {
+        val root = JSONObject(json)
+        checkEnvelope(root, "Search history")
+        val arr: JSONArray = root.optJSONArray("data")
+            ?: root.optJSONObject("data")?.optJSONArray("list")
+            ?: root.optJSONObject("data")?.optJSONArray("keywords")
+            ?: root.optJSONObject("data")?.optJSONArray("history")
+            ?: JSONArray()
+        val out = ArrayList<String>(arr.length())
+        for (i in 0 until arr.length()) {
+            val w = arr.optString(i).trim()
+            if (w.isNotEmpty() && !out.contains(w)) out.add(w)
+            if (out.size >= SEARCH_HISTORY_MAX) break
+        }
+        return out
+    }
+
+    suspend fun pullSearchHistory(): List<String> {
+        val body = rawGet(SEARCH_HISTORY_LIST_PATH)
+        return parseSearchHistoryList(body)
+    }
+
+    suspend fun pushSearchHistory(history: List<String>) {
+        val body = rawPost(SEARCH_HISTORY_UPSERT_PATH, buildSearchHistoryBody(history))
+        checkEnvelope(JSONObject(body), "Search history upload")
+    }
+
     /**
      * Fire-and-forget play report (logged-in only; guest callers must skip
      * before calling). Never throws — history reporting must not break playback.

@@ -625,6 +625,7 @@ class MainActivity : ComponentActivity() {
                     scope.launch {
                         try {
                             searchHistory = SearchStore.addHistory(context, kw)
+                            SearchHistorySync.schedulePush(scope, searchHistory)
                         } catch (_: Exception) {
                         }
                     }
@@ -647,6 +648,7 @@ class MainActivity : ComponentActivity() {
                         artistFilter = null
                         try {
                             searchHistory = SearchStore.addHistory(context, kw)
+                            SearchHistorySync.schedulePush(scope, searchHistory)
                         } catch (_: Exception) {
                         }
                     } catch (e: CancellationException) {
@@ -2161,6 +2163,10 @@ class MainActivity : ComponentActivity() {
                         loadPlaylists()
                         loadFavIds()
                         loadHistory()
+                        try {
+                            SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
+                        } catch (_: Exception) {
+                        }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
@@ -2199,6 +2205,10 @@ class MainActivity : ComponentActivity() {
                         loadPlaylists()
                         loadFavIds()
                         loadHistory()
+                        try {
+                            SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
+                        } catch (_: Exception) {
+                        }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
@@ -2925,6 +2935,10 @@ class MainActivity : ComponentActivity() {
                                     currentUser = restored
                                     loadFavIds()
                                     loadHistory()
+                                    try {
+                                        SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
+                                    } catch (_: Exception) {
+                                    }
                                     recordAuthDiag("OK")
                                 } else {
                                     // Guest-null: transient guest response, keep stored
@@ -3372,6 +3386,7 @@ class MainActivity : ComponentActivity() {
                                     scope.launch {
                                         try {
                                             searchHistory = SearchStore.removeHistory(context, h)
+                                            SearchHistorySync.schedulePush(scope, searchHistory)
                                         } catch (_: Exception) {
                                         }
                                     }

@@ -101,6 +101,26 @@ object SearchStore {
         context.searchDataStore.edit { p -> p.remove(KEY_HISTORY) }
     }
 
+    /**
+     * Bulk-replace history (cloud-sync merge write path). Trims, dedups
+     * latest-first, caps at [SEARCH_HISTORY_MAX]. Never throws to callers
+     * beyond DataStore itself (sync callers wrap in try/catch).
+     */
+    suspend fun saveHistory(context: Context, history: List<String>): List<String> {
+        var next: List<String> = emptyList()
+        context.searchDataStore.edit { p ->
+            val seen = LinkedHashSet<String>()
+            for (h in history) {
+                val t = h.trim()
+                if (t.isNotEmpty()) seen.add(t)
+                if (seen.size >= SEARCH_HISTORY_MAX) break
+            }
+            next = seen.toList()
+            p[KEY_HISTORY] = encode(next)
+        }
+        return next
+    }
+
     suspend fun loadSort(context: Context): SearchSort =
         context.searchDataStore.data.map { p ->
             SearchSort.fromName(p[KEY_SORT])

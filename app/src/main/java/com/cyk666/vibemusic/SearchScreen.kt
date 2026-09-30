@@ -334,7 +334,7 @@ fun SearchScreen(
                         guessSongs.forEachIndexed { index, song ->
                             SongRow(
                                 model = buildSongRowModel(song),
-                                meta = formatDuration(song.durationSec),
+                                meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
                                 onClick = { onPlayGuessAt(guessSongs, index) },
                                 onOverflow = { songMenuFor = song }
                             )
@@ -478,7 +478,7 @@ fun SearchScreen(
                     itemsIndexed(visible, key = { _, s -> s.sourceId + s.platform }) { index, song ->
                         SongRow(
                             model = buildSongRowModel(song),
-                            meta = formatDuration(song.durationSec),
+                            meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
                             onClick = {
                                 val single = onPlaySingle
                                 if (single != null) single(song) else onPlayAt(visible, index)
