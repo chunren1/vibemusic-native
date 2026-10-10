@@ -1,5 +1,6 @@
 package com.cyk666.vibemusic
 
+import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -102,5 +103,35 @@ class PlayDiagTest {
     fun ladderSpansAboutTenMinutes() {
         val total = FOCUS_RETRY_DELAYS_MS.sum()
         assertTrue("阶梯总时长应 ≈10 分钟，实际 ${total}ms", total in 480_000..720_000)
+    }
+
+    // ---- 播放救援看门狗（2026-10-10：通知中心"点了播放卡死"自愈）----
+
+    @Test
+    fun rescue_triggersOnlyWhenWantsPlayButSilent() {
+        // 想播、READY、有队列、没出声、未超限 → 救
+        assertTrue(shouldRescuePlayback(true, false, Player.STATE_READY, 3, 0))
+        // 已出声 → 不救
+        assertFalse(shouldRescuePlayback(true, true, Player.STATE_READY, 3, 0))
+        // 用户已暂停（不想播）→ 不救
+        assertFalse(shouldRescuePlayback(false, false, Player.STATE_READY, 3, 0))
+    }
+
+    @Test
+    fun rescue_neverInterferesWithLegitWaiting() {
+        // 网络缓冲中：合法等待 → 不救
+        assertFalse(shouldRescuePlayback(true, false, Player.STATE_BUFFERING, 3, 0))
+        // IDLE（含进程被杀后 resumption 恢复流程，player 为空）→ 不救
+        assertFalse(shouldRescuePlayback(true, false, Player.STATE_IDLE, 3, 0))
+        // 自然播完 ENDED → 不救
+        assertFalse(shouldRescuePlayback(true, false, Player.STATE_ENDED, 3, 0))
+        // 空队列 → 不救
+        assertFalse(shouldRescuePlayback(true, false, Player.STATE_READY, 0, 0))
+    }
+
+    @Test
+    fun rescue_boundedAttempts() {
+        assertTrue(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS - 1))
+        assertFalse(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS))
     }
 }
