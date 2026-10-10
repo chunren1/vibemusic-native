@@ -56,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests {
@@ -80,6 +81,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
+    implementation(libs.bugly.crashreport)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
 }

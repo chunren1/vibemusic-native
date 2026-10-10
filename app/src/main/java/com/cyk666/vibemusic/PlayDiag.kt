@@ -32,6 +32,14 @@ object PlayDiag {
                 .apply()
         } catch (_: Exception) {
         }
+        // Bugly 已初始化时同步一份"面包屑"，崩溃报告里直接可见死前状态；
+        // 未初始化（单测/未填 AppID）时零开销、零行为变化。
+        if (BuglyReporter.ready) {
+            try {
+                com.tencent.bugly.crashreport.CrashReport.putUserData(context, "playDiag", code)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun lastCode(context: Context): String = try {
