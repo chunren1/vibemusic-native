@@ -165,4 +165,34 @@ class ParseTest {
         assertEquals("titled", songs[2].name)
         assertEquals("netease", songs[2].platform)
     }
+
+    @Test
+    fun listParsers_missingDataThrowInsteadOfSilentEmpty() {
+        // round6：未登录 guest-ok 返回 data=null 曾被静默渲染成空列表（重开才好）。
+        val envelope = "{\"code\":200,\"message\":\"success\",\"data\":null}"
+        val cases = listOf<Pair<String, () -> Any>>(
+            "Playlist songs" to { VibeApi.parsePlaylistSongs(envelope) },
+            "Favorites" to { VibeApi.parseFavList(envelope) },
+            "History" to { VibeApi.parseHistoryList(envelope) },
+        )
+        for ((name, call) in cases) {
+            try {
+                call()
+                fail("$name 应抛协议错误（data=null），而不是静默空列表")
+            } catch (e: Exception) {
+                assertTrue(
+                    "$name 异常应说明 data missing：${e.message}",
+                    e.message?.contains("data missing") == true
+                )
+            }
+        }
+    }
+
+    @Test
+    fun listParsers_emptyArrayIsStillLegit() {
+        val envelope = "{\"code\":200,\"message\":\"success\",\"data\":[]}"
+        assertEquals(0, VibeApi.parsePlaylistSongs(envelope).size)
+        assertEquals(0, VibeApi.parseFavList(envelope).size)
+        assertEquals(0, VibeApi.parseHistoryList(envelope).size)
+    }
 }

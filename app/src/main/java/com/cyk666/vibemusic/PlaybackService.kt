@@ -147,18 +147,26 @@ fun selectNextOfflineIndex(
 }
 
 /**
- * 用户明确发起的播放被音频焦点拒绝后，是否值得补试一次。
- *
- * 与"被其他应用打断"区分开：打断发生在**正在播放**时（[playedBefore]=true），按既有策略
- * 不自动恢复（用户点了才放）；而"点了播放却立刻被拒"是用户意图未被满足，补试一次
- * （对端释放焦点后即可接上）符合预期，最多 [FOCUS_RETRY_MAX] 次。
+ * 焦点被拒补试阶梯（2026-10-10 重做，修"通知播放键被抢焦点后永久没反应"）：
+ * 旧版 2 次 × 5s 且计数只在成功播放时清零——两次耗尽后任何新的点按都被静默拒绝。
+ * 现版：阶梯延迟 3s/6s/12s/24s/30s/30s（≈2 分钟，对端一释放焦点就自动接上）。
  */
-fun shouldRetryDeniedPlay(playedBefore: Boolean, retriesDone: Int): Boolean =
-    !playedBefore && retriesDone < FOCUS_RETRY_MAX
+val FOCUS_RETRY_DELAYS_MS = longArrayOf(3_000, 6_000, 12_000, 24_000, 30_000, 30_000)
 
-/** 焦点被拒后的补试间隔（仅补试有限次，避免反复申请焦点）。 */
-const val FOCUS_RETRY_DELAY_MS = 5_000L
-const val FOCUS_RETRY_MAX = 2
+/** 新点按判定：距上次"焦点被拒"超过此时长的新拒绝 = 用户新的一次点按（计数清零重来）。 */
+const val FOCUS_RETRY_EPISODE_GAP_MS = 15_000L
+
+/**
+ * 纯函数：返回本轮应使用的阶梯下标（-1 = 不再补试）。
+ * - playedBefore=true（播放中被打断）：不自动补试，等用户显式点按
+ * - 距上次拒绝超过 [FOCUS_RETRY_EPISODE_GAP_MS]：视为用户新一轮点按，从头开始
+ * - 否则沿阶梯推进，用尽即 -1
+ */
+fun nextFocusRetryIndex(playedBefore: Boolean, retriesDone: Int, msSinceLastDenial: Long): Int {
+    if (playedBefore) return -1
+    val used = if (msSinceLastDenial > FOCUS_RETRY_EPISODE_GAP_MS) 0 else retriesDone
+    return if (used in FOCUS_RETRY_DELAYS_MS.indices) used else -1
+}
 
 /**
  * 进程被杀后从通知栏/媒体按钮"继续播放"的恢复点（纯函数，便于钉死）。
@@ -350,6 +358,13 @@ class PlaybackService : MediaSessionService() {
         var lastSkipOutcome: SkipOutcome? = null
 
         /**
+         * 最近一次"点击播放被音频焦点拒绝"的时间（elapsedRealtime；0=从未）。
+         * 仅用于界面提示（reporting only，绝不参与任何播放决策）。
+         */
+        @Volatile
+        var lastFocusDeniedAtMs: Long = 0L
+
+        /**
          * Fast-switch metrics (reporting only, never feeds a playback decision).
          * [lastSwitchElapsedMs] = 上次切歌到出声的耗时（onMediaItemTransition →
          * 下一次 onIsPlaying=true 的间隔；-1 = 尚未度量）；[lastPrefetchBytes] =
@@ -366,10 +381,11 @@ class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var consecFails = 0
 
-    // 焦点被拒补试（见 shouldRetryDeniedPlay）：wasPlayingBeforeFocusChange 区分
-    // "被打断"（发生在播放中，不自动恢复）与"点了播放被拒"（用户意图未满足，补试）。
+    // 焦点被拒补试（见 nextFocusRetryIndex）：wasPlayingBeforeFocusChange 区分
+    // "被打断"（发生在播放中，不自动恢复）与"点了播放被拒"（用户意图未满足，阶梯补试）。
     private var wasPlayingBeforeFocusChange = false
     private var focusRetries = 0
+    private var lastFocusDeniedAt = 0L
     private val focusRetryHandler = Handler(Looper.getMainLooper())
 
     // Review item 5: the offline probe below fans out to per-song disk/cache
@@ -452,6 +468,7 @@ class PlaybackService : MediaSessionService() {
                     lastStreamRetryIndex = -1
                     weakRetryAttempt = 0
                     focusRetries = 0
+                    lastFocusDeniedAt = 0L
                     PlayDiag.mark(this@PlaybackService, "playing")
                     if (switchStartMs > 0L) {
                         val elapsed = android.os.SystemClock.elapsedRealtime() - switchStartMs
@@ -502,6 +519,9 @@ class PlaybackService : MediaSessionService() {
                 }
                 weakRetryAttempt = 0
                 lastPrefetchIndex = -1
+                // 切歌视为新一轮：焦点被拒的阶梯计数清零（切歌后按播放应立即生效）
+                focusRetries = 0
+                lastFocusDeniedAt = 0L
                 prefetchNext()
             }
 
@@ -799,11 +819,17 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * 见 [shouldRetryDeniedPlay]：延迟补试一次——只有在"仍处于暂停待播"时才重发 play()
-     * （此时 playWhenReady=false→true 是一次真实状态切换，会重新申请音频焦点）。
+     * 见 [nextFocusRetryIndex]：按阶梯延迟补试——只有在"仍处于暂停待播"时才重发 play()
+     * （此时 playWhenReady 的 false→true 是一次真实状态切换，会重新申请音频焦点）。
      */
-    private fun maybeRetryDeniedPlay() {        if (!shouldRetryDeniedPlay(wasPlayingBeforeFocusChange, focusRetries)) return
-        focusRetries++
+    private fun maybeRetryDeniedPlay() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        lastFocusDeniedAtMs = now
+        val since = if (lastFocusDeniedAt == 0L) Long.MAX_VALUE else now - lastFocusDeniedAt
+        val idx = nextFocusRetryIndex(wasPlayingBeforeFocusChange, focusRetries, since)
+        if (idx < 0) return
+        focusRetries = idx + 1
+        lastFocusDeniedAt = now
         focusRetryHandler.postDelayed({
             val exo = player ?: return@postDelayed
             val stillSilent = try {
@@ -812,13 +838,13 @@ class PlaybackService : MediaSessionService() {
                 false
             }
             if (stillSilent) {
-                PlayDiag.mark(this, "focus-retry")
+                PlayDiag.mark(this, "focus-retry-${idx + 1}")
                 try {
                     exo.play()
                 } catch (_: Exception) {
                 }
             }
-        }, FOCUS_RETRY_DELAY_MS)
+        }, FOCUS_RETRY_DELAYS_MS[idx])
     }
 
     fun playQueue(songs: List<Song>, index: Int) {
@@ -863,7 +889,7 @@ class PlaybackService : MediaSessionService() {
             serviceIoScope.cancel()
         } catch (_: Exception) {
         }
-        // 补试回调持有本 Service：不清掉会把实例多留 FOCUS_RETRY_DELAY_MS 才被回收。
+        // 补试回调持有本 Service：不清掉会把实例多留一个补试间隔才被回收。
         focusRetryHandler.removeCallbacksAndMessages(null)
         mediaSession?.run {
             player.release()

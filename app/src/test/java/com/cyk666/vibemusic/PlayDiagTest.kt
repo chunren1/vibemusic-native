@@ -46,20 +46,40 @@ class PlayDiagTest {
         assertEquals("whatever", mapPlayDiagCode("whatever"))
     }
 
-    // ---- 焦点被拒补试：只补"用户点了播放却被拒"，不补"播放中被打断" ----
+    // ---- 焦点被拒补试阶梯（2026-10-10 重做）：只补"用户点了播放却被拒"，不补"播放中被打断" ----
 
     @Test
-    fun deniedPlay_afterUserTap_retries() {
-        assertTrue(shouldRetryDeniedPlay(playedBefore = false, retriesDone = 0))
+    fun deniedPlay_afterUserTap_startsLadder() {
+        // 首轮（距上次拒绝远）→ 用阶梯第 0 档
+        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = 0, msSinceLastDenial = Long.MAX_VALUE))
     }
 
     @Test
     fun interruptionWhilePlaying_neverRetries() {
-        assertFalse(shouldRetryDeniedPlay(playedBefore = true, retriesDone = 0))
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = true, retriesDone = 0, msSinceLastDenial = Long.MAX_VALUE))
     }
 
     @Test
-    fun retriesAreBounded() {
-        assertFalse(shouldRetryDeniedPlay(playedBefore = false, retriesDone = FOCUS_RETRY_MAX))
+    fun ladderAdvancesWithinEpisode() {
+        // 同一轮内沿阶梯推进
+        assertEquals(1, nextFocusRetryIndex(playedBefore = false, retriesDone = 1, msSinceLastDenial = 5_000))
+        assertEquals(FOCUS_RETRY_DELAYS_MS.lastIndex, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size - 1, msSinceLastDenial = 5_000))
+    }
+
+    @Test
+    fun ladderExhaustedWithinEpisode_returnsMinusOne() {
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, msSinceLastDenial = 5_000))
+    }
+
+    @Test
+    fun newTapAfterGap_resetsEpisode() {
+        // 距上次拒绝超过 15s 的新拒绝 = 用户新点按 → 计数清零重来（旧版死锁的修复点）
+        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, msSinceLastDenial = 16_000))
+    }
+
+    @Test
+    fun ladderSpansAboutTwoMinutes() {
+        val total = FOCUS_RETRY_DELAYS_MS.sum()
+        assertTrue("阶梯总时长应 ≈2 分钟，实际 ${total}ms", total in 60_000..180_000)
     }
 }

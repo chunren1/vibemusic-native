@@ -2745,6 +2745,21 @@ class MainActivity : ComponentActivity() {
                     if (event == Lifecycle.Event.ON_START) {
                         // 用户可能刚从系统设置页回来（改了白名单/自启动）→ 重新读状态
                         refreshKeepAlive()
+                        // 焦点被拒提示（round6 专项）：最近 2 分钟内有过"点击播放但被其他应用占用
+                        // 焦点"，且当前仍未出声 → 提示一次，消除"点了没反应"的困惑。
+                        // 服务端补试阶梯（见 nextFocusRetryIndex）会继续自动接上。
+                        val focusDeniedAt = PlaybackService.lastFocusDeniedAtMs
+                        if (focusDeniedAt > 0L) {
+                            val sinceDenied = android.os.SystemClock.elapsedRealtime() - focusDeniedAt
+                            val focusSilent = try {
+                                controller?.isPlaying != true
+                            } catch (_: Exception) {
+                                true
+                            }
+                            if (focusSilent && sinceDenied in 0..120_000) {
+                                showError("播放被其他应用占用音频，正在自动重试…")
+                            }
+                        }
                         val c = controller
                         val probeFailed = if (c == null) false
                         else try {

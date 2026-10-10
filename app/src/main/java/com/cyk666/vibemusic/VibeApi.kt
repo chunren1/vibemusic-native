@@ -566,6 +566,23 @@ object VibeApi {
         return root
     }
 
+    /**
+     * 列表类响应的统一取数：data 缺失/为 null/形状不符 → 抛协议错误（防"静默变成空列表"）。
+     * round6 实测：未登录时后端 guest-ok 返回 data=null，曾被静默渲染成空歌单（重开才好）。
+     * data:[] 是合法空列表，照常返回。
+     */
+    private fun listData(root: JSONObject, what: String, vararg objectKeys: String): JSONArray {
+        if (!root.has("data") || root.isNull("data")) {
+            throw RuntimeException("$what failed: data missing")
+        }
+        root.optJSONArray("data")?.let { return it }
+        val obj = root.optJSONObject("data")
+        if (obj != null) {
+            for (k in objectKeys) obj.optJSONArray(k)?.let { return it }
+        }
+        throw RuntimeException("$what failed: unexpected data shape")
+    }
+
     private fun cleanUserStr(o: JSONObject, key: String): String {
         val v = o.optString(key)
         return if (v.isBlank() || v == "null") "" else v
@@ -969,9 +986,7 @@ object VibeApi {
         val body = rawGet("api/playlists/list")
         val root = JSONObject(body)
         checkEnvelope(root, "Playlists")
-        val arr: JSONArray = root.optJSONArray("data")
-            ?: root.optJSONObject("data")?.optJSONArray("list")
-            ?: JSONArray()
+        val arr: JSONArray = listData(root, "Playlists", "list")
         val out = ArrayList<Playlist>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -1042,9 +1057,7 @@ object VibeApi {
     fun parsePlaylistSongs(json: String): List<Song> {
         val root = JSONObject(json)
         checkEnvelope(root, "Playlist songs")
-        val arr: JSONArray = root.optJSONArray("data")
-            ?: root.optJSONObject("data")?.optJSONArray("list")
-            ?: JSONArray()
+        val arr: JSONArray = listData(root, "Playlist songs", "list")
         val out = ArrayList<Song>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -1305,6 +1318,7 @@ object VibeApi {
     fun parseRecommendDetailSongs(json: String): List<Song> {
         val root = JSONObject(json)
         checkEnvelope(root, "Recommend detail")
+        // 契约：推荐详情缺数据保持宽容为空（公开浏览页，刻意设计，见 PlaylistDetailTest）
         val arr: JSONArray = root.optJSONObject("data")?.optJSONArray("songs")
             ?: JSONArray()
         val out = ArrayList<Song>(arr.length())
@@ -1410,9 +1424,7 @@ object VibeApi {
     fun parseFavList(json: String): List<Song> {
         val root = JSONObject(json)
         checkEnvelope(root, "Favorites")
-        val arr: JSONArray = root.optJSONArray("data")
-            ?: root.optJSONObject("data")?.optJSONArray("list")
-            ?: JSONArray()
+        val arr: JSONArray = listData(root, "Favorites", "list")
         val out = ArrayList<Song>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -1434,9 +1446,7 @@ object VibeApi {
     fun parseHistoryList(json: String): List<HistoryItem> {
         val root = JSONObject(json)
         checkEnvelope(root, "History")
-        val arr: JSONArray = root.optJSONArray("data")
-            ?: root.optJSONObject("data")?.optJSONArray("list")
-            ?: JSONArray()
+        val arr: JSONArray = listData(root, "History", "list")
         val out = ArrayList<HistoryItem>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -1847,6 +1857,7 @@ object VibeApi {
     fun parseSearchHistoryList(json: String): List<String> {
         val root = JSONObject(json)
         checkEnvelope(root, "Search history")
+        // 契约：搜索历史缺数据保持宽容为空（游客空历史为正常态，见 SearchHistorySyncTest）
         val arr: JSONArray = root.optJSONArray("data")
             ?: root.optJSONObject("data")?.optJSONArray("list")
             ?: root.optJSONObject("data")?.optJSONArray("keywords")
