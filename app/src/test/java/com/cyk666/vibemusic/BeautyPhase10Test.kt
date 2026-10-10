@@ -283,6 +283,12 @@ class BeautyPhase10Test {
     }
 
     @Test
+    fun `被杀提示_cold带后缀同样显示`() {
+        // 诊断码未来可能带时间戳/计数后缀（如 cold:12345），前缀匹配才稳。
+        assertTrue(shouldShowKilledHint(playDiagCode = "cold:1728471234567", keepAliveIgnoring = false))
+    }
+
+    @Test
     fun `被杀提示_非cold记录不显示`() {
         assertEquals(false, shouldShowKilledHint(playDiagCode = "playing", keepAliveIgnoring = false))
         assertEquals(false, shouldShowKilledHint(playDiagCode = "", keepAliveIgnoring = false))

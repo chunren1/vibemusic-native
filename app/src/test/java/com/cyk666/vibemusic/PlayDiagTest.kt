@@ -134,4 +134,11 @@ class PlayDiagTest {
         assertTrue(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS - 1))
         assertFalse(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS))
     }
+
+    @Test
+    fun rescue_disabledByDefault_untilRootCauseLocated() {
+        // 2026-10-11 审查：真机未验证成功且触发条件与两大致因互斥，默认关闭；
+        // 诊断时手动置 true，改动此断言即代表"已验证可开"。
+        assertFalse(PLAY_RESCUE_ENABLED)
+    }
 }

@@ -185,7 +185,7 @@ fun keepAliveRow(ignoring: Boolean): KeepAliveRow = if (ignoring) {
  * （点击命令到不了 App）→ 必须手动开 App。诊断行是唯一证据源，用户看到提示可直接去开白名单。
  */
 fun shouldShowKilledHint(playDiagCode: String, keepAliveIgnoring: Boolean): Boolean =
-    playDiagCode == "cold" && !keepAliveIgnoring
+    playDiagCode.startsWith("cold") && !keepAliveIgnoring
 
 /** 纯：上述提示文案（直连"下拉播放键失灵"的用户语言，点明与保活设置的关系）。 */
 const val KILLED_HINT_TEXT =

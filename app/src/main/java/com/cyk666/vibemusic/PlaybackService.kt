@@ -188,6 +188,13 @@ const val PLAY_RESCUE_CHECK_MS = 2_500L
 const val PLAY_RESCUE_MAX_ATTEMPTS = 2
 
 /**
+ * 救援看门狗总开关——默认关闭（2026-10-11 审查结论：真机未验证成功，
+ * 且触发条件与"进程已死/焦点被拒"两大致因互斥，留着只会误伤正常播放；
+ * 真机 logcat 定位根因前保持关闭，诊断时手动置 true）。
+ */
+const val PLAY_RESCUE_ENABLED = false
+
+/**
  * 纯函数：是否应执行"播放救援"（对播放器执行一轮 stop→prepare→play，
  * 借 IDLE→重请求的路径把音频焦点通道从"等待卡死"状态里拔出来）。
  *
@@ -444,6 +451,11 @@ class PlaybackService : MediaLibraryService() {
     private var focusRetries = 0
     private var inFocusRetryProbe = false
     private val focusRetryHandler = Handler(Looper.getMainLooper())
+    // 用户显式暂停 vs 补试探测开火的时间戳（elapsedRealtime）：探测在用户暂停之后
+    // 开火 = 违背用户意图，必须拦截（2026-10-11 审查：stillSilent 区分不出"被拒的静"
+    // 和"用户按暂停的静"，pending 探测会在用户暂停后自动续播）。
+    private var lastUserPauseMs = 0L
+    private var lastProbeFireMs = 0L
 
     // 播放救援（见 shouldRescuePlayback）：挂在 playWhenReady=false→true 之后，
     // 每 PLAY_RESCUE_CHECK_MS 检查一次；卡住则 stop→prepare→play 重置焦点通道。
@@ -532,6 +544,8 @@ class PlaybackService : MediaLibraryService() {
                     focusRetries = 0
                     inFocusRetryProbe = false
                     focusRetryActive = false
+                    lastUserPauseMs = 0L
+                    lastProbeFireMs = 0L
                     PlayDiag.mark(this@PlaybackService, "playing")
                     if (switchStartMs > 0L) {
                         val elapsed = android.os.SystemClock.elapsedRealtime() - switchStartMs
@@ -550,6 +564,16 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // 用户显式暂停：取消所有未执行的补试探测（用户意图优先，绝不自动续播）；
+                // 若暂停时已有探测在飞行（probe 已开火、拒绝回调还在路上），记下时间戳，
+                // 由 maybeRetryDeniedPlay 按"暂停晚于开火"拦截下一轮。
+                if (!playWhenReady &&
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
+                ) {
+                    lastUserPauseMs = android.os.SystemClock.elapsedRealtime()
+                    focusRetryHandler.removeCallbacksAndMessages(null)
+                    focusRetryActive = false
+                }
                 // 焦点不可用（含"用户点了播放但焦点申请被拒"）：Media3 会把 playWhenReady
                 // 直接置回 false（AudioFocusManager.requestAudioFocus 被拒 → DO_NOT_PLAY），
                 // 界面毫无变化 = 用户看到的"点了没反应"。
@@ -925,6 +949,12 @@ class PlaybackService : MediaLibraryService() {
      * [isRetryProbe] = 本次"被拒"是否来自我们自己的补试探测（区分被拒来源）。
      */
     private fun maybeRetryDeniedPlay(isRetryProbe: Boolean) {
+        // 飞行中的探测被拒、但用户在它开火之后按了暂停 → 用户意图优先，不再排下一轮。
+        if (isRetryProbe && lastUserPauseMs > lastProbeFireMs) {
+            inFocusRetryProbe = false
+            focusRetryActive = false
+            return
+        }
         val idx = nextFocusRetryIndex(wasPlayingBeforeFocusChange, focusRetries, isRetryProbe)
         if (idx < 0) {
             focusRetryActive = false
@@ -945,6 +975,7 @@ class PlaybackService : MediaLibraryService() {
             if (stillSilent) {
                 PlayDiag.mark(this, "focus-retry-${idx + 1}")
                 inFocusRetryProbe = true
+                lastProbeFireMs = android.os.SystemClock.elapsedRealtime()
                 try {
                     exo.play()
                 } catch (_: Exception) {
@@ -961,6 +992,7 @@ class PlaybackService : MediaLibraryService() {
      * （先清旧检查，重置计数——新一轮播放意图覆盖上一轮）。
      */
     private fun schedulePlayRescue() {
+        if (!PLAY_RESCUE_ENABLED) return
         playRescueAttempts = 0
         playRescueHandler.removeCallbacksAndMessages(null)
         playRescueHandler.postDelayed({ runPlayRescueCheck() }, PLAY_RESCUE_CHECK_MS)
@@ -972,6 +1004,7 @@ class PlaybackService : MediaLibraryService() {
      * 全新申请，从而脱离"焦点等待卡死"（没有超时机制的内部状态）。
      */
     private fun runPlayRescueCheck() {
+        if (!PLAY_RESCUE_ENABLED) return
         val exo = player ?: return
         val playWhenReady = try {
             exo.playWhenReady
