@@ -147,24 +147,31 @@ fun selectNextOfflineIndex(
 }
 
 /**
- * 焦点被拒补试阶梯（2026-10-10 重做，修"通知播放键被抢焦点后永久没反应"）：
+ * 焦点被拒补试阶梯（2026-10-10 二版，修"通知播放键被抢焦点后永久没反应"）：
  * 旧版 2 次 × 5s 且计数只在成功播放时清零——两次耗尽后任何新的点按都被静默拒绝。
- * 现版：阶梯延迟 3s/6s/12s/24s/30s/30s（≈2 分钟，对端一释放焦点就自动接上）。
+ * 首版（75s+30s×2）用"距上次拒绝 >15s = 用户新点按"的时间启发式区分来源，缺陷：
+ * 24s 档间隔本身 >15s → 会被误判成用户新点按、计数清零重开 → 实际永远在早期档
+ * 循环、走不到用尽。二版改为显式来源标志（isRetryProbe）：
+ * - 用户点按被拒（isRetryProbe=false）→ 开启/重开一轮密集补试（从 0 档起）
+ * - 补试探测被拒（isRetryProbe=true）→ 沿阶梯推进，用尽即停
+ * 阶梯：前 75s 密集 5 次（3/6/12/24/30s），随后每 60s 一次共 9 次，窗口 ≈10 分钟
+ * （覆盖看长视频/开会等长打断；用户任意时刻再点按都会立即重置为一轮新的密集补试）。
+ * 深省电（Doze）下系统会推迟合批定时消息，长间隔档属尽力而为。
  */
-val FOCUS_RETRY_DELAYS_MS = longArrayOf(3_000, 6_000, 12_000, 24_000, 30_000, 30_000)
-
-/** 新点按判定：距上次"焦点被拒"超过此时长的新拒绝 = 用户新的一次点按（计数清零重来）。 */
-const val FOCUS_RETRY_EPISODE_GAP_MS = 15_000L
+val FOCUS_RETRY_DELAYS_MS = longArrayOf(
+    3_000, 6_000, 12_000, 24_000, 30_000,
+    60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000
+)
 
 /**
  * 纯函数：返回本轮应使用的阶梯下标（-1 = 不再补试）。
  * - playedBefore=true（播放中被打断）：不自动补试，等用户显式点按
- * - 距上次拒绝超过 [FOCUS_RETRY_EPISODE_GAP_MS]：视为用户新一轮点按，从头开始
- * - 否则沿阶梯推进，用尽即 -1
+ * - isRetryProbe=false（用户点按被拒）：新的一轮，从 0 档开始
+ * - isRetryProbe=true（补试探测被拒）：沿阶梯推进，用尽即 -1
  */
-fun nextFocusRetryIndex(playedBefore: Boolean, retriesDone: Int, msSinceLastDenial: Long): Int {
+fun nextFocusRetryIndex(playedBefore: Boolean, retriesDone: Int, isRetryProbe: Boolean): Int {
     if (playedBefore) return -1
-    val used = if (msSinceLastDenial > FOCUS_RETRY_EPISODE_GAP_MS) 0 else retriesDone
+    val used = if (isRetryProbe) retriesDone else 0
     return if (used in FOCUS_RETRY_DELAYS_MS.indices) used else -1
 }
 
@@ -358,11 +365,11 @@ class PlaybackService : MediaSessionService() {
         var lastSkipOutcome: SkipOutcome? = null
 
         /**
-         * 最近一次"点击播放被音频焦点拒绝"的时间（elapsedRealtime；0=从未）。
-         * 仅用于界面提示（reporting only，绝不参与任何播放决策）。
+         * 是否有一轮"焦点被拒自动补试"正在进行（reporting only，供 UI 提示；
+         * 绝不参与任何播放决策——决策只看 nextFocusRetryIndex 的返回值）。
          */
         @Volatile
-        var lastFocusDeniedAtMs: Long = 0L
+        var focusRetryActive: Boolean = false
 
         /**
          * Fast-switch metrics (reporting only, never feeds a playback decision).
@@ -383,9 +390,11 @@ class PlaybackService : MediaSessionService() {
 
     // 焦点被拒补试（见 nextFocusRetryIndex）：wasPlayingBeforeFocusChange 区分
     // "被打断"（发生在播放中，不自动恢复）与"点了播放被拒"（用户意图未满足，阶梯补试）。
+    // inFocusRetryProbe：此刻这次 play() 是否来自我们的补试探测（区分被拒来源；
+    // 只在主线程读写，串行安全）。
     private var wasPlayingBeforeFocusChange = false
     private var focusRetries = 0
-    private var lastFocusDeniedAt = 0L
+    private var inFocusRetryProbe = false
     private val focusRetryHandler = Handler(Looper.getMainLooper())
 
     // Review item 5: the offline probe below fans out to per-song disk/cache
@@ -468,7 +477,8 @@ class PlaybackService : MediaSessionService() {
                     lastStreamRetryIndex = -1
                     weakRetryAttempt = 0
                     focusRetries = 0
-                    lastFocusDeniedAt = 0L
+                    inFocusRetryProbe = false
+                    focusRetryActive = false
                     PlayDiag.mark(this@PlaybackService, "playing")
                     if (switchStartMs > 0L) {
                         val elapsed = android.os.SystemClock.elapsedRealtime() - switchStartMs
@@ -490,11 +500,15 @@ class PlaybackService : MediaSessionService() {
                 // 焦点不可用（含"用户点了播放但焦点申请被拒"）：Media3 会把 playWhenReady
                 // 直接置回 false（AudioFocusManager.requestAudioFocus 被拒 → DO_NOT_PLAY），
                 // 界面毫无变化 = 用户看到的"点了没反应"。
+                // fromProbe 区分来源：true = 我们自己的补试探测被拒（沿阶梯推进）；
+                // false = 用户点按被拒（重开一轮密集补试，也是对端释放后的主恢复路径）。
                 if (!playWhenReady &&
                     reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
                 ) {
+                    val fromProbe = inFocusRetryProbe
+                    inFocusRetryProbe = false
                     PlayDiag.mark(this@PlaybackService, "focus-blocked")
-                    maybeRetryDeniedPlay()
+                    maybeRetryDeniedPlay(fromProbe)
                 }
             }
 
@@ -521,7 +535,7 @@ class PlaybackService : MediaSessionService() {
                 lastPrefetchIndex = -1
                 // 切歌视为新一轮：焦点被拒的阶梯计数清零（切歌后按播放应立即生效）
                 focusRetries = 0
-                lastFocusDeniedAt = 0L
+                inFocusRetryProbe = false
                 prefetchNext()
             }
 
@@ -821,15 +835,19 @@ class PlaybackService : MediaSessionService() {
     /**
      * 见 [nextFocusRetryIndex]：按阶梯延迟补试——只有在"仍处于暂停待播"时才重发 play()
      * （此时 playWhenReady 的 false→true 是一次真实状态切换，会重新申请音频焦点）。
+     * [isRetryProbe] = 本次"被拒"是否来自我们自己的补试探测（区分被拒来源）。
      */
-    private fun maybeRetryDeniedPlay() {
-        val now = android.os.SystemClock.elapsedRealtime()
-        lastFocusDeniedAtMs = now
-        val since = if (lastFocusDeniedAt == 0L) Long.MAX_VALUE else now - lastFocusDeniedAt
-        val idx = nextFocusRetryIndex(wasPlayingBeforeFocusChange, focusRetries, since)
-        if (idx < 0) return
+    private fun maybeRetryDeniedPlay(isRetryProbe: Boolean) {
+        val idx = nextFocusRetryIndex(wasPlayingBeforeFocusChange, focusRetries, isRetryProbe)
+        if (idx < 0) {
+            focusRetryActive = false
+            return
+        }
+        // 先清掉未执行的旧探测再排新的：用户快速连点时，每轮点按都会清旧排新，
+        // 避免多个探测并发堆积导致阶梯被翻倍执行。
+        focusRetryHandler.removeCallbacksAndMessages(null)
         focusRetries = idx + 1
-        lastFocusDeniedAt = now
+        focusRetryActive = true
         focusRetryHandler.postDelayed({
             val exo = player ?: return@postDelayed
             val stillSilent = try {
@@ -839,9 +857,13 @@ class PlaybackService : MediaSessionService() {
             }
             if (stillSilent) {
                 PlayDiag.mark(this, "focus-retry-${idx + 1}")
+                inFocusRetryProbe = true
                 try {
                     exo.play()
                 } catch (_: Exception) {
+                    // play() 异常 → 不会有 LOSS 回调 → 本轮自然结束，收掉提示状态
+                    inFocusRetryProbe = false
+                    focusRetryActive = false
                 }
             }
         }, FOCUS_RETRY_DELAYS_MS[idx])
@@ -891,6 +913,7 @@ class PlaybackService : MediaSessionService() {
         }
         // 补试回调持有本 Service：不清掉会把实例多留一个补试间隔才被回收。
         focusRetryHandler.removeCallbacksAndMessages(null)
+        focusRetryActive = false
         mediaSession?.run {
             player.release()
             release()

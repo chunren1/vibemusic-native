@@ -46,40 +46,61 @@ class PlayDiagTest {
         assertEquals("whatever", mapPlayDiagCode("whatever"))
     }
 
-    // ---- 焦点被拒补试阶梯（2026-10-10 重做）：只补"用户点了播放却被拒"，不补"播放中被打断" ----
+    // ---- 焦点被拒补试阶梯（2026-10-10 二版）：只补"用户点了播放却被拒"，不补"播放中被打断" ----
 
     @Test
     fun deniedPlay_afterUserTap_startsLadder() {
-        // 首轮（距上次拒绝远）→ 用阶梯第 0 档
-        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = 0, msSinceLastDenial = Long.MAX_VALUE))
+        // 用户点按被拒（isRetryProbe=false）→ 开启新轮，用阶梯第 0 档
+        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = 0, isRetryProbe = false))
     }
 
     @Test
     fun interruptionWhilePlaying_neverRetries() {
-        assertEquals(-1, nextFocusRetryIndex(playedBefore = true, retriesDone = 0, msSinceLastDenial = Long.MAX_VALUE))
+        // 播放中被抢（wasPlayingBeforeFocusChange=true）→ 不自动补试，两种来源都是 -1
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = true, retriesDone = 0, isRetryProbe = false))
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = true, retriesDone = 3, isRetryProbe = true))
     }
 
     @Test
     fun ladderAdvancesWithinEpisode() {
-        // 同一轮内沿阶梯推进
-        assertEquals(1, nextFocusRetryIndex(playedBefore = false, retriesDone = 1, msSinceLastDenial = 5_000))
-        assertEquals(FOCUS_RETRY_DELAYS_MS.lastIndex, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size - 1, msSinceLastDenial = 5_000))
+        // 补试探测被拒（isRetryProbe=true）→ 沿阶梯推进
+        assertEquals(1, nextFocusRetryIndex(playedBefore = false, retriesDone = 1, isRetryProbe = true))
+        assertEquals(
+            FOCUS_RETRY_DELAYS_MS.lastIndex,
+            nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size - 1, isRetryProbe = true)
+        )
     }
 
     @Test
     fun ladderExhaustedWithinEpisode_returnsMinusOne() {
-        assertEquals(-1, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, msSinceLastDenial = 5_000))
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, isRetryProbe = true))
     }
 
     @Test
-    fun newTapAfterGap_resetsEpisode() {
-        // 距上次拒绝超过 15s 的新拒绝 = 用户新点按 → 计数清零重来（旧版死锁的修复点）
-        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, msSinceLastDenial = 16_000))
+    fun newUserTap_resetsMidLadder() {
+        // 用户中途再点按（isRetryProbe=false）→ 无视已推进的计数，重置为新一轮 0 档
+        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = 3, isRetryProbe = false))
+        // 阶梯已用尽后用户再点 → 同样重开
+        assertEquals(0, nextFocusRetryIndex(playedBefore = false, retriesDone = FOCUS_RETRY_DELAYS_MS.size, isRetryProbe = false))
     }
 
     @Test
-    fun ladderSpansAboutTwoMinutes() {
+    fun fullFailedSequence_advancesMonotonicallyToExhaustion() {
+        // 钉死首版计时器缺陷（距上次拒绝 >15s 误判为新点按 → 24s 档自我清零死循环）：
+        // 连续补试探测全部被拒（isRetryProbe=true）时，无论阶梯间隔多长（最长 60s），
+        // 都必须严格单调推进到用尽 -1，绝不能被清零重开。
+        var retries = 0
+        FOCUS_RETRY_DELAYS_MS.indices.forEach { round ->
+            val idx = nextFocusRetryIndex(playedBefore = false, retriesDone = retries, isRetryProbe = true)
+            assertEquals("第 $round 次探测不得跳档/回卷", round, idx)
+            retries = idx + 1
+        }
+        assertEquals(-1, nextFocusRetryIndex(playedBefore = false, retriesDone = retries, isRetryProbe = true))
+    }
+
+    @Test
+    fun ladderSpansAboutTenMinutes() {
         val total = FOCUS_RETRY_DELAYS_MS.sum()
-        assertTrue("阶梯总时长应 ≈2 分钟，实际 ${total}ms", total in 60_000..180_000)
+        assertTrue("阶梯总时长应 ≈10 分钟，实际 ${total}ms", total in 480_000..720_000)
     }
 }
