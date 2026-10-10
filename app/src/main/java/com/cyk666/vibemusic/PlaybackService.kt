@@ -183,6 +183,25 @@ fun nextFocusRetryIndex(playedBefore: Boolean, retriesDone: Int, isRetryProbe: B
     return if (used in FOCUS_RETRY_DELAYS_MS.indices) used else -1
 }
 
+/**
+ * 纯函数：补试探测开火前的"用户意愿门"（2026-10-11 未点按自动续播 bug）。
+ * - userPlayMs == 0（本进程用户从未点过播放）→ 禁止开火：当前这首是"被打断停掉"
+ *   的，不是"点了被拒"的，自动续播违背用户意图。
+ * - 用户按过暂停且晚于上次点按 → 禁止开火（暂停即"我不想听"，pending 探测作废）。
+ * 其余情况放行（点了被拒 → 等对端放手是合法补试）。
+ */
+fun shouldFireRetryProbe(
+    userPlayMs: Long,
+    userPauseMs: Long,
+    isPlaying: Boolean,
+    playWhenReady: Boolean
+): Boolean {
+    if (isPlaying || playWhenReady) return false
+    if (userPlayMs == 0L) return false
+    if (userPauseMs > userPlayMs) return false
+    return true
+}
+
 /** 播放救援检查间隔 / 单轮上限（"点了播放但一直卡着"→ 重置通道重播）。 */
 const val PLAY_RESCUE_CHECK_MS = 2_500L
 const val PLAY_RESCUE_MAX_ATTEMPTS = 2
@@ -456,6 +475,10 @@ class PlaybackService : MediaLibraryService() {
     // 和"用户按暂停的静"，pending 探测会在用户暂停后自动续播）。
     private var lastUserPauseMs = 0L
     private var lastProbeFireMs = 0L
+    // 用户最近一次"想播"点按（elapsedRealtime；0=本进程从未点过）：补试探测开火的
+    // 意愿门——只有用户点过播放，自动补试才有意义；被对端打断停掉的歌，用户没点
+    // 就永远不自动响（2026-10-11：未点按自动续播 bug）。
+    private var lastUserPlayMs = 0L
 
     // 播放救援（见 shouldRescuePlayback）：挂在 playWhenReady=false→true 之后，
     // 每 PLAY_RESCUE_CHECK_MS 检查一次；卡住则 stop→prepare→play 重置焦点通道。
@@ -535,6 +558,13 @@ class PlaybackService : MediaLibraryService() {
         player = exo
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
+                // 播放中被打断（playing true→false）：上一轮"点了被拒"排的探测若还
+                // pending，必须一起清掉——否则打断停歌后探测照样开火自动续播
+                // （2026-10-11 未点按自动续播 bug 的另一半）。
+                if (!playing && wasPlayingBeforeFocusChange) {
+                    focusRetryHandler.removeCallbacksAndMessages(null)
+                    focusRetryActive = false
+                }
                 wasPlayingBeforeFocusChange = playing
                 if (playing) {
                     consecFails = 0
@@ -590,6 +620,7 @@ class PlaybackService : MediaLibraryService() {
                 // "想播"变为 true 后启动救援检查（见 shouldRescuePlayback）：
                 // 若 2.5s 后仍 READY+无声（焦点等待卡死型），重置通道重播。
                 if (playWhenReady) {
+                    lastUserPlayMs = android.os.SystemClock.elapsedRealtime()
                     schedulePlayRescue()
                 }
             }
@@ -967,12 +998,30 @@ class PlaybackService : MediaLibraryService() {
         focusRetryActive = true
         focusRetryHandler.postDelayed({
             val exo = player ?: return@postDelayed
-            val stillSilent = try {
-                !exo.isPlaying && !exo.playWhenReady
+            val userPlay = lastUserPlayMs
+            val userPause = lastUserPauseMs
+            val pwr = try {
+                exo.playWhenReady
             } catch (_: Exception) {
-                false
+                true
             }
+            val playing = try {
+                exo.isPlaying
+            } catch (_: Exception) {
+                true
+            }
+            if (!shouldFireRetryProbe(userPlay, userPause, playing, pwr)) {
+                focusRetryActive = false
+                return@postDelayed
+            }
+            val stillSilent = !playing && !pwr
             if (stillSilent) {
+                // 意愿门：用户本进程从未点过播放 → 这轮是"被打断停掉"的歌，
+                // 不是"点了被拒"的歌，绝不自动响（2026-10-11 未点按自动续播 bug）。
+                if (lastUserPlayMs == 0L) {
+                    focusRetryActive = false
+                    return@postDelayed
+                }
                 PlayDiag.mark(this, "focus-retry-${idx + 1}")
                 inFocusRetryProbe = true
                 lastProbeFireMs = android.os.SystemClock.elapsedRealtime()
@@ -1047,6 +1096,7 @@ class PlaybackService : MediaLibraryService() {
 
     fun playQueue(songs: List<Song>, index: Int) {
         val exo = player ?: return
+        lastUserPlayMs = android.os.SystemClock.elapsedRealtime()
         exo.setMediaItems(
             songs.map { it.toCachedMediaItem() },
             index.coerceIn(songs.indices),

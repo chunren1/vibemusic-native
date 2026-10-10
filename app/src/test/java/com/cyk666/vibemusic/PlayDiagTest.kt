@@ -105,6 +105,29 @@ class PlayDiagTest {
         assertTrue("阶梯总时长应 ≈10 分钟，实际 ${total}ms", total in 480_000..720_000)
     }
 
+    // ---- 补试意愿门（2026-10-11：被打断停歌后未点按不得自动续播）----
+
+    @Test
+    fun probeGate_neverFiresWithoutUserTap() {
+        // 本进程用户从未点过播放 → 禁止开火（无论多安静）
+        assertFalse(shouldFireRetryProbe(userPlayMs = 0L, userPauseMs = 0L, isPlaying = false, playWhenReady = false))
+    }
+
+    @Test
+    fun probeGate_userPauseAfterTapCancelsProbe() {
+        // 点过播、随后按了暂停 → pending 探测作废
+        assertFalse(shouldFireRetryProbe(userPlayMs = 1000L, userPauseMs = 2000L, isPlaying = false, playWhenReady = false))
+        // 点过播、没按过暂停 → 放行（等对端放手的合法补试）
+        assertTrue(shouldFireRetryProbe(userPlayMs = 1000L, userPauseMs = 0L, isPlaying = false, playWhenReady = false))
+    }
+
+    @Test
+    fun probeGate_alreadyAudibleNeverFires() {
+        // 已经在响 / 想播为 true → 不需要补试
+        assertFalse(shouldFireRetryProbe(userPlayMs = 1000L, userPauseMs = 0L, isPlaying = true, playWhenReady = false))
+        assertFalse(shouldFireRetryProbe(userPlayMs = 1000L, userPauseMs = 0L, isPlaying = false, playWhenReady = true))
+    }
+
     // ---- 播放救援看门狗（2026-10-10：通知中心"点了播放卡死"自愈）----
 
     @Test
