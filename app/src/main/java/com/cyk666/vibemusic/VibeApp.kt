@@ -14,7 +14,7 @@ import com.tencent.bugly.crashreport.CrashReport
 /**
  * Bugly AppID（bugly.qq.com 注册应用后填入；未填时不上报，只记本地 PlayDiag）。
  */
-const val BUGLY_APP_ID = "REPLACE_WITH_BUGLY_APP_ID"
+const val BUGLY_APP_ID = "5b95d7249e"
 
 /**
  * 应用入口：注册全局 Coil ImageLoader（round6 体验专项）。
