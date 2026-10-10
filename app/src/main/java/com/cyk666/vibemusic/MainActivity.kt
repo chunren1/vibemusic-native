@@ -3805,6 +3805,7 @@ class MainActivity : ComponentActivity() {
                                     PlayDiag.lastCode(context),
                                     PlayDiag.lastTs(context)
                                 ),
+                                playDiagCode = PlayDiag.lastCode(context),
                                 onLoginClick = {
                                     loginInitialRegister = false
                                     screen = Screen.Login

@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
@@ -16,10 +17,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.common.util.UnstableApi
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -162,6 +167,9 @@ val FOCUS_RETRY_DELAYS_MS = longArrayOf(
     3_000, 6_000, 12_000, 24_000, 30_000,
     60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000
 )
+
+/** 媒体库浏览根的稳定标识（见 PlaybackService.onGetLibraryRoot，仅为启用系统恢复通道）。 */
+private const val LIBRARY_ROOT_ID = "vibemusic.library.root"
 
 /**
  * 纯函数：返回本轮应使用的阶梯下标（-1 = 不再补试）。
@@ -342,8 +350,16 @@ fun audioFocusConfig(): AudioFocusConfig = AudioFocusConfig(
  *   与用户点按恢复。无需（也无法）自行接管焦点。
  */
 
+/**
+ * 用 [MediaLibraryService]（[MediaSessionService] 的超集）而非裸 MediaSessionService：
+ * Media3 文档明确 "System UI resumption notification is only available if you
+ * implement a MediaLibraryService to serve a content library"——App 被系统回收后，
+ * 下拉媒体控件要能作为"恢复入口"存在（并点击拉起服务恢复播放），这是官方通道；
+ * 裸 MediaSessionService 只有蓝牙/系统控制直连，没有这层恢复展示。库本身只暴露
+ * 一个轻量空根（[onGetLibraryRoot]），不提供真实内容树。
+ */
 @OptIn(UnstableApi::class)
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
     companion object {
         /**
@@ -384,7 +400,7 @@ class PlaybackService : MediaSessionService() {
         var lastPrefetchBytes: Long = 0L
     }
 
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private var player: ExoPlayer? = null
     private var consecFails = 0
 
@@ -727,21 +743,11 @@ class PlaybackService : MediaSessionService() {
         } catch (_: Exception) {
             Intent(this, MainActivity::class.java)
         }
-        val sessionBuilder = MediaSession.Builder(this, exo)
-        try {
-            sessionBuilder.setSessionActivity(
-                PendingIntent.getActivity(
-                    this, 0, launchIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-            )
-        } catch (_: Exception) {
-        }
         // 官方恢复钩子（清单里声明了 MediaButtonReceiver 就必须实现，见 Media3 文档）：
         // 进程被杀后点通知播放键/媒体按钮 → 播放器无当前曲目 → Media3 调这里要队列快照，
         // 交回后由 Media3 自己铺轨并开始播放（我们只返回数据，不接管任何 transport 命令，
         // 与 1.0.10/1.0.11 被回滚的"命令拦截式物化"是不同机制）。
-        sessionBuilder.setCallback(object : MediaSession.Callback {
+        val sessionCallback = object : MediaLibrarySession.Callback {
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo
@@ -776,7 +782,46 @@ class PlaybackService : MediaSessionService() {
                 }
                 return future
             }
-        })
+
+            // 轻量浏览根：只为"声明内容库"以启用系统 UI 媒体恢复通道（见类注释），
+            // 不对外暴露真实内容；子级查询固定返回空列表。
+            override fun onGetLibraryRoot(
+                session: MediaLibrarySession,
+                browser: MediaSession.ControllerInfo,
+                params: MediaLibraryService.LibraryParams?
+            ): ListenableFuture<LibraryResult<MediaItem>> {
+                val root = MediaItem.Builder()
+                    .setMediaId(LIBRARY_ROOT_ID)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setIsBrowsable(true)
+                            .setIsPlayable(false)
+                            .build()
+                    )
+                    .build()
+                return Futures.immediateFuture(LibraryResult.ofItem(root, null))
+            }
+
+            override fun onGetChildren(
+                session: MediaLibrarySession,
+                browser: MediaSession.ControllerInfo,
+                parentId: String,
+                page: Int,
+                pageSize: Int,
+                params: MediaLibraryService.LibraryParams?
+            ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+                Futures.immediateFuture(LibraryResult.ofItemList(emptyList(), null))
+        }
+        val sessionBuilder = MediaLibrarySession.Builder(this, exo, sessionCallback)
+        try {
+            sessionBuilder.setSessionActivity(
+                PendingIntent.getActivity(
+                    this, 0, launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        } catch (_: Exception) {
+        }
         mediaSession = sessionBuilder.build()
     }
 
@@ -884,26 +929,15 @@ class PlaybackService : MediaSessionService() {
         player?.seekTo(positionMs.coerceAtLeast(0L))
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
-    // Swipe-away from recents: while audible the service stays foreground so
-    // the session + notification survive; when already paused/idle, stop
-    // quietly instead of lingering with a dead notification. Process death
-    // itself (MIUI battery saver) is outside app control — recovery is the
-    // Activity QueueStore-snapshot + ensureTimeline path, see MainActivity.
+    // Swipe-away from recents（2.0.8 改）：不再"暂停即 stopSelf"（父类默认）。
+    // 国产 ROM 用户习惯性清后台，划卡 ≠ 想停止播放——让服务/会话保留，系统媒体控件
+    // （含下拉面板卡片）才能持续可用；不播放时服务处于低优先级，内存吃紧时系统仍会回收。
+    // 被杀后的恢复链路：系统 UI 媒体恢复（MediaLibraryService，见类注释）+
+    // Activity QueueStore-snapshot + ensureTimeline（见 MainActivity）。
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val playing = try {
-            player?.isPlaying == true
-        } catch (_: Exception) {
-            false
-        }
-        if (!playing) {
-            try {
-                stopSelf()
-            } catch (_: Exception) {
-            }
-        }
     }
 
     override fun onDestroy() {

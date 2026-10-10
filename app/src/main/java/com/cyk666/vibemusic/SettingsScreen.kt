@@ -386,7 +386,8 @@ fun SettingsScreen(
     authDiagCode: String = "",
     authDiagTimeMs: Long = 0L,
     positionSaveTimeMs: Long = 0L,
-    playDiagLine: String = ""
+    playDiagLine: String = "",
+    playDiagCode: String = ""
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showChangePwd by remember(user?.username) { mutableStateOf(false) }
@@ -514,6 +515,16 @@ fun SettingsScreen(
                     text = KEEP_ALIVE_VENDOR_HINT,
                     style = MaterialTheme.typography.bodySmall,
                     color = GrayMuted,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+                )
+            }
+            // 诊断联动（2026-10-10）：最近一次播放诊断=进程曾被系统清理且白名单未开 →
+            // 把"下拉播放键失灵"的实机证据直接指到保活设置上（否则用户根本不知道要开）。
+            if (shouldShowKilledHint(playDiagCode, keepAliveIgnoring)) {
+                Text(
+                    text = KILLED_HINT_TEXT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
             }

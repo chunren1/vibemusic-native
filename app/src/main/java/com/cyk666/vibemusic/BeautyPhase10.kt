@@ -179,6 +179,18 @@ fun keepAliveRow(ignoring: Boolean): KeepAliveRow = if (ignoring) {
     KeepAliveRow("后台保活（建议开启）", "未开启：暂停久了通知栏播放键可能没反应 · 点此开启")
 }
 
+/**
+ * 纯：是否提示"播放服务曾被系统清理"——最近一次播放诊断=cold（服务冷启动，进程曾被杀）
+ * 且白名单未开。2026-10-10 实机链路：暂停后被 ROM 清进程 → 下拉媒体控件变"死卡片"
+ * （点击命令到不了 App）→ 必须手动开 App。诊断行是唯一证据源，用户看到提示可直接去开白名单。
+ */
+fun shouldShowKilledHint(playDiagCode: String, keepAliveIgnoring: Boolean): Boolean =
+    playDiagCode == "cold" && !keepAliveIgnoring
+
+/** 纯：上述提示文案（直连"下拉播放键失灵"的用户语言，点明与保活设置的关系）。 */
+const val KILLED_HINT_TEXT =
+    "检测到播放服务曾被系统清理（下拉播放键会因此失灵）——建议开启上方保活设置"
+
 /** 白名单申请要打开的设置页（按优先级尝试）。 */
 enum class BatteryOptAction { REQUEST_EXEMPTION, OPEN_SETTINGS_LIST }
 

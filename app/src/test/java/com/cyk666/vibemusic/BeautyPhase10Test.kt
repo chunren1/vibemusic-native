@@ -273,4 +273,26 @@ class BeautyPhase10Test {
         assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("锁定"))
         assertTrue(KEEP_ALIVE_VENDOR_HINT.contains("通知正文"))
     }
+
+    // ---- 被杀诊断联动提示（2026-10-10：cold 诊断 → 保活设置引导）----
+
+    @Test
+    fun `被杀提示_cold且未开白名单才显示`() {
+        assertTrue(shouldShowKilledHint(playDiagCode = "cold", keepAliveIgnoring = false))
+        assertEquals(false, shouldShowKilledHint(playDiagCode = "cold", keepAliveIgnoring = true))
+    }
+
+    @Test
+    fun `被杀提示_非cold记录不显示`() {
+        assertEquals(false, shouldShowKilledHint(playDiagCode = "playing", keepAliveIgnoring = false))
+        assertEquals(false, shouldShowKilledHint(playDiagCode = "", keepAliveIgnoring = false))
+        assertEquals(false, shouldShowKilledHint(playDiagCode = "focus-blocked", keepAliveIgnoring = false))
+        assertEquals(false, shouldShowKilledHint(playDiagCode = "resume-ok:3@0", keepAliveIgnoring = false))
+    }
+
+    @Test
+    fun `被杀提示_文案点明播放键与保活`() {
+        assertTrue(KILLED_HINT_TEXT.contains("播放键"))
+        assertTrue(KILLED_HINT_TEXT.contains("保活"))
+    }
 }
