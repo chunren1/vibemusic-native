@@ -43,6 +43,12 @@ class PlayDiagTest {
     }
 
     @Test
+    fun diagCode_focusRetryIsReadable() {
+        // 实际发射码带档位后缀（focus-retry-3），精确相等会漏（2026-10-19 修）
+        assertEquals("焦点被拒后已自动补试", mapPlayDiagCode("focus-retry-3"))
+    }
+
+    @Test
     fun diagCode_unknownPassthrough() {
         assertEquals("whatever", mapPlayDiagCode("whatever"))
     }

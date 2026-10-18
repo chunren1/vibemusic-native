@@ -68,7 +68,7 @@ fun mapPlayDiagCode(code: String): String = when {
     code.startsWith("resume-ok") -> "已交回队列快照，等待播放"
     code.startsWith("resume-fail") -> "队列快照交回失败"
     code == "focus-blocked" -> "播放被音频焦点拒绝（别的应用占着声音）"
-    code == "focus-retry" -> "焦点被拒后已自动补试一次"
+    code.startsWith("focus-retry") -> "焦点被拒后已自动补试"
     code.startsWith("rescue-exhausted") -> "播放卡住，自动修复未成功（请反馈）"
     code.startsWith("rescue-") -> "检测到播放卡住，已自动修复重播"
     code == "playing" -> "已开始出声"
