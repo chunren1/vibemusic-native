@@ -21,6 +21,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
 import androidx.media3.common.util.UnstableApi
 import com.cyk666.vibemusic.MediaCache.toCachedMediaItem
 import com.google.common.collect.ImmutableList
@@ -516,6 +517,17 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         // 冷启动落一条诊断（进程曾被杀时，这是复现"通知播放键没反应"的第一手证据）
         PlayDiag.mark(this, "cold")
+        // 观察点（2026-10-19，纯记录）：官方"启动前台服务被系统拒绝"钩子。
+        // 国产 ROM 后台启动 FGS 被拒是**静默**的——通知卡片/媒体键拉起服务时前台服务没起来，
+        // 听感就是"点了没反应"，此前完全不可见。回调体只写诊断，不改变任何启动/通知行为。
+        try {
+            setListener(object : MediaSessionService.Listener {
+                override fun onForegroundServiceStartNotAllowedException() {
+                    PlayDiag.mark(this@PlaybackService, "fgs-denied")
+                }
+            })
+        } catch (_: Exception) {
+        }
         // Cache singleton warms on IO: dir create + DB open must never run
         // on Main (first tap / service recreate). The pipeline below
         // resolves the same singleton on ExoPlayer loader threads instead.
@@ -845,6 +857,18 @@ class PlaybackService : MediaLibraryService() {
         // 交回后由 Media3 自己铺轨并开始播放（我们只返回数据，不接管任何 transport 命令，
         // 与 1.0.10/1.0.11 被回滚的"命令拦截式物化"是不同机制）。
         val sessionCallback = object : MediaLibrarySession.Callback {
+            // 观察点（2026-10-19，纯记录）：谁连上来的。直接判定"连接方是不是
+            // com.android.systemui"——被 ROM 杀进程后，若系统媒体卡片连不上来，
+            // 这里就看不到 ctrl:com.android.systemui，问题范围瞬间收窄。
+            // 严格只记录：super 的 ConnectionResult 原样返回，不碰命令协商/授权。
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                PlayDiag.observe(this@PlaybackService, "ctrl:${controllerLabel(controller)}")
+                return super.onConnect(session, controller)
+            }
+
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo
@@ -882,11 +906,15 @@ class PlaybackService : MediaLibraryService() {
 
             // 轻量浏览根：只为"声明内容库"以启用系统 UI 媒体恢复通道（见类注释），
             // 不对外暴露真实内容；子级查询固定返回空列表。
+            // 观察点（2026-10-19，纯记录）：这两条**只在对端不被识别为系统 UI**（需要真实
+            // 浏览内容树）时才会被调用，是"连上来的到底是谁"的关键信号。返回值逻辑一字未动
+            // （固定空根/空表故意不委托 super——调 super 会改成"不支持"而改变行为）。
             override fun onGetLibraryRoot(
                 session: MediaLibrarySession,
                 browser: MediaSession.ControllerInfo,
                 params: MediaLibraryService.LibraryParams?
             ): ListenableFuture<LibraryResult<MediaItem>> {
+                PlayDiag.observe(this@PlaybackService, "libroot:${controllerLabel(browser)}")
                 val root = MediaItem.Builder()
                     .setMediaId(LIBRARY_ROOT_ID)
                     .setMediaMetadata(
@@ -906,8 +934,10 @@ class PlaybackService : MediaLibraryService() {
                 page: Int,
                 pageSize: Int,
                 params: MediaLibraryService.LibraryParams?
-            ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
-                Futures.immediateFuture(LibraryResult.ofItemList(emptyList(), null))
+            ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+                PlayDiag.observe(this@PlaybackService, "libchildren:${controllerLabel(browser)}")
+                return Futures.immediateFuture(LibraryResult.ofItemList(emptyList(), null))
+            }
         }
         val sessionBuilder = MediaLibrarySession.Builder(this, exo, sessionCallback)
         try {
@@ -1110,6 +1140,14 @@ class PlaybackService : MediaLibraryService() {
         player?.seekTo(positionMs.coerceAtLeast(0L))
     }
 
+    /** 仅诊断用：控制器包名（取不到 → "unknown"）。不参与任何播放/连接决策。 */
+    private fun controllerLabel(controller: MediaSession.ControllerInfo): String =
+        try {
+            controller.packageName.orEmpty().ifBlank { "unknown" }
+        } catch (_: Exception) {
+            "unknown"
+        }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
         mediaSession
 
@@ -1119,9 +1157,27 @@ class PlaybackService : MediaLibraryService() {
     // 被杀后的恢复链路：系统 UI 媒体恢复（MediaLibraryService，见类注释）+
     // Activity QueueStore-snapshot + ensureTimeline（见 MainActivity）。
     override fun onTaskRemoved(rootIntent: Intent?) {
+        // 观察点（2026-10-19，纯记录）：划卡只记录，**body 仍不调 super、不 stopSelf**
+        // （2.0.8 有意为之的行为，本次观察不改它）。
+        PlayDiag.observe(this, "task-removed")
+    }
+
+    // 观察点（2026-10-19，纯记录）：服务被谁、用什么 action 拉起过。
+    // 通知卡片点按会走 MediaButtonReceiver/系统 FGS 启动（action 各不相同），
+    // "服务到底有没有被拉起"此前只能靠猜。严格只记录：super 的返回值原样返回。
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val action = try {
+            intent?.action.orEmpty().ifBlank { "null" }
+        } catch (_: Exception) {
+            "unknown"
+        }
+        PlayDiag.observe(this, "svc-start:$action")
+        return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onDestroy() {
+        // 观察点（2026-10-19，纯记录）：服务销毁（ROM 回收/正常退出都会走到）。
+        PlayDiag.observe(this, "svc-destroy")
         try {
             serviceIoScope.cancel()
         } catch (_: Exception) {

@@ -387,7 +387,9 @@ fun SettingsScreen(
     authDiagTimeMs: Long = 0L,
     positionSaveTimeMs: Long = 0L,
     playDiagLine: String = "",
-    playDiagCode: String = ""
+    playDiagCode: String = "",
+    /** 最近几条诊断（多行文本，新 → 旧）；空串则不显示该行。 */
+    recentDiagLine: String = ""
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showChangePwd by remember(user?.username) { mutableStateOf(false) }
@@ -559,6 +561,16 @@ fun SettingsScreen(
                 SettingsRowShell(
                     title = "播放诊断",
                     subtitle = playDiagLine,
+                    showChevron = false
+                )
+            }
+            // 最近 5 条（2026-10-19）：沿用同一行样式（多行 subtitle，同"关于"行的做法），
+            // 不做新设计、不加新控件类型；单条文案保留在上面那行。
+            if (recentDiagLine.isNotBlank()) {
+                MineDivider()
+                SettingsRowShell(
+                    title = "播放诊断 · 最近 5 条",
+                    subtitle = recentDiagLine,
                     showChevron = false
                 )
             }
