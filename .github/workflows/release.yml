@@ -110,7 +110,9 @@ jobs:
             NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名；正式通道收不到此版）"
           else
             PRERELEASE_FLAGS=""
-            NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名）\n\nAPK sha256: \`$SHA\`"
+            # 坑①：bash 双引号不展开 \n —— 写死 "\n\n" 会变成字面量反斜杠 n（v2.0.11-ai 的说明里就真的这么显示了），必须用 printf。
+            # 坑②：哈希由 Verify 步骤写进 $GITHUB_ENV 的 SHA256，跨步骤只能引 $SHA256，引 $SHA 永远是空串（原 bug 根因）。
+            printf -v NOTES 'VibeMusic 原生版 %s（CI 自动构建签名）\n\nAPK sha256: `%s`' "$TAG" "$SHA256"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_NAME" --clobber
