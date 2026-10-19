@@ -327,11 +327,20 @@ fun SearchScreen(
             when {
                 guessLoading && guessSongs.isEmpty() -> SearchSkeleton()
                 guessSongs.isNotEmpty() -> {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
+                    // 猜你喜欢必须自带滚动视口：外层 Column 不可滚，普通 Column
+                    // 装 6 行会被剩余高度裁掉且无法下滑，后几首永远够不到。
+                    // fillMaxSize 拿到的是 Column 的剩余高度（bounded），
+                    // LazyColumn 在其内部滚动——与收藏/最近播放页同一写法。
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        guessSongs.forEachIndexed { index, song ->
+                        // key 带上 index：randomSongs 不保证 sourceId+platform 唯一，
+                        // 重复 key 会让 LazyColumn 直接抛异常。
+                        itemsIndexed(
+                            guessSongs,
+                            key = { index, s -> "guess-$index-${s.sourceId}-${s.platform}" }
+                        ) { index, song ->
                             SongRow(
                                 model = buildSongRowModel(song),
                                 meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
