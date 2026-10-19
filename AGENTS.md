@@ -4,19 +4,19 @@
 > 项目全景见 `README.md`（概览）与 `PLAN.md`（阶段计划 + 验收门 + AI 军规）。
 
 ## 概述
-VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.10-ai`（versionCode 88），发版由 CI tag 触发。
+VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.11-ai`（versionCode 89，2026-10-19 发布），发版由 CI tag 触发。
 
 ## 技术栈（冻结，改动需用户批准）
 - Kotlin 2.0.20 · AGP 8.5.2 · Gradle 8.10.2 · JDK 21（`jvmTarget 17`）
 - compileSdk 35 / minSdk 26 / targetSdk 35
 - Compose BOM 2024.10.00 + Material3 + material-icons-extended；Media3 1.5.1；Retrofit 2.11.0 / OkHttp 4.12.0；Coil 2.6.0；DataStore 1.1.1；Bugly 4.1.9
 - JSON 走 **`org.json`（不用 Moshi）**
-- 测试：JUnit 4.13.2 + Robolectric 4.14.1（78 个测试文件 / 925 用例）
+- 测试：JUnit 4.13.2 + Robolectric 4.14.1（81 个测试文件 / 937 用例）
 - 版本单一来源：`gradle/libs.versions.toml`
 
 ## 常用命令（工具链 `~/Android/Sdk/build-tools/35.0.0/`）
 ```bash
-./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：925 用例必须全绿
+./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：937 用例必须全绿
 ./gradlew assembleDebug --no-daemon        # debug 构建
 VIBEMUSIC_KEYSTORE_PASSWORD=<~/.dsh/.credentials.yaml> ./gradlew assembleRelease --no-daemon
 aapt dump badging app/build/outputs/apk/release/app-release.apk   # 校 versionName/versionCode
