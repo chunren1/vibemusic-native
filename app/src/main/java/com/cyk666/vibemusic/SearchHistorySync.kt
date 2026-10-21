@@ -49,6 +49,7 @@ object SearchHistorySync {
                 delay(SEARCH_HISTORY_PUSH_DEBOUNCE_MS)
                 VibeApi.pushSearchHistory(copy)
             } catch (_: Exception) {
+                SilentFail.note("SearchHistorySync.schedulePush:51")
             }
         }
     }
@@ -66,10 +67,12 @@ object SearchHistorySync {
             try {
                 SearchStore.saveHistory(context, merged)
             } catch (_: Exception) {
+                SilentFail.note("SearchHistorySync.pullAndMerge:69")
             }
             try {
                 VibeApi.pushSearchHistory(merged)
             } catch (_: Exception) {
+                SilentFail.note("SearchHistorySync.pullAndMerge:74")
             }
             merged
         } catch (_: Exception) {

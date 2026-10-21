@@ -528,6 +528,7 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
     try {
         part.parentFile?.mkdirs()
     } catch (_: Exception) {
+        SilentFail.note("UpdateCheck.downloadSingleApk:530")
     }
     val existing = try {
         if (part.exists()) part.length() else 0L
@@ -539,6 +540,7 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
         try {
             if (part.exists()) part.delete()
         } catch (_: Exception) {
+            SilentFail.note("UpdateCheck.downloadSingleApk:542")
         }
     }
     var restarted = false
@@ -551,6 +553,7 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
                 try {
                     part.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("UpdateCheck.downloadSingleApk:555")
                 }
                 offset = 0L
                 restarted = true
@@ -565,6 +568,7 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
                 try {
                     part.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("UpdateCheck.downloadSingleApk:570")
                 }
                 offset = 0L
             }
@@ -588,6 +592,7 @@ private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long):
                 try {
                     part.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("UpdateCheck.downloadSingleApk:594")
                 }
                 throw RuntimeException("Download failed: empty file")
             }

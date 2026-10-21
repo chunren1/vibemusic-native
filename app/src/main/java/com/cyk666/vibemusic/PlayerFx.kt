@@ -125,6 +125,7 @@ fun SpectrumVisualizer(
                         viz.getFft(buf)
                         bars = mapFftToBars(buf)
                     } catch (_: Exception) {
+                        SilentFail.note("PlayerFx.SpectrumVisualizer:127")
                     }
                     delay(SPECTRUM_SAMPLE_INTERVAL_MS)
                 }
@@ -135,11 +136,13 @@ fun SpectrumVisualizer(
                 try {
                     viz.enabled = false
                 } catch (_: Exception) {
+                    SilentFail.note("PlayerFx.SpectrumVisualizer:138")
                 }
             }
             try {
                 viz.release()
             } catch (_: Exception) {
+                SilentFail.note("PlayerFx.SpectrumVisualizer:144")
             }
             return@DisposableEffect onDispose {}
         }
@@ -148,10 +151,12 @@ fun SpectrumVisualizer(
             try {
                 viz.enabled = false
             } catch (_: Exception) {
+                SilentFail.note("PlayerFx.SpectrumVisualizer:153")
             }
             try {
                 viz.release()
             } catch (_: Exception) {
+                SilentFail.note("PlayerFx.SpectrumVisualizer:158")
             }
         }
     }

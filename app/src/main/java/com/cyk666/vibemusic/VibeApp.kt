@@ -45,13 +45,21 @@ class VibeApp : Application(), ImageLoaderFactory {
                 override fun onCrashHandleStart(
                     crashType: Int, errorType: String?,
                     errorMessage: String?, errorStack: String?
-                ): Map<String, String> = mapOf(
-                    "playDiag" to "${PlayDiag.lastCode(this@VibeApp)} @ ${PlayDiag.lastTs(this@VibeApp)}"
-                )
+                ): Map<String, String> = buildMap {
+                    put(
+                        "playDiag",
+                        "${PlayDiag.lastCode(this@VibeApp)} @ ${PlayDiag.lastTs(this@VibeApp)}"
+                    )
+                    // Swallowed-exception tally: how many best-effort paths had
+                    // already been failing before the crash. Omitted when empty
+                    // so the Bugly payload stays clean on healthy runs.
+                    SilentFail.summary().takeIf { it.isNotEmpty() }?.let { put("silentFail", it) }
+                }
             })
             CrashReport.initCrashReport(this, BUGLY_APP_ID, BuildConfig.DEBUG, strategy)
             BuglyReporter.ready = true
         } catch (_: Exception) {
+            SilentFail.note("VibeApp.onCrashHandleStart:61")
         }
     }
 

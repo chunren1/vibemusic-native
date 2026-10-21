@@ -201,6 +201,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:188")
                     }
                 }
             }
@@ -305,6 +306,7 @@ class MainActivity : ComponentActivity() {
                         authDiagTimeMs = ts
                         positionSaveTimeMs = QueueStore.loadLastPositionSaveTs(context)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:293")
                     }
                 }
             }
@@ -376,6 +378,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveUpdateChannel(context, channel)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:365")
                     }
                 }
             }
@@ -394,6 +397,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveOrientationMode(context, mode)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:384")
                     }
                 }
             }
@@ -447,12 +451,14 @@ class MainActivity : ComponentActivity() {
                         try {
                             data = Uri.parse("package:$pkg")
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:438")
                         }
                     }
                 }
                 try {
                     context.startActivity(intent)
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:445")
                 }
             }
             fun openBatterySettings() {
@@ -505,10 +511,12 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveSleepMinutes(context, m)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:498")
                     }
                     try {
                         QueueStore.saveSleepDeadline(context, deadline)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:503")
                     }
                 }
             }
@@ -557,6 +565,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     controller?.pause()
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:552")
                 }
                 // Clearing via setSleep writes zeros to both persisted keys,
                 // so a relaunch never resurrects the timer.
@@ -573,6 +582,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveAuthDiag(context, code)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:569")
                     }
                 }
             }
@@ -597,6 +607,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveLyricOffset(context, key, v)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:594")
                     }
                 }
             }
@@ -627,6 +638,7 @@ class MainActivity : ComponentActivity() {
                             searchHistory = SearchStore.addHistory(context, kw)
                             SearchHistorySync.schedulePush(scope, searchHistory)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:625")
                         }
                     }
                     return
@@ -650,6 +662,7 @@ class MainActivity : ComponentActivity() {
                             searchHistory = SearchStore.addHistory(context, kw)
                             SearchHistorySync.schedulePush(scope, searchHistory)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:649")
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -723,6 +736,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 cc.seekTo(start)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:723")
                             }
                         }
                     }
@@ -785,6 +799,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 QueueStore.saveQueue(context, snapshot, snapshotIndex)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:786")
                             }
                         }
                     } catch (e: Exception) {
@@ -800,6 +815,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveQueue(context, snapshot, snapshotIndex)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:802")
                     }
                 }
             }
@@ -941,6 +957,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.savePosition(context, key, pos)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:944")
                     }
                 }
             }
@@ -1016,6 +1033,7 @@ class MainActivity : ComponentActivity() {
                     cc.prepare()
                     cc.play()
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:1020")
                 }
             }
 
@@ -1074,6 +1092,7 @@ class MainActivity : ComponentActivity() {
                             val rs = next.toRepeatShuffle()
                             QueueStore.savePlayMode(context, rs.repeatMode, rs.shuffleOn)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:1079")
                         }
                     }
                 } catch (e: Exception) {
@@ -1097,6 +1116,7 @@ class MainActivity : ComponentActivity() {
                     queue = mergeQueueDurations(queue, tl)
                     currentIndex = c.currentMediaItemIndex.coerceIn(0, c.mediaItemCount - 1)
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:1103")
                 }
             }
 
@@ -1238,6 +1258,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     controller?.pause()
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:1245")
                 }
                 scope.launch(Dispatchers.IO) {
                     val ok = try {
@@ -1250,6 +1271,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         HotspotStore.clear(context)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1258")
                     }
                     cacheTick += 1
                     withContext(Dispatchers.Main) {
@@ -1343,6 +1365,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1352")
                     }
                 }
             }
@@ -1389,6 +1412,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 AuthStore.clear(context)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:1399")
                             }
                         }
                         currentUser = null
@@ -1431,6 +1455,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 AuthStore.clear(context)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:1442")
                             }
                         }
                         currentUser = null
@@ -1472,6 +1497,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 AuthStore.clear(context)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:1484")
                             }
                         }
                         currentUser = null
@@ -1597,10 +1623,12 @@ class MainActivity : ComponentActivity() {
                     try {
                         AuthStore.clear(context)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1610")
                     }
                     try {
                         QueueStore.saveAuthDiag(context, "ME_401_INVALID")
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1615")
                     }
                 }
                 currentUser = null
@@ -1621,6 +1649,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1636")
                     }
                 }
             }
@@ -1703,12 +1732,14 @@ class MainActivity : ComponentActivity() {
                     try {
                         VibeApi.reportPlay(song)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1719")
                     }
                     try {
                         withContext(Dispatchers.Main) {
                             if (currentUser != null) loadHistory()
                         }
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1726")
                     }
                 }
             }
@@ -1946,6 +1977,7 @@ class MainActivity : ComponentActivity() {
                             playlists = VibeApi.myPlaylists()
                             playlistsLastLoaded = System.currentTimeMillis()
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:1964")
                         }
                         val opened = selectOpenedRecommend(
                             before,
@@ -2059,6 +2091,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             QueueStore.saveLastUpdateCheck(context, now)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2078")
                         }
                         val rel = try {
                             fetchLatestForChannel(updateChannel)
@@ -2166,6 +2199,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2186")
                         }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
@@ -2208,6 +2242,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2229")
                         }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
@@ -2260,6 +2295,7 @@ class MainActivity : ComponentActivity() {
                                 snap.refreshToken
                             )
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2282")
                         }
                         showError("资料已更新")
                     } catch (e: NetworkAuthException) {
@@ -2335,6 +2371,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         VibeApi.logoutBestEffort()
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:2358")
                     }
                     try {
                         AuthStore.clear(context)
@@ -2424,6 +2461,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:2448")
                             }
                         } else {
                             persistPosition(force = true)
@@ -2458,6 +2496,7 @@ class MainActivity : ComponentActivity() {
                                 try {
                                     QueueStore.saveQueue(context, snapshot, snapshotIndex)
                                 } catch (_: Exception) {
+                                    SilentFail.note("MainActivity.onCreate:2483")
                                 }
                             }
                         }
@@ -2468,6 +2507,7 @@ class MainActivity : ComponentActivity() {
                                 maybeCountPlay(started)
                                 maybeReportPlay(started)
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:2494")
                             }
                         }
                     }
@@ -2481,6 +2521,7 @@ class MainActivity : ComponentActivity() {
                             maybeCountPlay(started)
                             maybeReportPlay(started)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2508")
                         }
                     }
 
@@ -2552,6 +2593,7 @@ class MainActivity : ComponentActivity() {
                                                     OfflineMeta.of(song, 0L)
                                                 )
                                             } catch (_: Exception) {
+                                                SilentFail.note("MainActivity.onCreate:2580")
                                             }
                                             withContext(Dispatchers.Main) {
                                                 downloadedTick += 1
@@ -2671,6 +2713,7 @@ class MainActivity : ComponentActivity() {
                                 try {
                                     c.release()
                                 } catch (_: Exception) {
+                                    SilentFail.note("MainActivity.onCreate:2700")
                                 }
                                 return@addListener
                             }
@@ -2697,9 +2740,11 @@ class MainActivity : ComponentActivity() {
                                         c.repeatMode = rs.repeatMode
                                         c.shuffleModeEnabled = rs.shuffleOn
                                     } catch (_: Exception) {
+                                        SilentFail.note("MainActivity.onCreate:2727")
                                     }
                                     playMode = playModeFrom(rs.repeatMode, rs.shuffleOn)
                                 } catch (_: Exception) {
+                                    SilentFail.note("MainActivity.onCreate:2731")
                                 }
                             }
                         } catch (e: Exception) {
@@ -2717,6 +2762,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         persistPosition(force = true)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:2749")
                     }
                     if (future.isDone) {
                         try {
@@ -2725,6 +2771,7 @@ class MainActivity : ComponentActivity() {
                                 it.release()
                             }
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2758")
                         }
                     } else {
                         future.cancel(true)
@@ -2772,6 +2819,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 c?.release()
                             } catch (_: Exception) {
+                                SilentFail.note("MainActivity.onCreate:2806")
                             }
                             controller = null
                             controllerGen += 1
@@ -2812,14 +2860,17 @@ class MainActivity : ComponentActivity() {
                         sleepLeftSec = restored.leftSec
                     }
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:2847")
                 }
                 try {
                     searchSort = SearchStore.loadSort(context)
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:2852")
                 }
                 try {
                     searchHistory = SearchStore.loadHistory(context)
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:2857")
                 }
                 // 热搜云端同步：失败沿用本地 SEARCH_HOTWORDS，不打断启动
                 scope.launch {
@@ -2827,6 +2878,7 @@ class MainActivity : ComponentActivity() {
                         val remote = VibeApi.hotwords()
                         if (remote.isNotEmpty()) cloudHotwords = remote
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:2865")
                     }
                 }
                 if (shouldAutoSearchOnLaunch(query)) runSearch(query)
@@ -2844,6 +2896,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             QueueStore.saveLastUpdateCheck(context, now)
                         } catch (_: Exception) {
+                            SilentFail.note("MainActivity.onCreate:2883")
                         }
                         val channel = try {
                             QueueStore.loadUpdateChannel(context)
@@ -2869,6 +2922,7 @@ class MainActivity : ComponentActivity() {
                             else -> Unit
                         }
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:2909")
                     }
                 }
                 // Restore last queue (no autoplay: user taps to play).
@@ -2882,6 +2936,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } catch (_: Exception) {
+                    SilentFail.note("MainActivity.onCreate:2923")
                 }
                 // Token restore + validate via /api/auth/me.
                 // First-run gate: blank token + never launched -> Login screen
@@ -2937,6 +2992,7 @@ class MainActivity : ComponentActivity() {
                                 try {
                                     AuthStore.clear(context)
                                 } catch (_: Exception) {
+                                    SilentFail.note("MainActivity.onCreate:2979")
                                 }
                                 currentUser = null
                                 showError(
@@ -2952,6 +3008,7 @@ class MainActivity : ComponentActivity() {
                                     try {
                                         SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
                                     } catch (_: Exception) {
+                                        SilentFail.note("MainActivity.onCreate:2995")
                                     }
                                     recordAuthDiag("OK")
                                 } else {
@@ -2975,6 +3032,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         QueueStore.saveHasLaunchedBefore(context)
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:3019")
                     }
                 } catch (e: Exception) {
                     showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
@@ -3180,6 +3238,7 @@ class MainActivity : ComponentActivity() {
                         durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
                         if (c.isPlaying) persistPosition()
                     } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:3225")
                     }
                 }
             }
@@ -3378,6 +3437,7 @@ class MainActivity : ComponentActivity() {
                                         try {
                                             SearchStore.saveSort(context, s)
                                         } catch (_: Exception) {
+                                            SilentFail.note("MainActivity.onCreate:3424")
                                         }
                                     }
                                 },
@@ -3402,6 +3462,7 @@ class MainActivity : ComponentActivity() {
                                             searchHistory = SearchStore.removeHistory(context, h)
                                             SearchHistorySync.schedulePush(scope, searchHistory)
                                         } catch (_: Exception) {
+                                            SilentFail.note("MainActivity.onCreate:3449")
                                         }
                                     }
                                 },

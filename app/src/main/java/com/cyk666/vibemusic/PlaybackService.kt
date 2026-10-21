@@ -140,6 +140,7 @@ fun selectNextOfflineIndex(
         try {
             if (isPlayable(i)) return i
         } catch (_: Exception) {
+            SilentFail.note("PlaybackService.selectNextOfflineIndex:142")
         }
     }
     if (!repeatAll) return -1
@@ -147,6 +148,7 @@ fun selectNextOfflineIndex(
         try {
             if (isPlayable(i)) return i
         } catch (_: Exception) {
+            SilentFail.note("PlaybackService.selectNextOfflineIndex:150")
         }
     }
     return -1
@@ -527,6 +529,7 @@ class PlaybackService : MediaLibraryService() {
                 }
             })
         } catch (_: Exception) {
+            SilentFail.note("PlaybackService.onForegroundServiceStartNotAllowedException:531")
         }
         // Cache singleton warms on IO: dir create + DB open must never run
         // on Main (first tap / service recreate). The pipeline below
@@ -535,6 +538,7 @@ class PlaybackService : MediaLibraryService() {
             try {
                 MediaCache.get(this@PlaybackService)
             } catch (_: Exception) {
+                SilentFail.note("PlaybackService.onForegroundServiceStartNotAllowedException:540")
             }
         }
         // Cache-first pipeline: CacheDataSource serves cached bytes first and fills
@@ -599,6 +603,7 @@ class PlaybackService : MediaLibraryService() {
                                 "fast-switch elapsed=${elapsed}ms hit=${isFastSwitch(elapsed)}"
                             )
                         } catch (_: Exception) {
+                            SilentFail.note("PlaybackService.onIsPlayingChanged:605")
                         }
                     }
                     prefetchNext()
@@ -736,6 +741,7 @@ class PlaybackService : MediaLibraryService() {
                                     exo.stop()
                                 }
                             } catch (_: Exception) {
+                                SilentFail.note("PlaybackService.onPlayerError:743")
                             }
                         }
                     }
@@ -773,6 +779,7 @@ class PlaybackService : MediaLibraryService() {
                             "weak retry idx=$errIndex attempt=$attempt delay=${delay}ms"
                         )
                     } catch (_: Exception) {
+                        SilentFail.note("PlaybackService.onPlayerError:781")
                     }
                     serviceMainHandler.postDelayed({
                         val cur = player
@@ -793,6 +800,7 @@ class PlaybackService : MediaLibraryService() {
                             cur.prepare()
                             cur.play()
                         } catch (_: Exception) {
+                            SilentFail.note("PlaybackService.onPlayerError:802")
                         }
                     }, delay)
                     return
@@ -818,6 +826,7 @@ class PlaybackService : MediaLibraryService() {
                         exo.prepare()
                         exo.play()
                     } catch (_: Exception) {
+                        SilentFail.note("PlaybackService.onPlayerError:828")
                     }
                     return
                 }
@@ -948,6 +957,7 @@ class PlaybackService : MediaLibraryService() {
                 )
             )
         } catch (_: Exception) {
+            SilentFail.note("PlaybackService.onGetChildren:959")
         }
         mediaSession = sessionBuilder.build()
     }
@@ -1000,6 +1010,7 @@ class PlaybackService : MediaLibraryService() {
             try {
                 android.util.Log.d("VibePrefetch", "prefetch idx=$target bytes=$bytes")
             } catch (_: Exception) {
+                SilentFail.note("PlaybackService.prefetchNext:1012")
             }
         }
     }
@@ -1181,6 +1192,7 @@ class PlaybackService : MediaLibraryService() {
         try {
             serviceIoScope.cancel()
         } catch (_: Exception) {
+            SilentFail.note("PlaybackService.onDestroy:1194")
         }
         // 补试回调持有本 Service：不清掉会把实例多留一个补试间隔才被回收。
         focusRetryHandler.removeCallbacksAndMessages(null)

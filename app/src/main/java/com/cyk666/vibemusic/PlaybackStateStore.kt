@@ -310,6 +310,7 @@ object QueueStore {
                 p[KEY_SLEEP_DEADLINE] = deadlineMs.coerceAtLeast(0L)
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveSleepDeadline:312")
         }
     }
 
@@ -346,6 +347,7 @@ object QueueStore {
                 p[KEY_LAST_POSITION_SAVE_TS] = System.currentTimeMillis()
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.savePosition:349")
         }
     }
 
@@ -397,6 +399,7 @@ object QueueStore {
                 p[KEY_LAST_UPDATE_CHECK] = nowMs.coerceAtLeast(0L)
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveLastUpdateCheck:401")
         }
     }
 
@@ -406,6 +409,7 @@ object QueueStore {
                 p[KEY_UPDATE_CHANNEL] = channel.name
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveUpdateChannel:411")
         }
     }
 
@@ -425,6 +429,7 @@ object QueueStore {
                 p[KEY_ORIENTATION_MODE] = mode.name
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveOrientationMode:431")
         }
     }
 
@@ -455,6 +460,7 @@ object QueueStore {
                 p[KEY_HAS_LAUNCHED] = true
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveHasLaunchedBefore:462")
         }
     }
 
@@ -465,6 +471,7 @@ object QueueStore {
                 p[KEY_LAST_AUTH_FAIL_TS] = System.currentTimeMillis()
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveAuthDiag:473")
         }
     }
 
@@ -505,6 +512,7 @@ object QueueStore {
                     renderPositions(pruneOldestEntries(updated, POSITIONS_MAX_ENTRIES))
             }
         } catch (_: Exception) {
+            SilentFail.note("PlaybackStateStore.saveLyricOffset:514")
         }
     }
 

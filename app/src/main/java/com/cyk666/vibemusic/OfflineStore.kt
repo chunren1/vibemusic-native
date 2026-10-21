@@ -257,10 +257,12 @@ object OfflineStore {
                     try {
                         if (delete(context, meta)) removed++
                     } catch (_: Exception) {
+                        SilentFail.note("OfflineStore.auditInvalid:259")
                     }
                 }
             }
         } catch (_: Exception) {
+            SilentFail.note("OfflineStore.auditInvalid:264")
         }
         return removed
     }
@@ -286,6 +288,7 @@ object OfflineStore {
             try {
                 tmpFile.delete()
             } catch (_: Exception) {
+                SilentFail.note("OfflineStore.saveBytes:290")
             }
             tmpFile.writeBytes(bytes)
             // Re-validate what actually landed on disk: a VPN-trickle
@@ -295,6 +298,7 @@ object OfflineStore {
                 try {
                     tmpFile.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("OfflineStore.saveBytes:300")
                 }
                 return false
             }
@@ -303,6 +307,7 @@ object OfflineStore {
                 try {
                     tmpFile.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("OfflineStore.saveBytes:309")
                 }
                 return false
             }
@@ -314,11 +319,13 @@ object OfflineStore {
             try {
                 tmpFile.delete()
             } catch (_: Exception) {
+                SilentFail.note("OfflineStore.saveBytes:321")
             }
             if (renamed) {
                 try {
                     finalFile.delete()
                 } catch (_: Exception) {
+                    SilentFail.note("OfflineStore.saveBytes:327")
                 }
             }
             false

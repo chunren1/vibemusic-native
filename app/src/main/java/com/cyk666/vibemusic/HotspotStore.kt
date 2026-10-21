@@ -62,6 +62,7 @@ object HotspotStore {
                 }
                 File(d, "$key.ts").writeText(System.currentTimeMillis().toString())
             } catch (_: Exception) {
+                SilentFail.note("HotspotStore.write:64")
             }
         }
     /**
@@ -73,6 +74,7 @@ object HotspotStore {
         try {
             dir(context).listFiles()?.forEach { it.delete() }
         } catch (_: Exception) {
+            SilentFail.note("HotspotStore.clear:76")
         }
     }
 }

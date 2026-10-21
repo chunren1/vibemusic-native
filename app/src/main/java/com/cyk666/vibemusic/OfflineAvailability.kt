@@ -56,6 +56,7 @@ fun buildOfflineAvailability(context: Context, songs: List<Song>): OfflineAvaila
                 exists = f.exists()
                 if (exists) size = f.length()
             } catch (_: Exception) {
+                SilentFail.note("OfflineAvailability.buildOfflineAvailability:58")
             }
             val downloaded = try {
                 OfflineStore.isDownloaded(app, s)
@@ -66,12 +67,14 @@ fun buildOfflineAvailability(context: Context, songs: List<Song>): OfflineAvaila
                 local.add(offlineBaseName(s))
             }
         } catch (_: Exception) {
+            SilentFail.note("OfflineAvailability.buildOfflineAvailability:69")
         }
         try {
             if (MediaCache.cachedBytes(app, s.streamUrl()) > 0L) {
                 cached.add(MediaCache.cacheKey(s))
             }
         } catch (_: Exception) {
+            SilentFail.note("OfflineAvailability.buildOfflineAvailability:76")
         }
     }
     return OfflineAvailability(local, cached)

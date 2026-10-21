@@ -188,6 +188,7 @@ fun QueueScreen(
             try {
                 listState.scrollToItem(currentPos)
             } catch (_: Exception) {
+                SilentFail.note("QueueUi.QueueScreen:190")
             }
         }
     }

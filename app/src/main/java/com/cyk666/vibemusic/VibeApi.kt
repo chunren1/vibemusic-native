@@ -416,6 +416,7 @@ object VibeApi {
                     try {
                         cont.resumeWithException(e)
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:418")
                     }
                 }
 
@@ -461,6 +462,7 @@ object VibeApi {
                                 NetworkAuthException("网络连接断开，登录态保留")
                             )
                         } catch (_: IllegalStateException) {
+                            SilentFail.note("VibeApi.onResponse:464")
                         }
                     }
                 }
@@ -517,6 +519,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.awaitCall:521")
                 }
             }
             call.enqueue(object : Callback<ResponseBody> {
@@ -528,6 +531,7 @@ object VibeApi {
                             try {
                                 res.errorBody()?.close()
                             } catch (_: Exception) {
+                                SilentFail.note("VibeApi.onResponse:533")
                             }
                             if (res.code() == 401) {
                                 cont.resumeWithException(
@@ -554,6 +558,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${t.message ?: t.javaClass.simpleName}", t)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:560")
                     }
                 }
             })
@@ -693,6 +698,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.rawPutInner:700")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -702,6 +708,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:710")
                     }
                 }
 
@@ -743,6 +750,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.rawGetInner:752")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -752,6 +760,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:762")
                     }
                 }
 
@@ -790,6 +799,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.rawPostInner:801")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -799,6 +809,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:811")
                     }
                 }
 
@@ -840,6 +851,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.rawDeleteInner:853")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -849,6 +861,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:863")
                     }
                 }
 
@@ -899,6 +912,7 @@ object VibeApi {
                             RuntimeException("Login failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:914")
                     }
                 }
 
@@ -1523,6 +1537,7 @@ object VibeApi {
                             RuntimeException("Register failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:1539")
                     }
                 }
 
@@ -1639,6 +1654,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.uploadImageOnce:1656")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -1648,6 +1664,7 @@ object VibeApi {
                             RuntimeException("Upload failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:1666")
                     }
                 }
 
@@ -1704,6 +1721,7 @@ object VibeApi {
                     try {
                         cont.resumeWithException(e)
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:1723")
                     }
                 }
 
@@ -1714,6 +1732,7 @@ object VibeApi {
                         try {
                             response.close()
                         } catch (_: Exception) {
+                            SilentFail.note("VibeApi.onResponse:1734")
                         }
                     }
                 }
@@ -1765,6 +1784,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.toggleFavoriteOnce:1786")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -1774,6 +1794,7 @@ object VibeApi {
                             RuntimeException("Request failed: ${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:1796")
                     }
                 }
 
@@ -1894,6 +1915,7 @@ object VibeApi {
         try {
             rawGetInner(buildPlayReportPath(song))
         } catch (_: Exception) {
+            SilentFail.note("VibeApi.reportPlay:1917")
         }
     }
 
@@ -1905,6 +1927,7 @@ object VibeApi {
                 try {
                     call.cancel()
                 } catch (_: Exception) {
+                    SilentFail.note("VibeApi.fetchStreamBytes:1929")
                 }
             }
             call.enqueue(object : okhttp3.Callback {
@@ -1914,6 +1937,7 @@ object VibeApi {
                             RuntimeException("下载失败：${e.message ?: e.javaClass.simpleName}", e)
                         )
                     } catch (_: IllegalStateException) {
+                        SilentFail.note("VibeApi.onFailure:1939")
                     }
                 }
 
@@ -1958,6 +1982,7 @@ object VibeApi {
                                 RuntimeException("下载失败：${e.message ?: e.javaClass.simpleName}", e)
                             )
                         } catch (_: IllegalStateException) {
+                            SilentFail.note("VibeApi.onResponse:1984")
                         }
                     }
                 }

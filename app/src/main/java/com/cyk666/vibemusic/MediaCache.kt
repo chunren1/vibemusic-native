@@ -132,10 +132,12 @@ object MediaCache {
                     total += n
                 }
             } catch (_: Exception) {
+                SilentFail.note("MediaCache.warmUp:134")
             } finally {
                 try {
                     source.close()
                 } catch (_: Exception) {
+                    SilentFail.note("MediaCache.warmUp:139")
                 }
             }
             total.coerceAtLeast(0L)

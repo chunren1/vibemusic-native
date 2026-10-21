@@ -405,6 +405,7 @@ fun PlayerScreen(
             try {
                 lyricsListState.scrollToItem(currentLine)
             } catch (_: Exception) {
+                SilentFail.note("PlayerScreen.PlayerScreen:407")
             }
         }
     }
