@@ -353,19 +353,12 @@ class MainActivity : ComponentActivity() {
             var playlistsLastLoaded by remember { mutableLongStateOf(0L) }
 
             // ---- self-update state (dialog only when a newer release is found) ----
-            var updateRelease by remember { mutableStateOf<GithubRelease?>(null) }
-            var updateBusy by remember { mutableStateOf(false) }
-            var manualChecking by remember { mutableStateOf(false) }
-            var updateChannel by remember { mutableStateOf(UpdateChannel.STABLE) }
-            fun setUpdateChannel(channel: UpdateChannel) {
-                updateChannel = channel
-                scope.launch {
-                    try {
-                        QueueStore.saveUpdateChannel(context, channel)
-                    } catch (_: Exception) {
-                        SilentFail.note("MainActivity.onCreate:365")
-                    }
-                }
+            fun showError(reason: String) {
+                scope.launch { snackbar.showSnackbar(reason) }
+            }
+
+            val updater = remember {
+                UpdateCoordinator(context, scope) { reason -> showError(reason) }
             }
             var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
             fun applyOrientationMode(mode: OrientationMode) {
@@ -395,13 +388,7 @@ class MainActivity : ComponentActivity() {
                 orientationMode = loaded
                 applyOrientationMode(loaded)
             }
-            LaunchedEffect("update-channel") {
-                updateChannel = try {
-                    QueueStore.loadUpdateChannel(context)
-                } catch (_: Exception) {
-                    UpdateChannel.STABLE
-                }
-            }
+            LaunchedEffect(Unit) { updater.loadChannel() }
             // ---- 后台保活状态（vivo 实测：暂停后 2-3 分钟进程被清 → 通知栏播放键"点了没反应"；
             // 根因是 Media3 暂停必退前台（框架硬编码），系统白名单是现实解，见设置页"后台保活"）----
             var keepAliveIgnoring by remember { mutableStateOf(true) }
@@ -558,9 +545,6 @@ class MainActivity : ComponentActivity() {
                 scope.launch { snackbar.showSnackbar("已按定时暂停") }
             }
 
-            fun showError(reason: String) {
-                scope.launch { snackbar.showSnackbar(reason) }
-            }
 
             fun recordAuthDiag(code: String) {
                 scope.launch {
@@ -2001,109 +1985,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun tryInstallUpdate(apk: File) {
-                try {
-                    if (!context.packageManager.canRequestPackageInstalls()) {
-                        showError("请允许安装未知应用后，再点立即更新重试")
-                        try {
-                            context.startActivity(
-                                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                            )
-                        } catch (e: Exception) {
-                            showError("无法打开安装权限设置: ${friendlyNetworkMessage(e)}")
-                        }
-                        return
-                    }
-                    if (!isSameSignature(context, apk)) {
-                        showError(UPDATE_SIGNATURE_MISMATCH_MESSAGE)
-                        return
-                    }
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        context.packageName + ".fileprovider",
-                        apk
-                    )
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                    updateRelease = null
-                } catch (e: Exception) {
-                    showError("安装失败: ${friendlyNetworkMessage(e)}")
-                }
-            }
-
-            fun startUpdateDownload(rel: GithubRelease) {
-                if (updateBusy) return
-                updateBusy = true
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-                        val safeTag = rel.tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                        val apk = File(dir, "vibemusic-$safeTag.apk")
-                        if (!isDownloadComplete(apk, rel.apkSize)) {
-                            val fallback = fetchFallbackApkUrl(otherUpdateSourceUrl(rel.apkUrl))
-                            downloadApk(
-                                rel.apkUrl,
-                                apk,
-                                fallbackApkUrl = fallback,
-                                expectedBytes = rel.apkSize
-                            )
-                        }
-                        withContext(Dispatchers.Main) {
-                            updateBusy = false
-                            tryInstallUpdate(apk)
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            updateBusy = false
-                            showError("更新失败: ${friendlyNetworkMessage(e)}")
-                        }
-                    }
-                }
-            }
-
-            fun runManualUpdateCheck() {
-                if (manualChecking) return
-                manualChecking = true
-                scope.launch {
-                    try {
-                        val now = System.currentTimeMillis()
-                        try {
-                            QueueStore.saveLastUpdateCheck(context, now)
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:2078")
-                        }
-                        val rel = try {
-                            fetchLatestForChannel(updateChannel)
-                        } catch (e: Exception) {
-                            showError(friendlyNetworkMessage(e))
-                            return@launch
-                        }
-                        val current = appVersionName.ifBlank {
-                            try {
-                                @Suppress("DEPRECATION")
-                                context.packageManager
-                                    .getPackageInfo(context.packageName, 0)
-                                    .versionName.orEmpty()
-                            } catch (_: Exception) {
-                                ""
-                            }
-                        }
-                        val decision = compareAndDecide(current, rel.tag, fetchOk = true)
-                        when (decision) {
-                            UpdateDecision.UPDATE_AVAILABLE -> updateRelease = rel
-                            else -> manualUpdateCheckMessage(decision)?.let { showError(it) }
-                        }
-                    } finally {
-                        manualChecking = false
-                    }
-                }
-            }
 
             fun addSongAction(pl: Playlist, song: Song) {
                 if (currentUser == null) {
@@ -2869,47 +2750,7 @@ class MainActivity : ComponentActivity() {
                 if (shouldAutoSearchOnLaunch(query)) runSearch(query)
                 loadSearchGuess()
                 // Self-update: once per cold start + 24h throttle; silent unless newer.
-                scope.launch {
-                    try {
-                        val now = System.currentTimeMillis()
-                        val last = try {
-                            QueueStore.loadLastUpdateCheck(context)
-                        } catch (_: Exception) {
-                            0L
-                        }
-                        if (!shouldRunUpdateCheck(now, last, force = false)) return@launch
-                        try {
-                            QueueStore.saveLastUpdateCheck(context, now)
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:2883")
-                        }
-                        val channel = try {
-                            QueueStore.loadUpdateChannel(context)
-                        } catch (_: Exception) {
-                            UpdateChannel.STABLE
-                        }
-                        updateChannel = channel
-                        val rel = try {
-                            fetchLatestForChannel(channel)
-                        } catch (_: Exception) {
-                            return@launch
-                        }
-                        val current = try {
-                            @Suppress("DEPRECATION")
-                            context.packageManager
-                                .getPackageInfo(context.packageName, 0)
-                                .versionName.orEmpty()
-                        } catch (_: Exception) {
-                            ""
-                        }
-                        when (compareAndDecide(current, rel.tag, fetchOk = true)) {
-                            UpdateDecision.UPDATE_AVAILABLE -> updateRelease = rel
-                            else -> Unit
-                        }
-                    } catch (_: Exception) {
-                        SilentFail.note("MainActivity.onCreate:2909")
-                    }
-                }
+                updater.checkOnLaunch()
                 // Restore last queue (no autoplay: user taps to play).
                 try {
                     val (saved, savedIndex) = QueueStore.loadQueue(context)
@@ -3828,10 +3669,10 @@ class MainActivity : ComponentActivity() {
                                 cacheSizeLabel = cacheSizeLabel,
                                 storageLabel = storageTotalLabel(cacheBytes, downloadBytes),
                                 versionLabel = formatVersionLabel(appVersionName),
-                                checkingUpdate = manualChecking,
-                                onCheckUpdate = ::runManualUpdateCheck,
-                                updateChannel = updateChannel,
-                                onSelectChannel = ::setUpdateChannel,
+                                checkingUpdate = updater.manualChecking,
+                                onCheckUpdate = { updater.checkManual(appVersionName) },
+                                updateChannel = updater.channel,
+                                onSelectChannel = { updater.selectChannel(it) },
                                 orientationMode = orientationMode,
                                 onSelectOrientation = ::setOrientationMode,
                                 onClearCache = ::clearMediaCache,
@@ -3924,12 +3765,12 @@ class MainActivity : ComponentActivity() {
                             onDismiss = { if (!addBusy) pendingAddSong = null }
                         )
                     }
-                    updateRelease?.let { rel ->
+                    updater.release?.let { rel ->
                         UpdateDialog(
                             release = rel,
-                            busy = updateBusy,
-                            onUpdate = { startUpdateDownload(rel) },
-                            onLater = { if (!updateBusy) updateRelease = null }
+                            busy = updater.busy,
+                            onUpdate = { updater.download(rel) },
+                            onLater = { updater.dismiss() }
                         )
                     }
                 }

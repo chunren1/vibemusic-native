@@ -1,6 +1,6 @@
 # MainActivity 拆分方案（C 项）
 
-> 立档：2026-10-21 · 状态：**C1 已执行，C2-C6 待办** · 验收门：`./gradlew testDebugUnitTest` 937 用例全绿 + `assembleDebug` 通过
+> 立档：2026-10-21 · 状态：**C1、C4 已执行；C2/C3/C5/C6 待办** · 验收门：`./gradlew testDebugUnitTest` 937 用例全绿 + `assembleDebug` 通过
 
 ## 1. 现状（实测，非印象）
 
@@ -36,8 +36,8 @@ handlers/
 |---|---|---|---|
 | **C1** | `Screen` 抽到 `Screen.kt` | 极低 | ✅ 已执行，编译通过 |
 | **C2** | 找出 `onCreate` 内可提取的纯决策，抽成顶层纯函数 + 单测 | 低 | 新增用例全绿，且不改变任何调用点行为 |
-| **C3** | 建 `MainState` 骨架，先迁**低耦合组**：自更新（`updateRelease` 6 引用 / `updateBusy` 7 / `updateChannel` 6，全部落在 371-3948 的同一条链路上） | 中 | 937 全绿 + 手工 diff 审查 |
-| **C4** | 自更新整段（状态+检查+下载+安装回调）搬到 `UpdateCoordinator`，验证 C3 的骨架可用 | 中 | 同上 |
+| ~~C3~~ | ~~建通用 `MainState` 骨架~~ → **跳过**（见 §7：直接让 coordinator 自持状态，切得更小） | — | — |
+| **C4** | 自更新整段（状态+检查+下载+安装回调）搬到 `UpdateCoordinator` | 中 | ✅ 已执行（943 全绿 + assembleRelease 绿） |
 | **C5** | 播放组（`queue`/`controller`/`currentIndex`/`playMode`）——最大的一刀，必须单独一轮，不与其他片并行 | 高 | 同上 + 真机回归（播放/通知/切歌/续播） |
 | **C6** | 搜索组、Auth 组、Offline 组依次；最后删空壳 | 中 | 同上 |
 
@@ -60,3 +60,28 @@ handlers/
 
 `README.md:74` 的红线（通知/媒体按钮不用拦截式 session 回调）与本次拆分**正交**：拆分只搬状态与回调的归属，不改 `PlaybackService` 的媒体会话语义。
 vivo 媒体键问题仍**冻结**，不因本次拆分解冻。
+
+## 7. C4 执行记录（2026-10-21）
+
+**偏离**：原计划 C3 先建一个通用 `MainState` 再迁状态。实际执行时判断"先通用后专用"是空转——
+自更新这组的 4 个状态（`release`/`busy`/`manualChecking`/`channel`）从不需要跨屏共享，直接让
+`UpdateCoordinator` 自持 state 即可，反而少一层抽象。通用 `MainState` 等真正出现跨组共享时再建。
+
+**结果**：`MainActivity.kt` **3939 → 3781 行**（-158）；新增 `UpdateCoordinator.kt`（218 行）。
+
+**纯搬迁证据**：
+
+- 状态字段名、初值、可见性一一对应（`release`/`busy`/`manualChecking`/`channel`）。
+- 检查逻辑：24h 节流谓词 `shouldRunUpdateCheck(now, last, force=false)`、先写时间戳再拉取、版本号取
+  `PackageManager` 的顺序均未改；手动检查仍以 `appVersionName.ifBlank { PackageManager }` 取当前版本。
+- 下载逻辑：`updates/` 目录、`safeTag` 正则、`isDownloadComplete` 短路、跨源 fallback、失败文案
+  （`更新失败: ` 前缀）均逐字保留。
+- 安装逻辑：未知来源权限 → 跳设置页 → 签名校验 → FileProvider → ACTION_VIEW，顺序与文案未改。
+- 唯一改名：`setChannel` → `selectChannel`（JVM 签名与 `channel` 的私有 setter 冲突，属编译期硬约束）。
+
+**行为等价性论证（为什么不靠单测）**：这段是 IO+Intent 驱动，单测只能覆盖已被 `UpdateCheckTest`
+钉死的纯函数；本轮等价性靠"逐行对照搬迁 + 编译 + 943 例回归 + release R8 通过"。真机行为（下载/安装
+/跳转设置页）仍需发版前手动过一遍——列在发版检查项里。
+
+**遗留风险**：`UpdateCoordinator` 持有 `Context`，必须以 Activity 为生命周期（当前由 `remember`
+保证）。若后续搬进 ViewModel，需换成 `applicationContext` 或注入，不许把 Activity 塞进长生命周期对象。
