@@ -33,6 +33,8 @@ fun otherUpdateSourceUrl(primaryApkUrl: String): String =
     else UPDATE_GITEE_LATEST_URL
 
 private val fallbackCheckHttp = OkHttpClient.Builder()
+    .dispatcher(HttpClientCore.dispatcher)
+    .connectionPool(HttpClientCore.connectionPool)
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(15, TimeUnit.SECONDS)
     .followRedirects(true)

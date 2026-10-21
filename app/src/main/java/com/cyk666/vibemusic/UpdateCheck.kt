@@ -174,6 +174,8 @@ fun formatVersionLabel(versionName: String): String =
 
 // Clean client: GitHub API needs no auth — never attach the app Bearer interceptor.
 private val updateHttp = OkHttpClient.Builder()
+    .dispatcher(HttpClientCore.dispatcher)
+    .connectionPool(HttpClientCore.connectionPool)
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(30, TimeUnit.SECONDS)
     .followRedirects(true)

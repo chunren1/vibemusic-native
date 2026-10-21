@@ -274,6 +274,8 @@ object VibeApi {
     internal val cookieJar = InMemoryCookieJar()
 
     private val okHttp = OkHttpClient.Builder()
+        .dispatcher(HttpClientCore.dispatcher)
+        .connectionPool(HttpClientCore.connectionPool)
         .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -297,6 +299,8 @@ object VibeApi {
         .create(VibeService::class.java)
 
     private val refreshHttp = OkHttpClient.Builder()
+        .dispatcher(HttpClientCore.dispatcher)
+        .connectionPool(HttpClientCore.connectionPool)
         .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
