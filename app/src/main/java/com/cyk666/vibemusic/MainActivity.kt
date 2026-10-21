@@ -137,21 +137,6 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-sealed interface Screen {
-    data object Discover : Screen
-    data object Search : Screen
-    data object Player : Screen
-    data object Queue : Screen
-    data object Login : Screen
-    data object Mine : Screen
-    data object Offline : Screen
-    data object History : Screen
-    data object Favorites : Screen
-    data object Settings : Screen
-    data object Playlists : Screen
-    data class PlaylistDetail(val playlist: Playlist) : Screen
-}
-
 
 class MainActivity : ComponentActivity() {
 
