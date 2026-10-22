@@ -1,8 +1,22 @@
 # CI: tag v* → 云端编译签名 → GitHub Release 发包
 # 触发：git tag v1.0.x-ai && git push origin v1.0.x-ai
-# Secrets（仓库 Settings → Secrets → Actions，需预置）：
-#   KEYSTORE_FILE      base64 后的 release keystore
-#   KEYSTORE_PASSWORD  keystore 密码（store/key 同密）
+# Secrets（仓库 Settings → Secrets and variables → Actions → New repository secret，需预置；
+#         缺 KEYSTORE_FILE / KEYSTORE_PASSWORD 任一 → 发版直接失败，不静默跳过）：
+#   KEYSTORE_FILE          base64 后的 release keystore
+#   KEYSTORE_PASSWORD      keystore 密码（store/key 同密）
+#   SIGNING_CERT_SHA256    【可选】release 签名证书的 SHA-256 指纹覆盖值。证书指纹是公开信息
+#                          （任何已发布 APK 都能用 apksigner 取到），默认值已固化在下方
+#                          Verify APK 步骤的 env 里，**不配置本 secret 也能正常发版**。
+#                          什么情况下要配：轮换 keystore 时不想改 workflow，可直接用 secret 覆盖。
+#                          取值（本地，用同一把 release keystore 签个包后）：
+#                             ~/Android/Sdk/build-tools/35.0.0/apksigner verify --print-certs \
+#                               app/build/outputs/apk/release/app-release.apk | grep SHA-256
+#                          取 "Signer #1 certificate SHA-256 digest:" 后面那 64 位 hex（带不带冒号、
+#                          大小写都认，脚本会归一化）。当前发版证书指纹（公开信息，非密钥）：
+#                             SHA-256 873ba7ca34e353b63493e677809a1e68face08d776953923b99faf46114dc4d8
+#                             SHA-1   f942690ed457bc77f3021406ba77e3bdd07a9acb
+#                          轮换 keystore 后必须同步更新「默认常量」或「本 secret」，否则发版会红
+#                          （这是期望行为：宁可发不出去，也不发出错证书签的包）。
 name: release
 
 on:
@@ -61,6 +75,16 @@ jobs:
           VIBEMUSIC_KEYSTORE_PATH: /tmp/release.jks
           VIBEMUSIC_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
+      # 静态检查门（2026-10-22 新增）：历史 80 errors / 50+ warnings 已快照进
+      # app/lint-baseline.xml，`abortOnError = true` 保持 —— 旧债不阻塞，新增 error 立即红。
+      # 注意：lintRelease 任务名含 "Release"，会命中 app/build.gradle.kts 里
+      # wantsRelease 的 keystore 校验，所以必须像其它步骤一样带 keystore 环境变量。
+      - name: Lint (release gate)
+        run: ./gradlew --no-daemon lintRelease
+        env:
+          VIBEMUSIC_KEYSTORE_PATH: /tmp/release.jks
+          VIBEMUSIC_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon
         env:
@@ -73,17 +97,50 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "VibeMusic-${TAG}-release.apk"
           echo "APK_NAME=VibeMusic-${TAG}-release.apk" >> "$GITHUB_ENV"
 
-      # 交付三件套（README 承诺）：签名校验 + 版本一致性 + 校验和（round6 I9）
+      # 交付门（README 承诺）：证书指纹断言 + tag/源码/APK 版本一致 + versionCode 单调 + sha256
+      # 2026-10-22 修：原步骤 `apksigner verify --print-certs | head -5` 只打印不比对，
+      # 用错 keystore 签的包照样能发出去 → 现改为硬断言，不一致 exit 1。
       - name: Verify APK (signature + version + sha256)
+        env:
+          # 证书指纹本身不是秘密（任何已发布 APK 都能用 apksigner 取到），因此把当前发版证书
+          # 固化在仓库里作为默认值；secret 仅用于「轮换 keystore 时临时覆盖」，不配置也能发版。
+          # 轮换 keystore 后务必同步更新下面这行常量，否则 CI 会红（fail-closed 是有意的）。
+          EXPECTED_CERT_SHA256: ${{ secrets.SIGNING_CERT_SHA256 || '873ba7ca34e353b63493e677809a1e68face08d776953923b99faf46114dc4d8' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           APK="$APK_NAME"
-
-          echo "── 1) 签名校验 ──"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify --print-certs "$APK" | head -5
 
-          echo "── 2) tag 与 Gradle 版本一致性 ──"
+          echo "── 1) 签名证书 SHA-256 断言 ──"
+          if [ -z "${EXPECTED_CERT_SHA256:-}" ]; then
+            echo "::error::secrets.SIGNING_CERT_SHA256 未配置：无法断言产物由发版证书签名，拒绝发布（取法见本文件顶部注释）"
+            exit 1
+          fi
+          # 归一化期望值：去空白/冒号/连字符，转小写（容忍 aa:bb:.. 或大写写法）
+          EXPECTED=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:-' | tr 'A-Z' 'a-z')
+          if ! printf '%s' "$EXPECTED" | grep -qE '^[0-9a-f]{64}$'; then
+            echo "::error::secrets.SIGNING_CERT_SHA256 格式非法（需 64 位 hex，得到 ${#EXPECTED} 字符）"
+            exit 1
+          fi
+          # 完整打印（不 head 截断，便于日后排障），apksigner 同时校验 APK 签名块完整性
+          CERTS=$("$BT/apksigner" verify --print-certs "$APK")
+          printf '%s\n' "$CERTS"
+          SIGNERS=$(printf '%s\n' "$CERTS" | grep -c 'certificate SHA-256 digest:' || true)
+          if [ "$SIGNERS" -ne 1 ]; then
+            echo "::error::APK 签名者数量=${SIGNERS}（期望恰好 1 个）"
+            exit 1
+          fi
+          ACTUAL=$(printf '%s\n' "$CERTS" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | tr -d '[:space:]:-' | tr 'A-Z' 'a-z')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::签名证书不符：期望 SHA-256 ${EXPECTED}，实际 ${ACTUAL:-<解析失败>}；疑似用错 keystore，拒绝发布"
+            exit 1
+          fi
+          echo "certificate SHA-256 ${ACTUAL} ✓ (matches secrets.SIGNING_CERT_SHA256)"
+
+          echo "── 2) tag ↔ APK ↔ 源码 版本一致 ──"
           BADGING=$("$BT/aapt2" dump badging "$APK" | head -1)
           VNAME=$(printf '%s' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           VCODE=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
@@ -91,9 +148,48 @@ jobs:
             echo "::error::tag($TAG) 与 APK versionName($VNAME) 不一致"
             exit 1
           fi
-          echo "tag=$TAG versionName=$VNAME versionCode=$VCODE ✓"
+          # 产物 vs 源码：防"build.gradle.kts 改了但 APK 是旧产物/缓存包"
+          SRC_VNAME=$(sed -n 's/^ *versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          SRC_VCODE=$(sed -nE 's/^ *versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -1)
+          if [ -z "$SRC_VNAME" ] || [ -z "$SRC_VCODE" ]; then
+            echo "::error::无法从 app/build.gradle.kts 解析 versionName/versionCode"
+            exit 1
+          fi
+          if [ "$VNAME" != "$SRC_VNAME" ] || [ "$VCODE" != "$SRC_VCODE" ]; then
+            echo "::error::APK 与源码版本不符：APK ${VNAME}/${VCODE}，源码 ${SRC_VNAME}/${SRC_VCODE}（产物不是本次源码构建的）"
+            exit 1
+          fi
+          echo "tag=$TAG versionName=$VNAME versionCode=$VCODE = 源码 ✓"
 
-          echo "── 3) 校验和 ──"
+          echo "── 3) versionCode 单调（对比上一次 Release）──"
+          # 取最近的历史 Release（按 created 倒序；跳过本次 tag，兼容"发版后重跑 workflow"）
+          # Fail-closed：gh/API 出错就红（重跑即可），绝不把"查询失败"当成"没有上一版"放过。
+          if ! RELEASES=$(gh release list --limit 10 --json tagName --jq '.[].tagName'); then
+            echo "::error::gh release list 失败，取不到上一版 versionCode —— 拒绝在无单调保证下发布，请重跑"
+            exit 1
+          fi
+          PREV_TAG=$(printf '%s\n' "$RELEASES" | grep -vxF "$TAG" | head -1 || true)
+          if [ -z "$PREV_TAG" ]; then
+            echo "无历史 Release（首发或仅有同 tag）→ 跳过单调检查"
+          else
+            if ! PREV_SRC=$(gh api "repos/${GITHUB_REPOSITORY}/contents/app/build.gradle.kts?ref=${PREV_TAG}" --jq .content); then
+              echo "::error::读不到 ${PREV_TAG} 的 app/build.gradle.kts（GitHub API 失败）——拒绝在无单调保证下发布，请重跑"
+              exit 1
+            fi
+            PREV_VCODE=$(printf '%s' "$PREV_SRC" | base64 -d 2>/dev/null \
+              | sed -nE 's/^ *versionCode = ([0-9]+).*/\1/p' | head -1 || true)
+            if [ -z "$PREV_VCODE" ]; then
+              echo "::error::${PREV_TAG} 的 build.gradle.kts 里解析不到 versionCode（该 tag 早于 field 引入？）"
+              exit 1
+            fi
+            if [ "$VCODE" -le "$PREV_VCODE" ]; then
+              echo "::error::versionCode 未递增：本次 $VCODE ≤ 上一版 ${PREV_TAG} 的 ${PREV_VCODE}（覆盖安装会失败/更新器收不到）"
+              exit 1
+            fi
+            echo "versionCode $VCODE > ${PREV_TAG} 的 $PREV_VCODE ✓"
+          fi
+
+          echo "── 4) 校验和 ──"
           SHA=$(sha256sum "$APK" | awk '{print $1}')
           echo "SHA256=$SHA" >> "$GITHUB_ENV"
           echo "APK sha256: $SHA"
@@ -107,11 +203,11 @@ jobs:
           # 正式 tag（如 v1.0.40-ai）保持正式 Release。更新器正式通道只读 /latest（自动排除 prerelease）。
           if printf '%s' "$TAG" | grep -qi 'beta'; then
             PRERELEASE_FLAGS="--prerelease"
-            NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名；正式通道收不到此版）"
-          else
-            PRERELEASE_FLAGS=""
             # 坑①：bash 双引号不展开 \n —— 写死 "\n\n" 会变成字面量反斜杠 n（v2.0.11-ai 的说明里就真的这么显示了），必须用 printf。
             # 坑②：哈希由 Verify 步骤写进 $GITHUB_ENV 的 SHA256，跨步骤只能引 $SHA256，引 $SHA 永远是空串（原 bug 根因）。
+            printf -v NOTES 'VibeMusic 原生版 %s（测试版，CI 自动构建签名；正式通道收不到此版）\n\nAPK sha256: `%s`' "$TAG" "$SHA256"
+          else
+            PRERELEASE_FLAGS=""
             printf -v NOTES 'VibeMusic 原生版 %s（CI 自动构建签名）\n\nAPK sha256: `%s`' "$TAG" "$SHA256"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then

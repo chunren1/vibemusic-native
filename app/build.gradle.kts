@@ -47,6 +47,17 @@ android {
         }
     }
 
+    // Lint 门禁（CI release.yml 的 "Lint (release gate)" 步骤跑 lintRelease）。
+    // 2026-10-22 首次接入时实测 80 errors / 50 warnings（历史债，如 NewApi），直接开必红。
+    // 策略：历史问题一次性快照进 lint-baseline.xml；abortOnError 保持 true，
+    // 因此**新增**的 error 立刻中断构建，旧债不阻塞发版。
+    // 修掉旧债后请跑 `./gradlew updateLintBaseline` 收缩基线，不要手工编辑该文件。
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        checkReleaseBuilds = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
