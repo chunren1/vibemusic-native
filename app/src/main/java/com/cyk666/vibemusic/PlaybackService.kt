@@ -64,6 +64,9 @@ const val PREFETCH_WARM_BYTES = 256L * 1024L
 /** 切歌耗时预算：预热命中时下首应在该时间内出声（logcat 度量口径）。 */
 const val FAST_SWITCH_BUDGET_MS = 500L
 
+/** 缓冲观测门槛：BUFFERING 持续 ≥2s 才写入 PlayDiag（正常起播不记）。 */
+const val BUFFERING_DIAG_MIN_MS = 2_000L
+
 /**
  * Pure: 预热目标下标。单曲循环预热本曲；否则取下一首，末尾且列表循环则回绕；
  * 乱序时 Exo 洗牌顺序服务侧不可预知，返回 null（交由 Exo 自己的预缓冲）。
@@ -86,15 +89,19 @@ fun selectPrefetchIndex(
 fun isFastSwitch(elapsedMs: Long): Boolean = elapsedMs in 0L..FAST_SWITCH_BUDGET_MS
 
 /**
- * 快启动缓冲：音乐切歌优先，首播/重缓冲门槛低于 Exo 默认（2500/5000ms），
- * 最小/最大缓冲也按音频收敛（默认 50s 面向长视频）。纯构造器，无副作用。
+ * 播放缓冲：音乐切歌要快，但公网下发一首 320kbps 曲目实测 TTFB 1.3–3.2s、
+ * 吞吐在 0.5–1.3MB/s 之间抖动（CF 隧道链路，见 2026-10-22 实测），
+ * 缓冲太小会让"首播/切歌"直接听成卡顿。取值权衡：
+ * - 最小/最大缓冲抬到 30s/60s（320kbps 约 40KB/s，60s 仅 2.4MB，内存代价可忽略）；
+ * - 起播门槛 1.5s：仍比 Exo 默认 2.5s 快，但比原来的 1s 更能扛住握手抖动；
+ * - 重缓冲门槛 4s：断流后多攒一点再恢复，避免"刚出声又断"的连环卡顿。
  */
 fun playbackLoadControl(): DefaultLoadControl = DefaultLoadControl.Builder()
     .setBufferDurationsMs(
-        15_000,
         30_000,
-        1_000,
-        2_000
+        60_000,
+        1_500,
+        4_000
     )
     .build()
 
@@ -501,13 +508,23 @@ class PlaybackService : MediaLibraryService() {
     private var lastStreamRetryKey: String? = null
     private var lastStreamRetryIndex: Int = -1
 
+    // 音频 HTTP 数据源：显式超时，别用 Media3 默认的 8s。
+    // 服务端 /api/songs/stream 的取链预算是 12s（StreamController.STREAM_TOTAL_BUDGET_MS），
+    // 客户端 8s 读超时会先于服务端放弃 → 首播被误判成网络故障，再叠加 800ms 重试更慢。
+    // connect 15s / read 20s 给"冷解析 + CF 隧道抖动"留余量；跨协议重定向放行以防上游换协议。
     private val httpUpstream: DataSource.Factory = DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(15_000)
+        .setReadTimeoutMs(20_000)
+        .setAllowCrossProtocolRedirects(true)
 
     // 弱网退避重试计数（同曲同错误 episode 内累计；出声/切轨清零）。
     private var weakRetryAttempt = 0
 
     // 快切度量起点：每次切轨（transition）记录，首次出声时结算。
     private var switchStartMs = -1L
+
+    /** 本次 BUFFERING 起点（-1=当前不在缓冲）；用于统计卡顿真实时长。 */
+    private var bufferingSinceMs = -1L
 
     // 预热去重：同一下标只暖一次（切轨/出声都会触发，episode 内去重）。
     private var lastPrefetchIndex: Int = -1
@@ -642,6 +659,25 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
 
+            // 缓冲观测（2026-10-22）：首播/切歌卡顿的现场取证。
+            // 只在 BUFFERING 持续 ≥2s 时记一条（正常起播门槛 1.5s 不刷屏）；
+            // 与 ring 里的 error:/playing 配合，可区分「慢但没报错」与「网络错误重试」。
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (playbackState == Player.STATE_BUFFERING) {
+                    if (bufferingSinceMs < 0) bufferingSinceMs = now
+                    return
+                }
+                val since = bufferingSinceMs
+                bufferingSinceMs = -1
+                if (since >= 0) {
+                    val stalled = now - since
+                    if (stalled >= BUFFERING_DIAG_MIN_MS) {
+                        PlayDiag.observe(this@PlaybackService, "buff-ms:$stalled")
+                    }
+                }
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 // A new window starts a new error episode; the same-index
                 // retry replace keeps its record so a second identical
@@ -663,6 +699,8 @@ class PlaybackService : MediaLibraryService() {
                 }
                 weakRetryAttempt = 0
                 lastPrefetchIndex = -1
+                // 切轨重置缓冲观测起点，避免把上一首的缓冲时长算到新曲
+                bufferingSinceMs = -1
                 // 切歌视为新一轮：焦点被拒的阶梯计数清零（切歌后按播放应立即生效）
                 focusRetries = 0
                 inFocusRetryProbe = false
