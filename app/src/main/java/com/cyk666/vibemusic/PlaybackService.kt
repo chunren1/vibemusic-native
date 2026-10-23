@@ -587,6 +587,9 @@ class PlaybackService : MediaLibraryService() {
                 audioFocusConfig().handleAudioFocus
             )
             .setHandleAudioBecomingNoisy(audioFocusConfig().handleAudioBecomingNoisy)
+            // 锁屏/熄屏后保持 CPU 与网络唤醒，避免缓冲中的音频被系统挂起
+            // （通知栏播放键在息屏后失效的一类诱因）。需配合 WAKE_LOCK 权限。
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         player = exo
         exo.addListener(object : Player.Listener {
