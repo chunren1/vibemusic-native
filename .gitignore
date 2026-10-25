@@ -30,3 +30,10 @@ Thumbs.db
 # Editor backups
 *.orig
 *.rej
+
+# AI 工具本地状态（不进库；个人配置，不属于项目交付物）
+.codebuddy/
+.claude/
+.codex/
+.cursor/
+.opencode/
