@@ -126,14 +126,20 @@ jobs:
           # 完整打印（不 head 截断，便于日后排障），apksigner 同时校验 APK 签名块完整性
           CERTS=$("$BT/apksigner" verify --print-certs "$APK")
           printf '%s\n' "$CERTS"
-          SIGNERS=$(printf '%s\n' "$CERTS" | grep -c 'certificate SHA-256 digest:' || true)
-          if [ "$SIGNERS" -ne 1 ]; then
-            echo "::error::APK 签名者数量=${SIGNERS}（期望恰好 1 个）"
+          # 只按「行内容」取摘要，不依赖 signer 前缀：build-tools 35 打 `Signer #1 certificate SHA-256 digest:`，
+          # 新版本改打 `V2 Signer: certificate SHA-256 digest:`（2026-10-26 tag 发布实测因此误判「解析失败」）。
+          DIGESTS=$(printf '%s\n' "$CERTS" \
+            | sed -n 's/.*certificate SHA-256 digest: *//p' \
+            | tr -d ' :\t\r-' | tr 'A-Z' 'a-z')
+          # 去重后必须恰好 1 个：真意是「产物只由一把证书签」，而不是「apksigner 只打印一个 signer 块」
+          # （同一把证书在 V1/V2/V3 各打一行是正常的）。
+          SIGNERS=$(printf '%s\n' "$DIGESTS" | grep -c . || true)
+          UNIQ_SIGNERS=$(printf '%s\n' "$DIGESTS" | sort -u | grep -c . || true)
+          if [ "$SIGNERS" -lt 1 ] || [ "$UNIQ_SIGNERS" -ne 1 ]; then
+            echo "::error::APK 签名证书不唯一（signer 行=${SIGNERS}，不同证书=${UNIQ_SIGNERS}，期望恰好 1 把）"
             exit 1
           fi
-          ACTUAL=$(printf '%s\n' "$CERTS" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | tr -d '[:space:]:-' | tr 'A-Z' 'a-z')
+          ACTUAL=$(printf '%s\n' "$DIGESTS" | head -1)
           if [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "::error::签名证书不符：期望 SHA-256 ${EXPECTED}，实际 ${ACTUAL:-<解析失败>}；疑似用错 keystore，拒绝发布"
             exit 1
