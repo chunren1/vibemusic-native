@@ -3,12 +3,12 @@
 原生 Android 客户端，后端 `https://vibe.cyk666.top`（访客直进，登录接自家账号）。
 包名 `com.cyk666.vibemusic`，展示名 `VibeMusic`。详细计划与验收门见 `PLAN.md`。
 
-当前版本：`2.0.12-ai`（versionCode 90，正式通道）；上一个稳定版 `2.0.11-ai`。
+当前版本：`2.0.13-ai`（versionCode 91，正式通道）；上一个稳定版 `2.0.12-ai`。
 发版走 CI 打 tag 直发 GitHub Release（LanShare 传包已退役）；CI 发版前会先跑 `testDebugUnitTest` 作为发布门。
 
 ## 技术栈（版本冻结，升级需批准）
 
-Kotlin 2.0.20 + Compose Material3 + Media3 1.5.1 + Retrofit 2.11.0 / OkHttp 4.12.0 /
+Kotlin 2.0.20 + Compose Material3 + Media3 1.9.0 + Retrofit 2.11.0 / OkHttp 4.12.0 /
 Coil 2.6.0 + DataStore 1.1.1，JSON 走 org.json（Moshi 已移除）；AGP 8.5.2 / Gradle 8.10.2 / JDK 21 实测可编；
 compileSdk 35 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4.14.1。
 
