@@ -212,45 +212,6 @@ fun shouldFireRetryProbe(
     return true
 }
 
-/** 播放救援检查间隔 / 单轮上限（"点了播放但一直卡着"→ 重置通道重播）。 */
-const val PLAY_RESCUE_CHECK_MS = 2_500L
-const val PLAY_RESCUE_MAX_ATTEMPTS = 2
-
-/**
- * 救援看门狗总开关——默认关闭（2026-10-11 审查结论：真机未验证成功，
- * 且触发条件与"进程已死/焦点被拒"两大致因互斥，留着只会误伤正常播放；
- * 真机 logcat 定位根因前保持关闭，诊断时手动置 true）。
- */
-const val PLAY_RESCUE_ENABLED = false
-
-/**
- * 纯函数：是否应执行"播放救援"（对播放器执行一轮 stop→prepare→play，
- * 借 IDLE→重请求的路径把音频焦点通道从"等待卡死"状态里拔出来）。
- *
- * 背景（2026-10-10 实机）：通知中心播放键点击后"图标第一次闪、之后不闪"、
- * 划掉对端也无声明、App 内/网易云正常——排除"对端占焦"，指向焦点等待态的
- * 内部卡死（Media3 的焦点等待没有超时）。救援作用于**所有播放路径**（汇聚在
- * service 的 player 上），App 内点击遇到同场景同样自愈。
- *
- * 只在"想播（playWhenReady）却不出声（!isPlaying）"时考虑，并严格排除合法等待：
- * - BUFFERING（网络缓冲）/ IDLE 或空队列（进程被杀后的 resumption 流程正在走，
- *   player 是空的 IDLE，绝不能打断官方恢复）/ ENDED（自然播完）都不动
- * - 最多 [PLAY_RESCUE_MAX_ATTEMPTS] 次：对"对端真的还占着声音"的情况无害收手
- * 瞬断（来电/语音）时 playWhenReady 保持 true **不发生变化**，本检查只挂在
- * false→true 的切换之后，所以通话结束的自动续播不受影响。
- */
-fun shouldRescuePlayback(
-    playWhenReady: Boolean,
-    isPlaying: Boolean,
-    playbackState: Int,
-    mediaItemCount: Int,
-    attemptsDone: Int
-): Boolean =
-    playWhenReady && !isPlaying &&
-        playbackState == Player.STATE_READY &&
-        mediaItemCount > 0 &&
-        attemptsDone < PLAY_RESCUE_MAX_ATTEMPTS
-
 /**
  * 进程被杀后从通知栏/媒体按钮"继续播放"的恢复点（纯函数，便于钉死）。
  *
@@ -490,11 +451,6 @@ class PlaybackService : MediaLibraryService() {
     // 就永远不自动响（2026-10-11：未点按自动续播 bug）。
     private var lastUserPlayMs = 0L
 
-    // 播放救援（见 shouldRescuePlayback）：挂在 playWhenReady=false→true 之后，
-    // 每 PLAY_RESCUE_CHECK_MS 检查一次；卡住则 stop→prepare→play 重置焦点通道。
-    private var playRescueAttempts = 0
-    private val playRescueHandler = Handler(Looper.getMainLooper())
-
     // Review item 5: the offline probe below fans out to per-song disk/cache
     // I/O, so it runs on IO; ExoPlayer transport (seek/prepare/play/stop)
     // posts back to the main thread that built the player. This service is
@@ -588,7 +544,9 @@ class PlaybackService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(audioFocusConfig().handleAudioBecomingNoisy)
             // 锁屏/熄屏后保持 CPU 唤醒（WAKE_MODE_LOCAL 只持 partial wake lock，不含 WifiLock），
-            // 避免缓冲中的音频被系统挂起（通知栏播放键在息屏后失效的一类诱因）。需配合 WAKE_LOCK 权限。
+            // 避免后台缓冲中的音频被系统挂起。Media3 1.9.0 起这已是默认值，但仍显式钉住：
+            // 库的默认值取决于"四个 stuck 检测超时是否全非 TIME_UNSET"，将来若关掉卡死检测
+            // 就会静默退回 WAKE_MODE_NONE。需配合 WAKE_LOCK 权限。
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         player = exo
@@ -654,11 +612,9 @@ class PlaybackService : MediaLibraryService() {
                     PlayDiag.mark(this@PlaybackService, "focus-blocked")
                     maybeRetryDeniedPlay(fromProbe)
                 }
-                // "想播"变为 true 后启动救援检查（见 shouldRescuePlayback）：
-                // 若 2.5s 后仍 READY+无声（焦点等待卡死型），重置通道重播。
+                // "想播"变为 true：记录用户意愿时间戳（补试意愿门用）。
                 if (playWhenReady) {
                     lastUserPlayMs = android.os.SystemClock.elapsedRealtime()
-                    schedulePlayRescue()
                 }
             }
 
@@ -1118,64 +1074,6 @@ class PlaybackService : MediaLibraryService() {
         }, FOCUS_RETRY_DELAYS_MS[idx])
     }
 
-    /**
-     * 见 [shouldRescuePlayback]：每次"想播"变为 true 后启动一轮救援检查
-     * （先清旧检查，重置计数——新一轮播放意图覆盖上一轮）。
-     */
-    private fun schedulePlayRescue() {
-        if (!PLAY_RESCUE_ENABLED) return
-        playRescueAttempts = 0
-        playRescueHandler.removeCallbacksAndMessages(null)
-        playRescueHandler.postDelayed({ runPlayRescueCheck() }, PLAY_RESCUE_CHECK_MS)
-    }
-
-    /**
-     * 救援检查：命中 [shouldRescuePlayback] 时对播放器执行 stop→prepare→play
-     * ——stop 进 IDLE 会让 Media3 撤回当前焦点请求，prepare/play 再走一次
-     * 全新申请，从而脱离"焦点等待卡死"（没有超时机制的内部状态）。
-     */
-    private fun runPlayRescueCheck() {
-        if (!PLAY_RESCUE_ENABLED) return
-        val exo = player ?: return
-        val playWhenReady = try {
-            exo.playWhenReady
-        } catch (_: Exception) {
-            return
-        }
-        val isPlaying = try {
-            exo.isPlaying
-        } catch (_: Exception) {
-            false
-        }
-        val state = try {
-            exo.playbackState
-        } catch (_: Exception) {
-            return
-        }
-        val count = try {
-            exo.mediaItemCount
-        } catch (_: Exception) {
-            0
-        }
-        if (!shouldRescuePlayback(playWhenReady, isPlaying, state, count, playRescueAttempts)) {
-            // 到上限后仍"想播却无声"→ 留一条脚印（供复现时读诊断）；其他情况静默。
-            if (playWhenReady && !isPlaying && playRescueAttempts >= PLAY_RESCUE_MAX_ATTEMPTS) {
-                PlayDiag.mark(this, "rescue-exhausted")
-            }
-            return
-        }
-        playRescueAttempts++
-        PlayDiag.mark(this, "rescue-$playRescueAttempts")
-        try {
-            exo.stop()
-            exo.prepare()
-            exo.play()
-        } catch (_: Exception) {
-            return
-        }
-        playRescueHandler.postDelayed({ runPlayRescueCheck() }, PLAY_RESCUE_CHECK_MS)
-    }
-
     fun playQueue(songs: List<Song>, index: Int) {
         val exo = player ?: return
         lastUserPlayMs = android.os.SystemClock.elapsedRealtime()
@@ -1237,7 +1135,6 @@ class PlaybackService : MediaLibraryService() {
         }
         // 补试回调持有本 Service：不清掉会把实例多留一个补试间隔才被回收。
         focusRetryHandler.removeCallbacksAndMessages(null)
-        playRescueHandler.removeCallbacksAndMessages(null)
         focusRetryActive = false
         mediaSession?.run {
             player.release()

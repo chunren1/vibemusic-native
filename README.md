@@ -62,9 +62,9 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 - 搜索历史云同步（与本地 DataStore 合并去重）。
 - Bugly 4.1.9 崩溃上报 + `PlayDiag` 操作面包屑，排障先看面包屑再动手。
 - 焦点补试阶梯 + 用户意愿门 `shouldFireRetryProbe`：未点按绝不自动续播，暂停即取消补试。
-- 播放看门狗默认关闭（`PLAY_RESCUE_ENABLED = false`），待 logcat 破案再开。
+- 卡死自愈交给 Media3 1.9.0 原生 `StuckPlayerException`（想播 + READY 10 秒无进度即抛错）→ 走既有 `onPlayerError` 重试/换源；自建看门狗已于 2026-10-26 删除。
 - 保活引导 `shouldShowKilledHint`：播放键失灵提示直指「我的→设置→后台保活」。
-- 可测性：上述门与纯函数都有单测钉住（937 例），行为变更先改测试再改实现。
+- 可测性：上述门与纯函数都有单测钉住（939 例），行为变更先改测试再改实现。
 
 ## 血泪教训（新需求先读）
 
@@ -74,3 +74,4 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 4. **通知/媒体按钮路径不要用"拦截式 session 回调"做带声意图物化**：1.0.10-ai/1.0.11-ai（拦截 9 类命令 → 通知栏串歌）与 1.0.27-ai/1.0.28-ai（窄口径仅 PLAY_PAUSE → 播放全死）两次实装两次回滚，**第三次不做**。进程被杀后的恢复只走官方 `MediaSession.Callback.onPlaybackResumption`（见 `PlaybackService.onCreate`），Activity 侧 `ensureTimeline` 是唯一兜底物化路径。
 5. 焦点被拒≠卡死：Media3 会把 playWhenReady 置回 false 且**平台不再回调**，所以"点了没反应"必须由 App 侧有界补试兜（`shouldRetryDeniedPlay`）；补试还要过意愿门 `shouldFireRetryProbe`（未点按不续播、暂停即取消）。瞬时丢失本身是框架自动续播，不要自己接管焦点。
 6. DataStore 三处都必须带 `corruptionHandler`（round6 起已加）：文件损坏时 DataStore 连写都会失败，表现为"进度/队列/搜索历史静默永久失效"，很难从现象反推。
+7. **"点了播放没反应"先查库版本，别急着自建看门狗**（2026-10-26 审计）：2026-10-10/11 按"焦点等待卡死"假设手搓了 `stop→prepare→play` 看门狗，真机从未验证成功，`44de1c0` 默认关闭后成了 101 行永不执行的死代码，2026-10-26 整体删除。真正的修复来自 Media3 1.5.1→1.9.0：① 新增 `StuckPlayerException` 卡死检测（想播 + `STATE_READY` **10 秒无进度**即抛错，默认开启）→ 走既有 `onPlayerError` 重试/换源；② 前台服务态在暂停/失败后多留 10 分钟；③ wake lock 默认开。教训：**库内已有"检测 + 抛错"机制时，App 侧不要自建状态机**；且判断"某次升级修了什么"要读官方 release notes + 反编译核对，不能靠排除法猜。

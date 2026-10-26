@@ -131,6 +131,26 @@ Media3 `MediaSessionService` + 通知栏。
 >   悬浮/锁屏若将来立项，前置条件是本 batch 的 effective-clock（applyLyricOffset）
 >   直接复用为同步时钟源。
 
+## 5.5 播放恢复专项审计（2026-10-26）
+
+背景：用户实测 2.0.13-ai 后「视频 App 打断播放、隔一阵点通知栏播放键没反应」已恢复，要求复盘此前是否误判/写了无用代码。
+
+**结论（有字节码证据，非推测）**
+
+| 项 | 判定 |
+|---|---|
+| `AudioFocusManager` 焦点语义在 1.5.1→1.9.0 有无变化 | **无**。`handlePlatformAudioFocusChange` / `updateAudioFocus` / `setAudioFocusState` / `executePlayerCommand` 逐字节相同，仅包名从 `exoplayer` 挪到 `common.audio` 并公开 |
+| 真解 | Media3 1.9.0 新增 `StuckPlayerException` 卡死检测：想播 + `STATE_READY` **10 秒无进度**（真机默认值，`experimentalEnableStuckPlayingDetection` 静态初值 `true`）即抛错 → 走既有 `onPlayerError` → `shouldRetrySameItem` 重试 → 自动换源 |
+| 辅助因素 | 1.6.0「暂停/停止/失败后前台服务态多留 10 分钟」；1.9.0「wake lock 默认 `WAKE_MODE_LOCAL`」 |
+| 焦点补试梯子（`nextFocusRetryIndex` 等，约 94 行） | **保留**。规则本身是「播放中被打断 → 返回 -1 不补试」，只在用户点按被拒时启动；本次修复未依赖它，但仍是该分支的合法兜底 |
+| 自建看门狗（`PLAY_RESCUE_ENABLED` 全套，101 行 + 4 单测 + 2 诊断码） | **删除**。`44de1c0` 起 `PLAY_RESCUE_ENABLED=false` 永久截断，生产从未执行；且它做的事（检测卡死→重置）已被官方 `StuckPlayerException` 以更轻的方式取代 |
+
+**保留但改注释**：`setWakeMode(C.WAKE_MODE_LOCAL)` 在 1.9.0 已是默认值，但库的默认值耦合于「四个 stuck 检测超时是否全非 `TIME_UNSET`」——将来关掉卡死检测会静默退回 `WAKE_MODE_NONE`，故显式钉住，仅更正误导性注释（原文把 wake lock 归因为「通知栏播放键失效」，实为后台缓冲被挂起）。
+
+**验证**：`testDebugUnitTest` 939 例全绿（943 − 4 随死代码删除）+ `assembleDebug` 成功。
+
+**方法学教训**：判断「某次升级修了什么」不能靠排除法——本次先据「焦点字节码无变化 + 只剩 wake lock」推断，漏看了 ExoPlayer 层的卡死检测，结论一度错误。正确顺序：官方 release notes 逐条比对 → 反编译核对默认值 → 再落到 App 行为。
+
 ## 6. AI 军规（本计划最高优先级）
 
 1. 一次一改，一改一装机，真机验证；不攒改动。

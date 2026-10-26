@@ -169,8 +169,6 @@ fun mapPlayDiagCode(code: String): String = when {
     code.startsWith("resume-fail") -> "队列快照交回失败"
     code == "focus-blocked" -> "播放被音频焦点拒绝（别的应用占着声音）"
     code.startsWith("focus-retry") -> "焦点被拒后已自动补试"
-    code.startsWith("rescue-exhausted") -> "播放卡住，自动修复未成功（请反馈）"
-    code.startsWith("rescue-") -> "检测到播放卡住，已自动修复重播"
     code == "playing" -> "已开始出声"
     // ── 2026-10-19 观察点（纯记录，不影响任何播放/连接行为）──
     code.startsWith("svc-start") -> "服务被拉起（action=${code.substringAfter(":", "无")}）"

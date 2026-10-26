@@ -1,6 +1,5 @@
 package com.cyk666.vibemusic
 
-import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -134,40 +133,8 @@ class PlayDiagTest {
         assertFalse(shouldFireRetryProbe(userPlayMs = 1000L, userPauseMs = 0L, isPlaying = false, playWhenReady = true))
     }
 
-    // ---- 播放救援看门狗（2026-10-10：通知中心"点了播放卡死"自愈）----
-
-    @Test
-    fun rescue_triggersOnlyWhenWantsPlayButSilent() {
-        // 想播、READY、有队列、没出声、未超限 → 救
-        assertTrue(shouldRescuePlayback(true, false, Player.STATE_READY, 3, 0))
-        // 已出声 → 不救
-        assertFalse(shouldRescuePlayback(true, true, Player.STATE_READY, 3, 0))
-        // 用户已暂停（不想播）→ 不救
-        assertFalse(shouldRescuePlayback(false, false, Player.STATE_READY, 3, 0))
-    }
-
-    @Test
-    fun rescue_neverInterferesWithLegitWaiting() {
-        // 网络缓冲中：合法等待 → 不救
-        assertFalse(shouldRescuePlayback(true, false, Player.STATE_BUFFERING, 3, 0))
-        // IDLE（含进程被杀后 resumption 恢复流程，player 为空）→ 不救
-        assertFalse(shouldRescuePlayback(true, false, Player.STATE_IDLE, 3, 0))
-        // 自然播完 ENDED → 不救
-        assertFalse(shouldRescuePlayback(true, false, Player.STATE_ENDED, 3, 0))
-        // 空队列 → 不救
-        assertFalse(shouldRescuePlayback(true, false, Player.STATE_READY, 0, 0))
-    }
-
-    @Test
-    fun rescue_boundedAttempts() {
-        assertTrue(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS - 1))
-        assertFalse(shouldRescuePlayback(true, false, Player.STATE_READY, 3, PLAY_RESCUE_MAX_ATTEMPTS))
-    }
-
-    @Test
-    fun rescue_disabledByDefault_untilRootCauseLocated() {
-        // 2026-10-11 审查：真机未验证成功且触发条件与两大致因互斥，默认关闭；
-        // 诊断时手动置 true，改动此断言即代表"已验证可开"。
-        assertFalse(PLAY_RESCUE_ENABLED)
-    }
+    // ---- 播放救援看门狗 ----
+    // 已于 2026-10-26 整体删除（生产被 PLAY_RESCUE_ENABLED=false 永久截断，
+    // 且真实根因是息屏/后台 CPU 被挂起，与"焦点等待卡死"假设不符；
+    // 修复见 1ce8087 的 WAKE_LOCK + setWakeMode）。对应 4 个用例一并移除。
 }
