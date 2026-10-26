@@ -151,6 +151,44 @@ Media3 `MediaSessionService` + 通知栏。
 
 **方法学教训**：判断「某次升级修了什么」不能靠排除法——本次先据「焦点字节码无变化 + 只剩 wake lock」推断，漏看了 ExoPlayer 层的卡死检测，结论一度错误。正确顺序：官方 release notes 逐条比对 → 反编译核对默认值 → 再落到 App 行为。
 
+## 5.6 Media3 1.9.0 → 1.9.3（2026-10-26，零工具链改动）
+
+**先纠正一条此前的事实错误**：早前判断「media3 1.9.1+ 要求 compileSdk 36 所以卡住」是错的。
+直接解包 Google Maven 上各版本 AAR 的 `META-INF/com/android/build/gradle/aar-metadata.properties` 实测：
+
+| 版本 | minCompileSdk | minSdk |
+|---|---|---|
+| 1.9.0 / 1.9.1 / **1.9.2** / **1.9.3** | **35** | 23 |
+| 1.10.0 / 1.10.1 / 1.11.0 / 1.11.1 | **36** | 23 |
+
+即 1.9 分支还有 1.9.2、1.9.3 两个补丁版本，**在 compileSdk 35 上就能装**，AGP/Gradle/Kotlin 一行都不用动。
+
+**升级收益（1.9.1–1.9.3 中与本 App 相关的修复，来源 `androidx/media/RELEASENOTES.md`）**：
+
+| 版本 | 修复 | 与本 App 的关系 |
+|---|---|---|
+| 1.9.1 | 紧急释放 wake lock 可能导致 ANR（#2979） | 后台播放 |
+| 1.9.1 | 缺 `COMMAND_SEEK_NEXT/BACK` 时系统通知按钮出现空洞（#2976） | 通知栏 |
+| 1.9.1 | 通知图标 bitmap 缩放到主线程（#2829） | 通知卡顿 |
+| 1.9.1 | 反复 `replaceMediaItem` 泄漏 `MediaItem`（#2993） | 换源/重试路径 |
+| 1.9.2 | **`ProgressiveMediaSource` 把过期 timeline 传给 player，队列 period 被意外移除（#3016）** | **「歌单里某首歌莫名被跳过/消失」** |
+| 1.9.3 | **压缩 offload 模式下播放 gapless 专辑会卡死** | **无缝专辑（现场/古典/DJ mix）** |
+
+**为什么不上 1.10/1.11**：1.10 的两条关键修复（通话中请求播放不申请延迟 audio focus、`ForegroundServiceStartNotAllowedException`
+跨线程丢失）目前线上没有对应症状；代价是 AGP 8.11.1 + Gradle 8.13 + Kotlin 2.2.20 + compileSdk 36 四件套一起动，
+且 1.10.0 有三个静默破坏（`DEFAULT_STUCK_PLAYING_DETECTION_TIMEOUT_MS` 移位、MediaController 音量命令移除、
+自定义 `MediaNotification.Provider` 新增必需方法）。1.11.x 的 MediaSession 线程收紧会在运行期随机抛
+`IllegalStateException`，且要求 Kotlin ≥2.2。**触发条件**：只有真机上确证「通话后不恢复播放」或
+「切后台点播放没反应/FGS 启动异常丢失」时才评估 1.10.1。
+
+**改动**：`gradle/libs.versions.toml` 一行 `media3 = "1.9.0"` → `"1.9.3"`。无 API 变更，无 build 脚本改动。
+
+**验证**：`./gradlew testDebugUnitTest --no-daemon` **939 例全绿**（0 失败 0 跳过）+ `lintRelease` 通过。
+
+**环境坑**：`~/.gradle/gradle.properties` 里钉了 `systemProp.https.proxyHost=127.0.0.1:7890`，
+代理没开时依赖解析会 `Connect to 127.0.0.1:7890 failed`。临时绕过：
+`./gradlew ... -Dhttp.proxyHost= -Dhttps.proxyHost= -Dhttp.proxyPort= -Dhttps.proxyPort=`（空值=禁用代理，实测有效）。
+
 ## 6. AI 军规（本计划最高优先级）
 
 1. 一次一改，一改一装机，真机验证；不攒改动。

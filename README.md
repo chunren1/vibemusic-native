@@ -8,7 +8,7 @@
 
 ## 技术栈（版本冻结，升级需批准）
 
-Kotlin 2.0.20 + Compose Material3 + Media3 1.9.0 + Retrofit 2.11.0 / OkHttp 4.12.0 /
+Kotlin 2.0.20 + Compose Material3 + Media3 1.9.3 + Retrofit 2.11.0 / OkHttp 4.12.0 /
 Coil 2.6.0 + DataStore 1.1.1，JSON 走 org.json（Moshi 已移除）；AGP 8.5.2 / Gradle 8.10.2 / JDK 21 实测可编；
 compileSdk 35 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4.14.1。
 
