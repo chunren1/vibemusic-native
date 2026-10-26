@@ -1,0 +1,43 @@
+name: deps-guard
+
+# 依赖约束守卫（不是构建，只查「版本要求」这一类容易被记忆搞错的硬约束）
+#
+# 背景（2026-10-26 教训）：曾凭记忆断言「media3 1.9.1+ 要求 compileSdk 36」，实际 1.9.x 全是 35，
+# 假前提让「工具链冻结」这个决策成立了好几周。这条 workflow 让机器每次去读 AAR 元数据，
+# 而不是靠人回忆 —— 升 media3 时如果要求变了，这里直接红，并打印升 compileSdk 需要连带改什么。
+#
+# 只在相关文件变更时触发，成本约 10 秒（拉两个小 AAR）。
+
+on:
+  push:
+    paths:
+      - 'gradle/libs.versions.toml'
+      - 'app/build.gradle.kts'
+      - 'scripts/verify-deps.sh'
+      - '.github/workflows/deps-guard.yml'
+  pull_request:
+    paths:
+      - 'gradle/libs.versions.toml'
+      - 'app/build.gradle.kts'
+      - 'scripts/verify-deps.sh'
+      - '.github/workflows/deps-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  media3-compilesdk:
+    name: media3 minCompileSdk ≤ compileSdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain versions (debug)
+        run: |
+          grep -nE '^(agp|kotlin|media3) *=' gradle/libs.versions.toml || true
+          grep -nE 'compileSdk|minSdk|targetSdk' app/build.gradle.kts | head -5 || true
+
+      - name: Verify dependency constraints
+        run: bash scripts/verify-deps.sh
