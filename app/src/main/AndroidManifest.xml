@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -27,11 +28,53 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 让系统把本应用识别为「音频播放器」：微信/文件管理器「用其他应用打开」。
+                 此前只有 MAIN/LAUNCHER，所以候选列表里没有我们（不是权限问题，是声明问题）。
+                 入口解析见 LocalAudioIntent.kt；播放入口仍只有一个（既有 MediaController）。 -->
+            <!-- tools:ignore：两条 data 刻意各自「scheme+type」成对写（拆开会变成
+                 「任意 scheme 的 audio/*」+「content 的任意类型」两个错误规格）。 -->
+            <intent-filter tools:ignore="IntentFilterUniqueDataAttributes">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="audio/*" />
+                <data android:scheme="file" android:mimeType="audio/*" />
+            </intent-filter>
+
+            <!-- 微信/QQ「分享到」单个音频 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+
+            <!-- 分享多个音频 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+
+            <!-- 部分微信版本把音频标成 application/octet-stream（mime 不可靠），按扩展名兜底。
+                 pathSuffix 需要 Android 12(API 31)+，更低版本只靠上面 audio/* 那条。
+                 ⚠ 这条能否命中依赖微信实际发的 mime/文件名，**只能真机实测**，别当已验证。 -->
+            <intent-filter tools:ignore="UnusedAttribute,IntentFilterUniqueDataAttributes">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".mp3" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".m4a" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".aac" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".wav" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".ogg" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".flac" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".amr" />
             </intent-filter>
         </activity>
 

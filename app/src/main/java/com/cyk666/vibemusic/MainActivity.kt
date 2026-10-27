@@ -140,8 +140,25 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
+    /**
+     * 外部音频 intent（微信「用其他应用打开」/「分享到」）→ 一次性交接给 Compose。
+     * 这里只解析 URI；元信息读取是阻塞 I/O，放到 buildMediaItems 的 IO 线程。
+     * 播放仍走既有 MediaController，不新增播放入口、不碰通知/媒体按钮路径。
+     */
+    private fun handleLocalAudioIntent(intent: Intent?) {
+        val uris = LocalAudioIntent.urisFrom(intent)
+        if (uris.isNotEmpty()) LocalAudioIntent.submit(uris)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLocalAudioIntent(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleLocalAudioIntent(intent)
         // Edge-to-edge with a single Obsidian background behind the status
         // bar: transparent bars + dark icons so no translucent band shows.
         enableEdgeToEdge(
@@ -2399,6 +2416,12 @@ class MainActivity : ComponentActivity() {
                             ""
                         }
                         val online = isNetworkAvailable(context)
+                        if (LocalAudioIntent.isExternal(mediaId)) {
+                            // 外部导入文件（微信「用其他应用打开」）：没有可回退的流地址，
+                            // 也不归离线自愈管 —— 别去删用户的文件，也别拿文件 URI 去拼流地址。
+                            showError("这个音频文件播放失败（可能已移动或没有读取权限）")
+                            return
+                        }
                         when (localErrorDecision(mediaId, online)) {
                             LocalErrorAction.DELETE_AND_STREAM -> {
                                 val song = try {
@@ -3084,6 +3107,32 @@ class MainActivity : ComponentActivity() {
                     while (true) {
                         delay(500)
                         pollPosition()
+                    }
+                }
+            }
+
+            // 外部音频「打开即播」：controller 就绪后取走一次性交接的 URI。
+            // keyed on controller —— 冷启动时 intent 早于 controller 就绪，
+            // StateFlow 会保留最后一次提交，等这里首次收集时拿到。
+            LaunchedEffect(controller) {
+                val c = controller ?: return@LaunchedEffect
+                LocalAudioIntent.pending.collect { uris ->
+                    if (uris.isNullOrEmpty()) return@collect
+                    LocalAudioIntent.consume()
+                    val items = withContext(Dispatchers.IO) {
+                        LocalAudioIntent.buildMediaItems(context, uris)
+                    }
+                    if (items.isEmpty()) {
+                        showError("读不到这个音频文件（可能没有访问权限）")
+                        return@collect
+                    }
+                    try {
+                        c.setMediaItems(items, 0, 0L)
+                        c.prepare()
+                        c.play()
+                    } catch (e: Exception) {
+                        SilentFail.note("MainActivity.localAudio: ${e.javaClass.simpleName}")
+                        showError("这个音频文件播放失败")
                     }
                 }
             }
