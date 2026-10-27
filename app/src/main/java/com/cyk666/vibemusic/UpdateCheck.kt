@@ -19,8 +19,10 @@ const val UPDATE_GITEE_LATEST_URL =
     "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases/latest"
 
 /**
- * Release 列表端点（测试通道用）：GitHub 按新建倒序返回，取首个带 .apk 的条目
- * （含 prerelease）；Gitee 同理。正式通道继续走上面的 .../latest（自动排除 prerelease）。
+ * Release 列表端点（测试通道用）：取**版本号最大**的带 .apk 条目（含 prerelease）。
+ * ⚠ 不能取「首个」——GitHub 按 created_at 降序返回，Gitee 是升序（最老在前），
+ * 依赖顺序会让 Gitee 上的测试版通道永远选中最老的那个 tag。
+ * 正式通道继续走上面的 .../latest（自动排除 prerelease）。
  */
 const val UPDATE_RELEASES_URL =
     "https://api.github.com/repos/chunren1/vibemusic-native/releases?per_page=10"
@@ -315,6 +317,12 @@ fun parseReleaseList(json: String): GithubRelease? {
     } catch (e: Exception) {
         throw RuntimeException("Parse release list failed: malformed JSON (${e.message})")
     }
+    // ⚠ 不要取「首个带 .apk 的条目」：列表顺序不是版本顺序。
+    // GitHub 按 created_at 降序（最新在前），Gitee 却是**升序**（最老在前）——
+    // 2026-10-27 事故：Gitee 上首个带 APK 的是 v1.0.47-ai-beta.4，
+    // isNewerVersion(2.0.15-ai, 那个) = false → 测试版通道永远提示「已是最新」。
+    // 故这里按版本号取最大值（isNewerVersion 同时处理 -beta.N 排序）。
+    var best: GithubRelease? = null
     for (i in 0 until arr.length()) {
         val o = arr.optJSONObject(i) ?: continue
         val tag = o.optString("tag_name")
@@ -330,7 +338,7 @@ fun parseReleaseList(json: String): GithubRelease? {
             }
         }
         if (apk == null) continue
-        return GithubRelease(
+        val candidate = GithubRelease(
             tag = tag,
             name = o.optString("name"),
             body = o.optString("body"),
@@ -338,8 +346,12 @@ fun parseReleaseList(json: String): GithubRelease? {
             prerelease = o.optBoolean("prerelease", false),
             apkSize = apk.size
         )
+        val incumbent = best
+        if (incumbent == null || isNewerVersion(incumbent.tag, candidate.tag)) {
+            best = candidate
+        }
     }
-    return null
+    return best
 }
 
 private suspend fun fetchReleaseListJson(url: String, accept: String?): String =

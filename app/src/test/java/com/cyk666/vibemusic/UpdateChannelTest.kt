@@ -13,7 +13,8 @@ import org.robolectric.RuntimeEnvironment
 
 /**
  * 双通道 release 解析测试：正式通道走 .../latest（天然排除 prerelease），
- * 测试通道走 .../releases?per_page=N 列表（含 prerelease，取首个带 .apk 的条目）。
+ * 测试通道走 .../releases?per_page=N 列表（含 prerelease，取**版本号最大**的
+ * 带 .apk 条目 —— 列表顺序不可信，见 parseReleaseList 的注释）。
  */
 @RunWith(RobolectricTestRunner::class)
 class UpdateChannelTest {
@@ -28,7 +29,7 @@ class UpdateChannelTest {
     }
 
     @Test
-    fun list_picksFirstApkIncludingPrerelease() {
+    fun list_picksNewestVersionIncludingPrerelease() {
         val json = "[" + listEntry("v1.0.41-ai-beta.1", "https://example.invalid/beta.apk", true) + "," +
             listEntry("v1.0.40-ai", "https://example.invalid/stable.apk", false) + "]"
         val r = parseReleaseList(json)
@@ -36,6 +37,37 @@ class UpdateChannelTest {
         assertEquals("v1.0.41-ai-beta.1", r.tag)
         assertEquals("https://example.invalid/beta.apk", r.apkUrl)
         assertTrue(r.prerelease)
+    }
+
+    /**
+     * Gitee 的 /releases 列表是**升序**（最老在前），首个带 APK 的条目是
+     * v1.0.47-ai-beta.4。2026-10-27 事故就是这里取了「首个」→ 测试版通道
+     * 永远判定「已是最新」。
+     */
+    @Test
+    fun list_ascendingOrderStillPicksNewest() {
+        val json = "[" +
+            listEntry("v1.0.47-ai-beta.4", "https://example.invalid/b4.apk", true) + "," +
+            listEntry("v1.0.47-ai-beta.5", "https://example.invalid/b5.apk", true) + "," +
+            listEntry("v2.0.15-ai", "https://example.invalid/215.apk", false) + "," +
+            listEntry("v2.0.16-ai", "https://example.invalid/216.apk", false) +
+            "]"
+        val r = parseReleaseList(json)
+            ?: throw AssertionError("expected a release")
+        assertEquals("v2.0.16-ai", r.tag)
+        assertEquals("https://example.invalid/216.apk", r.apkUrl)
+        assertFalse(r.prerelease)
+    }
+
+    /** 同版本号时稳定版胜过 beta（beta 只在新于稳定版时才被选中）。 */
+    @Test
+    fun list_sameCorePrefersStableOverBeta() {
+        val json = "[" + listEntry("v2.0.16-ai-beta.1", "https://example.invalid/b.apk", true) + "," +
+            listEntry("v2.0.16-ai", "https://example.invalid/s.apk", false) + "]"
+        val r = parseReleaseList(json)
+            ?: throw AssertionError("expected a release")
+        assertEquals("v2.0.16-ai", r.tag)
+        assertFalse(r.prerelease)
     }
 
     @Test
