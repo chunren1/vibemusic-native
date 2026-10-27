@@ -26,8 +26,16 @@ const val UPDATE_GITEE_LATEST_URL =
  */
 const val UPDATE_RELEASES_URL =
     "https://api.github.com/repos/chunren1/vibemusic-native/releases?per_page=10"
+
+/**
+ * Gitee 的列表端点必须显式要 `direction=desc`：Gitee 默认**升序**（最老在前），
+ * 而且 page=1 就是最老的那一页 —— 2026-10-27 实测 per_page=10 拿到的是
+ * v1.0.47-ai-beta.4 … v1.0.54-ai，最新的 v2.0.16-ai 根本不在首页。
+ * `per_page=100` 是第二道保险：万一服务端忽略 direction，30 条 release 也能
+ * 一次取全，配合 parseReleaseList 的「取版本最大」仍能选对（>100 条时才需分页）。
+ */
 const val UPDATE_GITEE_RELEASES_URL =
-    "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases?per_page=10"
+    "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases?per_page=100&direction=desc"
 
 /** Minimum gap between automatic update checks. */
 const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L

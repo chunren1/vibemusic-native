@@ -70,6 +70,21 @@ class UpdateChannelTest {
         assertFalse(r.prerelease)
     }
 
+    /**
+     * 契约守卫：Gitee 的列表默认升序（page=1 = 最老的一页），必须显式
+     * direction=desc，否则测试版通道永远只看到 1.0.x 老版本。per_page 要够大，
+     * 这样即便服务端忽略 direction 也能一次取全（配合「取版本最大」）。
+     */
+    @Test
+    fun list_giteeUrlAsksForNewestFirst() {
+        assertTrue(UPDATE_GITEE_RELEASES_URL.contains("direction=desc"))
+        val perPage = Regex("[?&]per_page=(\\d+)").find(UPDATE_GITEE_RELEASES_URL)
+            ?.groupValues?.get(1)?.toIntOrNull()
+            ?: 0
+        assertTrue("per_page should be >= 100 (got $perPage)", perPage >= 100)
+        assertTrue(UPDATE_GITEE_RELEASES_URL.contains("green-leavesQAQ/vibemusic-native"))
+    }
+
     @Test
     fun list_skipsEntriesWithoutApk() {
         val json = "[" + listEntry("v1.0.42-ai-beta.1", null, true) + "," +
