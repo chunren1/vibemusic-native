@@ -1,6 +1,6 @@
 # MainActivity 拆分方案（C 项）
 
-> 立档：2026-10-21 · 状态：**C1、C4 已执行；C2/C3/C5/C6 待办** · 验收门：`./gradlew testDebugUnitTest` 937 用例全绿 + `assembleDebug` 通过
+> 立档：2026-10-21 · 状态：**C1、C4 已执行；C2/C3/C5/C6 待办** · 验收门：`./gradlew testDebugUnitTest` 956 用例全绿 + `assembleDebug` 通过
 
 ## 1. 现状（实测，非印象）
 
@@ -37,7 +37,7 @@ handlers/
 | **C1** | `Screen` 抽到 `Screen.kt` | 极低 | ✅ 已执行，编译通过 |
 | **C2** | 找出 `onCreate` 内可提取的纯决策，抽成顶层纯函数 + 单测 | 低 | 新增用例全绿，且不改变任何调用点行为 |
 | ~~C3~~ | ~~建通用 `MainState` 骨架~~ → **跳过**（见 §7：直接让 coordinator 自持状态，切得更小） | — | — |
-| **C4** | 自更新整段（状态+检查+下载+安装回调）搬到 `UpdateCoordinator` | 中 | ✅ 已执行（943 全绿 + assembleRelease 绿） |
+| **C4** | 自更新整段（状态+检查+下载+安装回调）搬到 `UpdateCoordinator` | 中 | ✅ 已执行（当时 943 全绿 + assembleRelease 绿；当前门禁 956） |
 | **C5** | 播放组（`queue`/`controller`/`currentIndex`/`playMode`）——最大的一刀，必须单独一轮，不与其他片并行 | 高 | 同上 + 真机回归（播放/通知/切歌/续播） |
 | **C6** | 搜索组、Auth 组、Offline 组依次；最后删空壳 | 中 | 同上 |
 
@@ -80,7 +80,7 @@ vivo 媒体键问题仍**冻结**，不因本次拆分解冻。
 - 唯一改名：`setChannel` → `selectChannel`（JVM 签名与 `channel` 的私有 setter 冲突，属编译期硬约束）。
 
 **行为等价性论证（为什么不靠单测）**：这段是 IO+Intent 驱动，单测只能覆盖已被 `UpdateCheckTest`
-钉死的纯函数；本轮等价性靠"逐行对照搬迁 + 编译 + 943 例回归 + release R8 通过"。真机行为（下载/安装
+钉死的纯函数；本轮等价性靠"逐行对照搬迁 + 编译 + 当时 943 例回归 + release R8 通过"。真机行为（下载/安装
 /跳转设置页）仍需发版前手动过一遍——列在发版检查项里。
 
 **遗留风险**：`UpdateCoordinator` 持有 `Context`，必须以 Activity 为生命周期（当前由 `remember`

@@ -11,7 +11,7 @@
 | 包名（已定 2026-09-08） | `com.cyk666.vibemusic`；自研版预留 `com.cyk666.vibemusic.dev` |
 | 展示名（已定 2026-09-08） | `VibeMusic`；自研版预留 `VibeMusic Dev` |
 | 自研版目录 | 用户尚未创建（创建后告知，AI 版一律不碰） |
-| 技术栈 | Kotlin + Compose Material3 + Media3 + Retrofit/OkHttp/Moshi + Coil + DataStore |
+| 技术栈 | Kotlin + Compose Material3 + Media3 + Retrofit/OkHttp/org.json + Coil + DataStore |
 | minSdk 26，targetSdk 35 | 全程冻结，升级需用户点头 |
 | 构建 | Gradle 8.10.2（已有缓存）+ AGP 8.5.x + JDK（优先 17，没有则先验证 21，不行就装 17） |
 | 后端 | `https://vibe.cyk666.top`（访客态 `guest:true` 直进） |
@@ -147,7 +147,7 @@ Media3 `MediaSessionService` + 通知栏。
 
 **保留但改注释**：`setWakeMode(C.WAKE_MODE_LOCAL)` 在 1.9.0 已是默认值，但库的默认值耦合于「四个 stuck 检测超时是否全非 `TIME_UNSET`」——将来关掉卡死检测会静默退回 `WAKE_MODE_NONE`，故显式钉住，仅更正误导性注释（原文把 wake lock 归因为「通知栏播放键失效」，实为后台缓冲被挂起）。
 
-**验证**：`testDebugUnitTest` 939 例全绿（943 − 4 随死代码删除）+ `assembleDebug` 成功。
+**验证**：当时 `testDebugUnitTest` 939 例全绿（943 − 4 随死代码删除；当前门禁 956）+ `assembleDebug` 成功。
 
 **方法学教训**：判断「某次升级修了什么」不能靠排除法——本次先据「焦点字节码无变化 + 只剩 wake lock」推断，漏看了 ExoPlayer 层的卡死检测，结论一度错误。正确顺序：官方 release notes 逐条比对 → 反编译核对默认值 → 再落到 App 行为。
 
@@ -183,7 +183,7 @@ Media3 `MediaSessionService` + 通知栏。
 
 **改动**：`gradle/libs.versions.toml` 一行 `media3 = "1.9.0"` → `"1.9.3"`。无 API 变更，无 build 脚本改动。
 
-**验证**：`./gradlew testDebugUnitTest --no-daemon` **939 例全绿**（0 失败 0 跳过）+ `lintRelease` 通过。
+**验证**：`./gradlew testDebugUnitTest --no-daemon` **当时 939 例全绿**（0 失败 0 跳过；当前门禁 956）+ `lintRelease` 通过。
 
 **环境坑**：`~/.gradle/gradle.properties` 里钉了 `systemProp.https.proxyHost=127.0.0.1:7890`，
 代理没开时依赖解析会 `Connect to 127.0.0.1:7890 failed`。临时绕过：
@@ -195,8 +195,8 @@ Media3 `MediaSessionService` + 通知栏。
 2. 报错贴 `adb logcat` 全栈文本；静默失败（无声无错）先加日志定位，不许猜。
 3. `gradle-wrapper.properties` / AGP / Kotlin / minSdk 冻结；加依赖必须说理由+锁版本+用户同意。
 4. 验收门没过，不进下一阶段；3 次失败停手 revert + 请示。
-5. 自研版目录一律不碰；两边对照测试时注明版本（AI版 `v0.x-ai`）。
-6. 每次交付前必须 `./gradlew testDebugUnitTest` 全绿 + assemble + aapt/apksigner 校验，三者缺一即不许传 LanShare；测试挂了先修测试或代码，禁删失败测试冒充通过。
+5. 自研版目录一律不碰；两边对照测试时注明版本（AI 版 `vX.Y.Z-ai`，当前 `v2.0.17-ai`）。
+6. 每次交付前必须 `./gradlew testDebugUnitTest` 全绿 + assemble + aapt/apksigner 校验，三者缺一即不许交付（传包走 CI → GitHub Release，LanShare 已退役）；测试挂了先修测试或代码，禁删失败测试冒充通过。
 
 ## 7. 需要用户帮忙的点（提前列好）
 

@@ -1,5 +1,5 @@
 # CI: tag v* → 云端编译签名 → GitHub Release 发包
-# 触发：git tag v1.0.x-ai && git push origin v1.0.x-ai
+# 触发：git tag vX.Y.Z-ai && git push origin vX.Y.Z-ai（当前 v2.0.17-ai）
 # Secrets（仓库 Settings → Secrets and variables → Actions → New repository secret，需预置；
 #         缺 KEYSTORE_FILE / KEYSTORE_PASSWORD 任一 → 发版直接失败，不静默跳过）：
 #   KEYSTORE_FILE          base64 后的 release keystore
@@ -206,7 +206,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           # 双通道：tag 含 beta（不分大小写）即测试版 → GitHub prerelease；
-          # 正式 tag（如 v1.0.40-ai）保持正式 Release。更新器正式通道只读 /latest（自动排除 prerelease）。
+          # 正式 tag（如 v2.0.17-ai）保持正式 Release。更新器正式通道只读 /latest（自动排除 prerelease）。
           if printf '%s' "$TAG" | grep -qi 'beta'; then
             PRERELEASE_FLAGS="--prerelease"
             # 坑①：bash 双引号不展开 \n —— 写死 "\n\n" 会变成字面量反斜杠 n（v2.0.11-ai 的说明里就真的这么显示了），必须用 printf。
