@@ -226,10 +226,15 @@ jobs:
               $PRERELEASE_FLAGS
           fi
 
-      # Gitee 镜像：与 GitHub Release 同包。GitHub 是 source of truth，
-      # 本步骤失败绝不影响整个 job（continue-on-error: true）。
+      # Gitee 镜像：与 GitHub Release 同包。GitHub 是 source of truth。
+      #
+      # ⚠ 2026-10-27 事故：本步骤曾 `continue-on-error: true` + 结尾 `exit 0`，
+      # v2.0.16-ai 镜像**静默失败**（tag push 被 shallow 拒绝 + create release
+      # SSL 超时），job 仍报绿。后果：App 的更新源首选 Gitee（FIRST successful
+      # wins，不做跨源版本合并），Gitee 停在 v2.0.15-ai → 用户手机永远提示
+      # "已是最新版本"。故本步骤改为**失败即红**（唯一例外是未配置 token 的
+      # fork：跳过属合法），并在结尾用匿名请求自证 APK 真的落地。
       - name: Mirror to Gitee release
-        continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -242,8 +247,8 @@ jobs:
             exit 0
           fi
           if [ -z "${APK_NAME:-}" ] || [ ! -f "$APK_NAME" ]; then
-            echo "::warning::Gitee mirror skipped: APK file $APK_NAME not found"
-            exit 0
+            echo "::error::Gitee mirror failed: APK file ${APK_NAME:-<unset>} not found"
+            exit 1
           fi
           NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名，与 GitHub Release 同包）"
           if printf '%s' "$TAG" | grep -qi 'beta'; then
@@ -256,21 +261,42 @@ jobs:
           #     exist, and the API "create tag" needs a starting ref that a
           #     fresh Gitee clone doesn't have — so push the tag (its commits
           #     ride along). Token-in-URL is masked in the log.
-          git push -q "https://oauth2:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" \
-            "refs/tags/${TAG}" 2>&1 | sed 's|oauth2:[^@]*@|oauth2:***@|g' || true
+          #     ⚠ actions/checkout 默认 fetch-depth: 1（浅克隆），浅仓库推 tag 会被
+          #     Gitee 拒绝：`! [remote rejected] (shallow update not allowed)`
+          #     —— v2.0.16-ai 就是这么失败的。推之前先补全历史。
+          if git rev-parse --is-shallow-repository | grep -q true; then
+            echo "shallow clone detected → unshallowing before tag push"
+            git fetch -q --unshallow --tags || true
+          fi
+          # 注意：不能写 `git push ... | sed ...`，管道的退出码是 sed 的，
+          # git 失败会被吞掉（这正是 v2.0.16-ai 假绿的成因之一）。
+          PUSH_LOG=$(mktemp)
+          if ! git push -q "https://oauth2:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" \
+              "refs/tags/${TAG}" >"$PUSH_LOG" 2>&1; then
+            sed 's|oauth2:[^@]*@|oauth2:***@|g' "$PUSH_LOG"
+            echo "::error::Gitee mirror failed: cannot push tag $TAG to Gitee"
+            exit 1
+          fi
+          sed 's|oauth2:[^@]*@|oauth2:***@|g' "$PUSH_LOG"
           # (a) create release; 422 (already exists) → treat as success.
-          CREATE_RESP=$(curl -sS --connect-timeout 10 --max-time 30 -w '\n%{http_code}' \
-            -X POST "$API?access_token=${GITEE_TOKEN}" \
-            -H "Content-Type: application/json;charset=UTF-8" \
-            --data "$(TAG="$TAG" NOTES="$NOTES" PRE="$PRERELEASE_JSON" python3 -c 'import json,os;d={"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"],"target_commitish":"main"};s=json.dumps(d);print(s[:-1]+os.environ["PRE"]+"}")')" \
-            ) || CREATE_RESP=""
-          CREATE_CODE=$(printf '%s' "$CREATE_RESP" | tail -n 1)
+          #     带 3 次重试：runner→Gitee 的 TLS 握手会偶发超时
+          #     （v2.0.16-ai 单次尝试就撞上 `curl: (28) SSL connection timeout`）。
+          CREATE_CODE=""
+          for attempt in 1 2 3; do
+            CREATE_RESP=$(curl -sS --connect-timeout 20 --max-time 60 -w '\n%{http_code}' \
+              -X POST "$API?access_token=${GITEE_TOKEN}" \
+              -H "Content-Type: application/json;charset=UTF-8" \
+              --data "$(TAG="$TAG" NOTES="$NOTES" PRE="$PRERELEASE_JSON" python3 -c 'import json,os;d={"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"body":os.environ["NOTES"],"target_commitish":"main"};s=json.dumps(d);print(s[:-1]+os.environ["PRE"]+"}")')" \
+              ) || CREATE_RESP=""
+            CREATE_CODE=$(printf '%s' "$CREATE_RESP" | tail -n 1)
+            echo "Gitee create HTTP: ${CREATE_CODE:-curl-failed} (attempt $attempt/3)"
+            case "$CREATE_CODE" in 200|201|422) break ;; *) sleep 15 ;; esac
+          done
           CREATE_BODY=$(printf '%s' "$CREATE_RESP" | sed '$d')
-          echo "Gitee create HTTP: ${CREATE_CODE:-curl-failed}"
           RELEASE_ID=$(printf '%s' "$CREATE_BODY" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read() or "{}").get("id",""))' 2>/dev/null || true)
           if [ -z "$RELEASE_ID" ]; then
             # Create returned existing (422) or no id → GET list, find id by tag.
-            LIST_JSON=$(curl -sS --connect-timeout 10 --max-time 30 \
+            LIST_JSON=$(curl -sS --connect-timeout 20 --max-time 60 \
               "${API}?access_token=${GITEE_TOKEN}&per_page=100" || echo "")
             RELEASE_ID=$(printf '%s' "$LIST_JSON" | TAG="$TAG" python3 -c \
               'import json,os,sys
@@ -282,8 +308,8 @@ jobs:
           print(next((str(r.get("id","")) for r in items if r.get("tag_name")==tag), ""))' || true)
           fi
           if [ -z "$RELEASE_ID" ]; then
-            echo "::warning::Gitee mirror failed: no release id for tag $TAG (create HTTP ${CREATE_CODE:-?})"
-            exit 0
+            echo "::error::Gitee mirror failed: no release id for tag $TAG (create HTTP ${CREATE_CODE:-?})"
+            exit 1
           fi
           echo "Gitee release id: $RELEASE_ID"
           # (b) attach the SAME APK file, with retries: the 3.4MB upload
@@ -302,7 +328,38 @@ jobs:
             esac
           done
           case "$ATTACH_CODE" in
-            200|201) echo "Gitee mirror OK: $TAG (release $RELEASE_ID)" ;;
-            *) echo "::error::Gitee attach failed for tag $TAG after 3 attempts (HTTP $ATTACH_CODE) — GitHub release is canonical, re-attach manually" ;;
+            200|201) echo "Gitee attach OK: $TAG (release $RELEASE_ID)" ;;
+            *)
+              echo "::error::Gitee attach failed for tag $TAG after 3 attempts (HTTP $ATTACH_CODE) — GitHub release is canonical, re-attach manually"
+              exit 1
+              ;;
           esac
-          exit 0
+
+          # (c) 自证：用**匿名**请求（与 App 完全同权限）确认该 tag 的 release
+          #     真的带 .apk 资产。这一条是本次事故的机器断言 —— 过去只打
+          #     "mirror OK" 就 exit 0，release 建了但 APK 没挂上（v2.0.0-ai）
+          #     或压根没建（v2.0.16-ai）都不会被发现。
+          #     注意：查列表而非 /releases/latest —— prerelease tag 不会出现在 latest。
+          VERIFY_JSON=$(curl -sS --connect-timeout 20 --max-time 60 \
+            "${API}?per_page=100" || echo "")
+          VERIFY=$(printf '%s' "$VERIFY_JSON" | TAG="$TAG" python3 -c '
+          import json,os,sys
+          try:
+              items=json.loads(sys.stdin.read() or "[]")
+          except Exception:
+              items=[]
+          tag=os.environ.get("TAG","")
+          hit=next((r for r in items if r.get("tag_name")==tag), None)
+          if hit is None:
+              print("MISSING_RELEASE"); raise SystemExit
+          apk=[a for a in (hit.get("assets") or []) if str(a.get("browser_download_url","")).lower().endswith(".apk")]
+          print("OK" if apk else "MISSING_APK")
+          ' 2>/dev/null || echo "VERIFY_ERROR")
+          echo "Gitee verify (anonymous): $VERIFY"
+          case "$VERIFY" in
+            OK) echo "Gitee mirror verified: $TAG has an .apk asset" ;;
+            *)
+              echo "::error::Gitee mirror verification failed for $TAG: $VERIFY — App 的更新源首选 Gitee，缺这一步会导致客户端一直提示「已是最新版本」"
+              exit 1
+              ;;
+          esac
