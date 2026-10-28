@@ -178,6 +178,8 @@ fun SearchScreen(
     history: List<String> = emptyList(),
     onHistorySelect: (String) -> Unit = {},
     onHistoryDelete: (String) -> Unit = {},
+    /** 一键清空搜索历史（调用方负责本地 + 云端一起清）。 */
+    onClearHistory: () -> Unit = {},
     guessSongs: List<Song> = emptyList(),
     guessLoading: Boolean = false,
     guessError: String? = null,
@@ -203,6 +205,7 @@ fun SearchScreen(
         filterAndSortSongs(results, artistFilter, sort)
     }
     var songMenuFor by remember { mutableStateOf<Song?>(null) }
+    var showClearHistoryConfirm by remember { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
             value = query,
@@ -266,10 +269,21 @@ fun SearchScreen(
             SearchSkeleton()
         } else if (query.isBlank()) {
             if (history.isNotEmpty()) {
-                Text(
-                    text = "搜索历史",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "搜索历史",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // 一键清空（逐条 × 之外的总出口）。和「最近播放」的清空用同一套
+                    // 确认弹窗，避免误触把整排历史抹掉。
+                    TextButton(onClick = { showClearHistoryConfirm = true }) {
+                        Text("清空")
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -498,6 +512,18 @@ fun SearchScreen(
                 }
             }
         }
+    }
+    if (showClearHistoryConfirm) {
+        DangerConfirmDialog(
+            title = "清空搜索历史",
+            text = "确定清空全部 ${history.size} 条搜索记录吗？不可恢复。",
+            confirmText = "清空",
+            onConfirm = {
+                showClearHistoryConfirm = false
+                onClearHistory()
+            },
+            onDismiss = { showClearHistoryConfirm = false }
+        )
     }
     songMenuFor?.let { target ->
         val dlKey = offlineBaseName(target)

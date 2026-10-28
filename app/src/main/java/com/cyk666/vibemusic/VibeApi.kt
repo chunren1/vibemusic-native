@@ -1908,6 +1908,17 @@ object VibeApi {
     }
 
     /**
+     * 清空云端搜索历史（`DELETE api/search/history`）。
+     *
+     * 不能用「push 一个空列表」代替：后端 push 是 upsert + 裁剪，空数组不会删任何行。
+     * 云副本不删的话，下次 `pullAndMerge` 会把清掉的关键词原样拉回本地。
+     */
+    suspend fun clearSearchHistory() {
+        val body = rawDelete(SEARCH_HISTORY_LIST_PATH)
+        checkEnvelope(JSONObject(body), "Clear search history")
+    }
+
+    /**
      * Fire-and-forget play report (logged-in only; guest callers must skip
      * before calling). Never throws — history reporting must not break playback.
      */

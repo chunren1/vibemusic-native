@@ -620,6 +620,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            /**
+             * 一键清空搜索历史：本地 DataStore + 云端副本一起清。
+             *
+             * 只清本地是不够的 —— 下次冷启动 `pullAndMerge` 会把云端的旧关键词拉回来。
+             */
+            fun clearSearchHistory() {
+                scope.launch {
+                    try {
+                        SearchStore.clearHistory(context)
+                    } catch (_: Exception) {
+                        SilentFail.note("MainActivity.clearSearchHistory")
+                    }
+                    searchHistory = emptyList()
+                    SearchHistorySync.clearCloud(scope)
+                    showError("已清空搜索历史")
+                }
+            }
+
             fun runSearch(
                 keyword: String,
                 platform: String? = null,
@@ -3355,6 +3373,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 history = searchHistory,
+                                onClearHistory = ::clearSearchHistory,
                                 guessSongs = searchGuessSongs,
                                 guessLoading = searchGuessLoading,
                                 guessError = searchGuessError,

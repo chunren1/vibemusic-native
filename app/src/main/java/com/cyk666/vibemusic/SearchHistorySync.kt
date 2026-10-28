@@ -57,6 +57,26 @@ object SearchHistorySync {
         }
     }
 
+    /**
+     * 清空云端副本（登录态才调；游客只有本地）。
+     *
+     * **先取消排队中的 push**：否则刚清完，上一次 debounce 里那份非空快照
+     * 还会写回服务器，下次 pullAndMerge 原样拉回来 —— 和前缀折叠踩的是同一个坑。
+     * 失败只记 SilentFail：清历史失败不该弹错卡住 UI。
+     */
+    fun clearCloud(scope: CoroutineScope) {
+        pushJob?.cancel()
+        pushJob = null
+        if (AuthToken.token.isBlank()) return
+        scope.launch {
+            try {
+                VibeApi.clearSearchHistory()
+            } catch (_: Exception) {
+                SilentFail.note("SearchHistorySync.clearCloud")
+            }
+        }
+    }
+
     suspend fun pullAndMerge(context: Context): List<String>? {
         if (AuthToken.token.isBlank()) return null
         return try {
