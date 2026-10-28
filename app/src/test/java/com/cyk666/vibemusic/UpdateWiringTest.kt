@@ -46,19 +46,29 @@ class UpdateWiringTest {
         assertTrue(UPDATE_SIGNATURE_MISMATCH_MESSAGE.contains("签名"))
     }
 
+    /**
+     * UPD-2 回归：回退源必须是**同 tag** 端点。原来回退到 `.../latest`（正式版，
+     * 排除 prerelease），测试通道下载失败时会把正式版 APK 装给测试版用户。
+     */
     @Test
-    fun otherSource_giteePrimaryFallsBackToGithub() {
+    fun otherSource_giteePrimaryFallsBackToGithubSameTag() {
         assertEquals(
-            UPDATE_LATEST_URL,
-            otherUpdateSourceUrl("https://gitee.com/green-leavesQAQ/vibemusic-native/releases/download/v1.apk")
+            UPDATE_GITHUB_TAG_URL_BASE + "v2.0.19-ai",
+            otherUpdateSourceUrl(
+                "https://gitee.com/green-leavesQAQ/vibemusic-native/releases/download/v2.0.19-ai/app.apk",
+                "v2.0.19-ai"
+            )
         )
     }
 
     @Test
-    fun otherSource_githubPrimaryFallsBackToGitee() {
+    fun otherSource_githubPrimaryFallsBackToGiteeSameTag() {
         assertEquals(
-            UPDATE_GITEE_LATEST_URL,
-            otherUpdateSourceUrl("https://github.com/chunren1/vibemusic-native/releases/download/v1.apk")
+            UPDATE_GITEE_TAG_URL_BASE + "v2.0.19-ai",
+            otherUpdateSourceUrl(
+                "https://github.com/chunren1/vibemusic-native/releases/download/v2.0.19-ai/app.apk",
+                "v2.0.19-ai"
+            )
         )
     }
 
@@ -146,10 +156,12 @@ class UpdateWiringTest {
 
     @Test
     fun fallback_otherSourceApkResolved() {
-        val server = StubReleaseServer(releaseJson("http://127.0.0.1:9/other/app.apk"))
+        // apk URL 用白名单内的 host（UPD-4 之后回环地址会被拒）；真正被请求的
+        // 只有 server.url() 这个检查端点。
+        val server = StubReleaseServer(releaseJson("https://gitee.com/other/app.apk"))
         try {
             val apk = runBlocking { fetchFallbackApkUrl(server.url()) }
-            assertEquals("http://127.0.0.1:9/other/app.apk", apk)
+            assertEquals("https://gitee.com/other/app.apk", apk)
         } finally {
             server.stop()
         }

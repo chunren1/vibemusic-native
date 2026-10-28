@@ -810,6 +810,11 @@ class MainActivity : ComponentActivity() {
                         list.map { it.toPlayMediaItem(context, avail) }
                     }
                     if (isStalePlayGen(gen, playGen)) return@launch
+                    // PB-8：playGen 不覆盖 controller 重绑。息屏很久回前台时
+                    // DisposableEffect 会 release 旧 controller 并新建（controllerGen += 1），
+                    // playGen 却不变 —— 拿已 release 的实例调 setMediaItems 会抛
+                    // IllegalStateException，用户看到"播放失败"。落地前确认还是同一个。
+                    if (c !== controller) return@launch
                     try {
                         queue = list
                         timelineSongs = list
@@ -1031,6 +1036,8 @@ class MainActivity : ComponentActivity() {
                         }
                         snapshot.map { it.toPlayMediaItem(context, avail) }
                     }
+                    // PB-8：IO hop 期间 controller 可能已被 release/重绑。
+                    if (c !== controller) return false
                     c.setMediaItems(items, idx, 0L)
                     c.prepare()
                     if (restoreSaved) queue.getOrNull(idx)?.let { restorePosition(it, gen) }
@@ -1057,14 +1064,35 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun swapToStreamAndPlay(idx: Int, song: Song) {                try {
+            /**
+             * 自愈落地：把 [idx] 位置的本地项换成同一首的在线流并续播。
+             *
+             * [idx] / [expectedMediaId] 抓自错误回调，中间隔着 `isAudioFileIntact`
+             * 的 IO hop —— 期间用户可能切了歌或删了该项。陈旧 idx 的后果（PB-5）：
+             * (a) 把**别人**的位置替换成本曲 → 本曲重复、被点那首消失；
+             * (b) 删项后 idx 越界 → 原来的 `setMediaItem` 兜底把整条时间线压缩成 1 首。
+             * 所以落地前必须复核身份，不匹配就什么都不做（错误已经由 PlaybackService
+             * 的跳歌/停手路径兜住，这里不是唯一出口）。
+             */
+            fun swapToStreamAndPlay(idx: Int, song: Song, expectedMediaId: String) {
+                try {
                     val cc = controller ?: return
-                    val streamItem = song.toCachedMediaItem()
-                    if (idx in 0 until cc.mediaItemCount) {
-                        cc.replaceMediaItem(idx, streamItem)
-                    } else {
-                        cc.setMediaItem(streamItem)
+                    val nowIdx = try {
+                        cc.currentMediaItemIndex
+                    } catch (_: Exception) {
+                        -1
                     }
+                    val nowId = try {
+                        cc.currentMediaItem?.mediaId.orEmpty()
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    if (nowIdx != idx || nowId != expectedMediaId) {
+                        // 可观察信号：跨 IO 间隙被用户操作打断，不是错误。
+                        SilentFail.note("MainActivity.swapToStreamAndPlay:stale")
+                        return
+                    }
+                    cc.replaceMediaItem(idx, song.toCachedMediaItem())
                     cc.prepare()
                     cc.play()
                 } catch (_: Exception) {
@@ -2560,7 +2588,7 @@ class MainActivity : ComponentActivity() {
                                     when (healAction(fileValid, fails, online)) {
                                     HealAction.KEEP_STREAM_ONCE -> {
                                         localFailCounts = localFailCounts + (key to fails)
-                                        swapToStreamAndPlay(idx, song)
+                                        swapToStreamAndPlay(idx, song, mediaId)
                                         showError(
                                             if (fileValid) "本次在线播放"
                                             else "本地播放异常，已转在线；下次还坏再删"
@@ -2582,7 +2610,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             withContext(Dispatchers.Main) {
                                                 downloadedTick += 1
-                                                swapToStreamAndPlay(idx, song)
+                                                swapToStreamAndPlay(idx, song, mediaId)
                                                 redownloadSong(song)
                                             }
                                         }

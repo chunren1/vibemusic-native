@@ -37,7 +37,17 @@ import kotlinx.coroutines.launch
 
 /**
  * Pure auto-skip rule: skip a broken item only while failures are few and a next item exists. */
-fun shouldAutoSkip(consecFails: Int, hasNext: Boolean): Boolean = consecFails < 3 && hasNext
+fun shouldAutoSkip(
+    consecFails: Int,
+    hasNext: Boolean,
+    repeatMode: Int = androidx.media3.common.Player.REPEAT_MODE_OFF
+): Boolean {
+    // 单曲循环（REPEAT_MODE_ONE）下 hasNextMediaItem() 仍是 true，但 Media3 的
+    // seekToNextMediaItemInternal 在 next == current 时走 repeatCurrentMediaItem()
+    // —— 原地重开同一首，却对外报"已跳过"（PB-6）。所以"能跳"必须是"能换一首"。
+    if (repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) return false
+    return consecFails < 3 && hasNext
+}
 
 /**
  * 快速失败重试预算（2026-09-17 修"后台拿不到资源长时间静默"）。
@@ -290,7 +300,13 @@ enum class SkipOutcome {
      * remain (NOT the queue end — toast must not claim 队列已到末尾).
      * See [meltDownOutcome].
      */
-    STOPPED_CONSEC_FAILURES
+    STOPPED_CONSEC_FAILURES,
+
+    /**
+     * 单曲循环（REPEAT_MODE_ONE）：`hasNextMediaItem()` 为 true 但 seekToNext 只会
+     * 原地重开本曲，所以"跳过"根本不存在（PB-6）。播报"无法跳过"，不许谎称已跳过。
+     */
+    STOPPED_SINGLE_LOOP
 }
 
 /**
@@ -325,6 +341,7 @@ fun skipErrorToast(title: String?, errorCodeName: String, outcome: SkipOutcome):
         SkipOutcome.SKIPPED_TO_NEXT -> "${label}播不了，已跳过 ($errorCodeName)"
         SkipOutcome.STOPPED_AT_END -> "${label}播不了，队列已到末尾，播放停止 ($errorCodeName)"
         SkipOutcome.STOPPED_CONSEC_FAILURES -> "${label}播不了，连续多次失败，播放停止 ($errorCodeName)"
+        SkipOutcome.STOPPED_SINGLE_LOOP -> "${label}播不了，单曲循环下无法跳过，播放停止 ($errorCodeName)"
         SkipOutcome.RETRIED_SAME_ITEM -> "${label}播不了，正在重试 ($errorCodeName)"
     }
 }
@@ -477,6 +494,16 @@ class PlaybackService : MediaLibraryService() {
     // 弱网退避重试计数（同曲同错误 episode 内累计；出声/切轨清零）。
     private var weakRetryAttempt = 0
 
+    /**
+     * 离线跳歌的"连续失败预算"（PB-9）。
+     *
+     * 原来与在线共用 [consecFails]，而 [consecFails] 只在**真的出声**时清零：
+     * 离线连坏 3 首后恢复网络，点一首 404 的歌会直接判"连续多次失败"停播、不跳歌。
+     * 离线预算必须独立，否则两种完全不同的失败原因互相污染。
+     * 仍在"出声"时清零（切轨不清零，否则两个坏文件会互相弹跳、永远跳不完）。
+     */
+    private var offlineFails = 0
+
     // 快切度量起点：每次切轨（transition）记录，首次出声时结算。
     private var switchStartMs = -1L
 
@@ -565,6 +592,7 @@ class PlaybackService : MediaLibraryService() {
                 wasPlayingBeforeFocusChange = playing
                 if (playing) {
                     consecFails = 0
+                    offlineFails = 0
                     lastStreamRetryKey = null
                     lastStreamRetryIndex = -1
                     weakRetryAttempt = 0
@@ -707,6 +735,14 @@ class PlaybackService : MediaLibraryService() {
                     } catch (_: Exception) {
                         false
                     }
+                    // PB-7：洗牌顺序只在 Exo 内部，`selectNextOfflineIndex` 是按下标
+                    // 顺序扫描 —— 开随机时会突然按歌单顺序播。宁可如实停手，也不装作
+                    // 知道下一首是谁（prefetchNext 对 shuffle 也是同样规避）。
+                    val shuffleOn = try {
+                        exo.shuffleModeEnabled
+                    } catch (_: Exception) {
+                        false
+                    }
                     val songs = (0 until count).map { i ->
                         try {
                             songFromMediaItem(exo.getMediaItemAt(i))
@@ -720,27 +756,37 @@ class PlaybackService : MediaLibraryService() {
                         } catch (_: Exception) {
                             OfflineAvailability()
                         }
-                        val target = selectNextOfflineIndex(
-                            songs,
-                            from,
-                            isPlayable = { idx ->
-                                songs.getOrNull(idx)?.let { avail.isOfflinePlayable(it) }
-                                    ?: false
-                            },
-                            repeatAll = repeatAll
-                        )
+                        val target = if (shuffleOn) {
+                            -1
+                        } else {
+                            selectNextOfflineIndex(
+                                songs,
+                                from,
+                                isPlayable = { idx ->
+                                    songs.getOrNull(idx)?.let { avail.isOfflinePlayable(it) }
+                                        ?: false
+                                },
+                                repeatAll = repeatAll
+                            )
+                        }
                         serviceMainHandler.post {
                             try {
+                                // 离线"下一首"有两种走法：
+                                // - shuffle：交给 Exo 自己的洗牌序（seekToNextMediaItem 尊重
+                                //   shuffle）。按下标扫描会突然按歌单顺序播（PB-7），所以
+                                //   这里**不用** target。
+                                // - 顺序：按下标找第一个离线可播项（selectNextOfflineIndex）。
                                 // 同一条"连续失败预算"（shouldAutoSkip）：离线跳歌若不设
                                 // 上限，两个坏文件 + 列表循环会互相弹跳、永远在报错。
-                                if (shouldAutoSkip(consecFails, target >= 0)) {
-                                    consecFails++
+                                val canAdvance = shuffleOn || target >= 0
+                                if (shouldAutoSkip(offlineFails, canAdvance)) {
+                                    offlineFails++
                                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
-                                    exo.seekTo(target, 0L)
+                                    if (shuffleOn) exo.seekToNextMediaItem() else exo.seekTo(target, 0L)
                                     exo.prepare()
                                     exo.play()
                                 } else {
-                                    consecFails++
+                                    offlineFails++
                                     lastSkipOutcome = SkipOutcome.STOPPED_AT_END
                                     exo.stop()
                                 }
@@ -795,6 +841,15 @@ class PlaybackService : MediaLibraryService() {
                             false
                         }
                         if (!stillSame) return@postDelayed
+                        // PB-3：这 800/1600ms 里用户可能已经按了暂停（或来电把播放
+                        // 停掉）。此时 prepare()+play() 会把暂停**静默撤销** —— 意愿门
+                        // 与 maybeRetryDeniedPlay 的 shouldFireRetryProbe 同源。
+                        val wantsPlay = try {
+                            cur.playWhenReady || cur.isPlaying
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (!wantsPlay) return@postDelayed
                         try {
                             suppressSwitchStart = true
                             cur.replaceMediaItem(
@@ -835,7 +890,17 @@ class PlaybackService : MediaLibraryService() {
                     return
                 }
                 // 单首源坏了自动跳下一首；连续坏 3 次就停手（大概率没网，别把队列一口气烧光）
-                if (shouldAutoSkip(consecFails, exo.hasNextMediaItem())) {
+                val repeatMode = try {
+                    exo.repeatMode
+                } catch (_: Exception) {
+                    Player.REPEAT_MODE_OFF
+                }
+                val hasNext = try {
+                    exo.hasNextMediaItem()
+                } catch (_: Exception) {
+                    false
+                }
+                if (shouldAutoSkip(consecFails, hasNext, repeatMode)) {
                     consecFails++
                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                     exo.seekToNextMediaItem()
@@ -844,10 +909,16 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     // Guard exit with items remaining is the melt-down cap,
                     // not the queue end — report it truthfully (never 末尾).
-                    lastSkipOutcome = try {
-                        meltDownOutcome(exo.hasNextMediaItem())
-                    } catch (_: Exception) {
-                        SkipOutcome.STOPPED_AT_END
+                    // 单曲循环是第三种"跳不了"：hasNext 为 true 但只会原地重开（PB-6）。
+                    lastSkipOutcome = if (repeatMode == Player.REPEAT_MODE_ONE && hasNext) {
+                        try {
+                            exo.stop()
+                        } catch (_: Exception) {
+                            SilentFail.note("PlaybackService.onPlayerError:singleLoopStop")
+                        }
+                        SkipOutcome.STOPPED_SINGLE_LOOP
+                    } else {
+                        meltDownOutcome(hasNext)
                     }
                 }
             }

@@ -186,6 +186,60 @@ class AccountFavHistoryTest {
         assertTrue(VibeApi.parseFavIds("""{"code":200,"message":"ok","data":[]}""").isEmpty())
     }
 
+    /**
+     * API-1：`JSONObject.isNull(key)` 对**键不存在**也返回 true，旧实现把"后端没说"
+     * 读成"已取消收藏" → 服务端收藏成功而界面心形反向。缺 data 必须是协议错误。
+     */
+    @Test
+    fun parseToggleResult_missingDataIsProtocolError() {
+        try {
+            VibeApi.parseToggleResult("""{"code":200,"message":"已收藏"}""")
+            fail("missing data must not be read as un-favorited")
+        } catch (e: RuntimeException) {
+            assertTrue(e.message.orEmpty().contains("data missing"))
+        }
+    }
+
+    @Test
+    fun parseToggleResult_nullDataIsProtocolError() {
+        try {
+            VibeApi.parseToggleResult("""{"code":200,"message":"已收藏","data":null}""")
+            fail("null data must not be read as un-favorited")
+        } catch (e: RuntimeException) {
+            assertTrue(e.message.orEmpty().contains("data missing"))
+        }
+    }
+
+    /** API-2：`{ids:[…]}` 是本仓库常见的加性演进，必须仍能解析。 */
+    @Test
+    fun parseFavIds_objectShapeAccepted() {
+        val ids = VibeApi.parseFavIds(
+            """{"code":200,"message":"ok","data":{"ids":["1","2"]}}"""
+        )
+        assertEquals(setOf("1", "2"), ids)
+    }
+
+    /** API-2：形状不符不许静默返回空集（会让用户以为收藏全没了）。 */
+    @Test
+    fun parseFavIds_missingDataThrows() {
+        try {
+            VibeApi.parseFavIds("""{"code":200,"message":"ok"}""")
+            fail("missing data must throw")
+        } catch (e: RuntimeException) {
+            assertTrue(e.message.orEmpty().contains("data missing"))
+        }
+    }
+
+    @Test
+    fun parseFavIds_wrongShapeThrows() {
+        try {
+            VibeApi.parseFavIds("""{"code":200,"message":"ok","data":"oops"}""")
+            fail("string data must throw")
+        } catch (e: RuntimeException) {
+            assertTrue(e.message.orEmpty().contains("unexpected data shape"))
+        }
+    }
+
     @Test
     fun parseFavList_defensiveSongNameMapping() {
         val json = """{"code":200,"message":"ok","data":[

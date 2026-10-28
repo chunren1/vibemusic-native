@@ -61,11 +61,15 @@ object AuthStore {
             p[KEY_TOKEN] = token
             p[KEY_USERNAME] = username
             p[KEY_NICKNAME] = nickname
-            if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken
+            // **整体替换**：登录/注册响应当次没带 refreshToken（cookie-only 会话）时，
+            // 绝不能沿用上一个账号的续期凭据 —— 否则新账号的续期会挂到旧账号上，
+            // 退出再登录还可能被旧 cookie 静默拉回（CODE-REVIEW-2026-10-28 API-4）。
+            // 轮转语义（后端只回新 refresh 才替换）只在 saveTokens 里。
+            if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken else p.remove(KEY_REFRESH)
         }
         AuthToken.token = token
         AuthToken.username = username
-        if (refreshToken.isNotBlank()) AuthToken.refreshToken = refreshToken
+        AuthToken.refreshToken = refreshToken
         // A successful login/register re-arms silent refresh.
         AuthToken.sessionEnded = false
     }

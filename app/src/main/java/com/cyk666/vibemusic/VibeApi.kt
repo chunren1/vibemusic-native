@@ -614,6 +614,22 @@ object VibeApi {
         throw RuntimeException("$what failed: unexpected data shape")
     }
 
+    /**
+     * 删除类接口的 `data` 是"删掉了几条"。接受裸数字或 `{count:N}`
+     * （本仓库常见的加性演进），其余形状抛错 —— 静默返回 0 会让 toast 说
+     * "已移除 0 首"而服务端其实删了（CODE-REVIEW-2026-10-28 API-2）。
+     */
+    private fun parseRemovedCount(root: JSONObject, what: String): Int {
+        when (val d = root.opt("data")) {
+            is Number -> return d.toInt()
+            is JSONObject -> {
+                val n = d.opt("count")
+                if (n is Number) return n.toInt()
+            }
+        }
+        throw RuntimeException("$what failed: unexpected data shape")
+    }
+
     private fun cleanUserStr(o: JSONObject, key: String): String {
         val v = o.optString(key)
         return if (v.isBlank() || v == "null") "" else v
@@ -699,15 +715,50 @@ object VibeApi {
 
     // ---- auth (raw OkHttp so POST JSON stays dependency-free) ----
 
-    private suspend fun rawGet(path: String): String = authed { rawGetInner(path) }
+    private suspend fun rawGet(path: String): String = authed {
+        val body = rawGetInner(path)
+        throwIfEnvelopeAuth(body)
+        body
+    }
 
-    private suspend fun rawPost(path: String, jsonBody: String): String =
-        authed { rawPostInner(path, jsonBody) }
+    private suspend fun rawPost(path: String, jsonBody: String): String = authed {
+        val body = rawPostInner(path, jsonBody)
+        throwIfEnvelopeAuth(body)
+        body
+    }
 
-    private suspend fun rawDelete(path: String): String = authed { rawDeleteInner(path) }
+    private suspend fun rawDelete(path: String): String = authed {
+        val body = rawDeleteInner(path)
+        throwIfEnvelopeAuth(body)
+        body
+    }
 
-    private suspend fun rawPut(path: String, jsonBody: String): String =
-        authed { rawPutInner(path, jsonBody) }
+    private suspend fun rawPut(path: String, jsonBody: String): String = authed {
+        val body = rawPutInner(path, jsonBody)
+        throwIfEnvelopeAuth(body)
+        body
+    }
+
+    /**
+     * 信封级 401（HTTP 200 + body `code:401`）必须在 [authed] **内部**就转成
+     * [AuthException]，否则解析发生在 authed 之外，token 过期会直接清盘登出而不是
+     * 先静默续期一次（CODE-REVIEW-2026-10-28 API-3）。
+     *
+     * 这条路径真实可达，不是理论问题：后端 `SecurityConfig` 把 `GET /api/songs/…`
+     * 放成 permitAll，而 `PlayHistoryController` 未登录时直接
+     * `return Result.error(401, "请先登录")`（没有 @ResponseStatus）→ HTTP 状态是
+     * **200**，只有 body 里是 401。走这条路的是 `history()`。
+     *
+     * 非 JSON body（不该出现）一律放行，交给下游解析报错，不在这里制造假 401。
+     */
+    internal fun throwIfEnvelopeAuth(body: String) {
+        val code = try {
+            JSONObject(body).optInt("code", -1)
+        } catch (_: Exception) {
+            -1
+        }
+        if (code == 401) throw AuthException("密码错/登录过期，请重登")
+    }
 
     private suspend fun rawPutInner(path: String, jsonBody: String): String =
         suspendCancellableCoroutine { cont ->
@@ -1438,7 +1489,11 @@ object VibeApi {
     fun parseToggleResult(json: String): Boolean {
         val root = JSONObject(json)
         checkEnvelope(root, "Toggle favorite")
-        if (root.isNull("data")) return false
+        // isNull() 对**键不存在**也返回 true：把"后端没说"读成"已取消收藏"会让
+        // 心形反向更新（服务端收藏成功、界面显示未收藏）。缺 data 是协议错误。
+        if (!root.has("data") || root.isNull("data")) {
+            throw RuntimeException("Toggle favorite failed: data missing")
+        }
         return when (val d = root.opt("data")) {
             is Boolean -> d
             is Number -> d.toInt() != 0
@@ -1451,7 +1506,9 @@ object VibeApi {
     fun parseFavIds(json: String): Set<String> {
         val root = JSONObject(json)
         checkEnvelope(root, "Favorite ids")
-        val arr: JSONArray = root.optJSONArray("data") ?: return emptySet()
+        // 与 listData 同策略：`data` 是数组、或是 `{ids:[...]}`（本仓库常见的加性
+        // 演进）都接受；其余形状一律抛 —— 静默返回空集会让人以为收藏全没了。
+        val arr: JSONArray = listData(root, "Favorite ids", "ids")
         val out = HashSet<String>(arr.length())
         for (i in 0 until arr.length()) {
             val id = arr.optString(i).orEmpty()
@@ -1861,10 +1918,9 @@ object VibeApi {
         val body = rawPost("api/favorites/remove-batch", buildFavRemoveBatchBody(sourceIds))
         val root = JSONObject(body)
         checkEnvelope(root, "Remove favorites")
-        return when (val d = root.opt("data")) {
-            is Number -> d.toInt()
-            else -> 0
-        }
+        // 原来是 `else -> 0`：后端把 data 改成 {count:3} 时界面会弹"已移除 0 首"
+        // 而服务端其实删了。数字或 {count:数字} 之外一律抛。
+        return parseRemovedCount(root, "Remove favorites")
     }
 
     suspend fun history(count: Int = 20): List<HistoryItem> {
@@ -1877,10 +1933,7 @@ object VibeApi {
         val body = rawPost("api/songs/history/remove", buildHistoryRemoveBody(sourceIds))
         val root = JSONObject(body)
         checkEnvelope(root, "Remove history")
-        return when (val d = root.opt("data")) {
-            is Number -> d.toInt()
-            else -> 0
-        }
+        return parseRemovedCount(root, "Remove history")
     }
 
     // ---- search-history cloud sync (auth required) ----

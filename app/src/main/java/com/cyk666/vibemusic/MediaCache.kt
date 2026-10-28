@@ -12,6 +12,38 @@ import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
 
 /**
+ * 离线点播要求的最小"连续可读前缀"（PB-4）。
+ *
+ * 1MB ≈ 128kbps 下 65 秒：预热只暖 [PlaybackService.PREFETCH_WARM_BYTES]（256KB），
+ * 不会再被当成"可离线播"；真播过一遍的歌缓存的是整首（通常数 MB），照样通过。
+ *
+ * 为什么不是"整首都在缓存里"：SimpleCache 不落 EOF 标记，无法区分"256KB 的完整
+ * 小文件"和"5MB 文件的前 256KB"，所以只能取阈值 + 无空洞这个下界。
+ * 残留局限：只播了 1-2 分钟的长歌仍可能过门、播到空洞才停 —— 但比 4 秒就炸好，
+ * 且文案（未缓存完整）与真实情况一致。
+ */
+const val OFFLINE_MIN_PREFIX_BYTES = 1024L * 1024L
+
+/** 一个缓存区间的纯描述（把 SimpleCache 的 CacheSpan 抽出来，便于单测前缀算法）。 */
+data class CacheSpanRange(val position: Long, val length: Long, val isHole: Boolean = false)
+
+/**
+ * Pure: 从 0 开始连续可读的字节数。
+ *
+ * 区间按 position 排序后累加，遇到空洞 span 或 position 跳到 end 之后立即停 ——
+ * 结果就是"能从头一路读到哪里"。空洞之后的字节再多也不算（离线读不过去）。
+ */
+fun contiguousPrefixBytes(spans: List<CacheSpanRange>): Long {
+    var end = 0L
+    for (span in spans.sortedBy { it.position }) {
+        if (span.isHole) break
+        if (span.position > end) break
+        end = maxOf(end, span.position + span.length)
+    }
+    return end.coerceAtLeast(0L)
+}
+
+/**
  * Rolling playback cache (smooth replay/seek only — NOT the offline store).
  * Small LRU so replay/seek within recent songs is instant; user-driven
  * downloads live in filesDir/offline (see OfflineStore) and are never evicted.
@@ -148,6 +180,30 @@ object MediaCache {
 
     /** True once any byte of [url] is on device (drives the 已缓存 badge). */
     fun isCached(context: Context, url: String): Boolean = cachedBytes(context, url) > 0L
+
+    /**
+     * 从 0 开始**连续可读**的字节数（离线点播门用，PB-4）。
+     *
+     * 为什么不能用 [cachedBytes]：那是区间内所有 span 的字节**总和**，中间有空洞
+     * 也算数；而 [warmUp] 预热的 256KB 头会让"只暖了个头"的歌通过离线门，离线
+     * 播到 4-6 秒撞空洞报错 —— 用户感知是"离线总在歌中间断"，不是"未缓存"。
+     *
+     * 这里按 span 顺序累加，遇到空洞或空洞 span 立即停：得到"能从头连续读到哪"。
+     * 注意这是**下界**而不是文件总长（SimpleCache 不记录 EOF 标记），所以调用方
+     * 还要再比一个最小阈值，见 [OFFLINE_MIN_PREFIX_BYTES]。
+     */
+    fun cachedPrefixBytes(context: Context, url: String): Long {
+        if (url.isBlank()) return 0L
+        return try {
+            contiguousPrefixBytes(
+                get(context).getCachedSpans(url).map {
+                    CacheSpanRange(it.position, it.length, it.isHoleSpan())
+                }
+            )
+        } catch (_: Exception) {
+            0L
+        }
+    }
 
     /** Total cache dir usage in bytes (0 on any error). */
     fun sizeBytes(context: Context): Long {

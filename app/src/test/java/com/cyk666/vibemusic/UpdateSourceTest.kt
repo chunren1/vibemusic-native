@@ -25,18 +25,18 @@ class UpdateSourceTest {
 
     @Test
     fun gitee_fullPicksApk() {
-        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.example/notes.txt"},""" +
-            """{"name":"app.apk","browser_download_url":"https://gitee.example/app.apk"}"""
+        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.com/notes.txt"},""" +
+            """{"name":"app.apk","browser_download_url":"https://gitee.com/app.apk"}"""
         val r = parseLatestRelease(giteeJson(assets))
         assertEquals("v1.0.23-ai", r.tag)
-        assertEquals("https://gitee.example/app.apk", r.apkUrl)
+        assertEquals("https://gitee.com/app.apk", r.apkUrl)
     }
 
     @Test
     fun gitee_downloadUrlFieldAccepted() {
-        val assets = """{"name":"app.apk","download_url":"https://gitee.example/app.apk"}"""
+        val assets = """{"name":"app.apk","download_url":"https://gitee.com/app.apk"}"""
         val r = parseLatestRelease(giteeJson(assets))
-        assertEquals("https://gitee.example/app.apk", r.apkUrl)
+        assertEquals("https://gitee.com/app.apk", r.apkUrl)
     }
 
     @Test
@@ -51,7 +51,7 @@ class UpdateSourceTest {
 
     @Test
     fun gitee_noApkAssetThrows() {
-        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.example/notes.txt"}"""
+        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.com/notes.txt"}"""
         try {
             parseLatestRelease(giteeJson(assets))
             fail("expected RuntimeException for no apk asset")
@@ -106,40 +106,40 @@ class UpdateSourceTest {
     @Test
     fun downloadSources_primaryOnly() {
         assertEquals(
-            listOf("https://gitee.example/app.apk"),
-            resolveDownloadSources("https://gitee.example/app.apk")
+            listOf("https://gitee.com/app.apk"),
+            resolveDownloadSources("https://gitee.com/app.apk")
         )
     }
 
     @Test
     fun downloadSources_fallbackAppendedInOrder() {
         assertEquals(
-            listOf("https://gitee.example/app.apk", "https://github.example/app.apk"),
-            resolveDownloadSources("https://gitee.example/app.apk", "https://github.example/app.apk")
+            listOf("https://gitee.com/app.apk", "https://github.com/app.apk"),
+            resolveDownloadSources("https://gitee.com/app.apk", "https://github.com/app.apk")
         )
     }
 
     @Test
     fun downloadSources_blankFallbackDropped() {
         assertEquals(
-            listOf("https://gitee.example/app.apk"),
-            resolveDownloadSources("https://gitee.example/app.apk", "  ")
+            listOf("https://gitee.com/app.apk"),
+            resolveDownloadSources("https://gitee.com/app.apk", "  ")
         )
     }
 
     @Test
     fun downloadSources_duplicateTriedOnce() {
         assertEquals(
-            listOf("https://gitee.example/app.apk"),
-            resolveDownloadSources("https://gitee.example/app.apk", "https://gitee.example/app.apk")
+            listOf("https://gitee.com/app.apk"),
+            resolveDownloadSources("https://gitee.com/app.apk", "https://gitee.com/app.apk")
         )
     }
 
     @Test
     fun downloadSources_emptyPrimaryFallsThroughToFallback() {
         assertEquals(
-            listOf("https://github.example/app.apk"),
-            resolveDownloadSources("", "https://github.example/app.apk")
+            listOf("https://github.com/app.apk"),
+            resolveDownloadSources("", "https://github.com/app.apk")
         )
     }
 

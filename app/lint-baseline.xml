@@ -2,28 +2,6 @@
 <issues format="6" by="lint 8.5.2" type="baseline" client="gradle" dependencies="false" name="AGP (8.5.2)" variant="all" version="8.5.2">
 
     <issue
-        id="InlinedApi"
-        message="Field requires API level 28 (current min is 26): `android.content.pm.PackageManager#GET_SIGNING_CERTIFICATES`"
-        errorLine1="            apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES"
-        errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="510"
-            column="35"/>
-    </issue>
-
-    <issue
-        id="InlinedApi"
-        message="Field requires API level 28 (current min is 26): `android.content.pm.PackageManager#GET_SIGNING_CERTIFICATES`"
-        errorLine1="            context.packageName, PackageManager.GET_SIGNING_CERTIFICATES"
-        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="514"
-            column="34"/>
-    </issue>
-
-    <issue
         id="NewApi"
         message="Call requires API level 31 (current min is 26): `android.graphics.RenderEffect#createBlurEffect`"
         errorLine1="                renderEffect = android.graphics.RenderEffect.createBlurEffect("
@@ -34,7 +12,6 @@
             column="62"/>
     </issue>
 
-
     <issue
         id="BatteryLife"
         message="Use of `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` violates the Play Store Content Policy regarding acceptable use cases, as described in https://developer.android.com/training/monitoring-device-state/doze-standby.html"
@@ -42,7 +19,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MainActivity.kt"
-            line="440"
+            line="473"
             column="38"/>
     </issue>
 
@@ -202,8 +179,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-common than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-common than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -213,8 +190,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-common than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-common than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -224,8 +201,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-common than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-common than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -235,8 +212,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-exoplayer than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-exoplayer than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -246,8 +223,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-exoplayer than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-exoplayer than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -257,8 +234,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-exoplayer than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-exoplayer than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -268,8 +245,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-session than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-session than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -279,8 +256,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-session than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-session than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -290,8 +267,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-session than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-session than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -301,8 +278,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-ui than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-ui than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -312,8 +289,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-ui than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-ui than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -323,8 +300,8 @@
 
     <issue
         id="GradleDependency"
-        message="A newer version of androidx.media3:media3-ui than 1.5.1 is available: 1.11.1"
-        errorLine1="media3 = &quot;1.5.1&quot;"
+        message="A newer version of androidx.media3:media3-ui than 1.9.3 is available: 1.11.1"
+        errorLine1="media3 = &quot;1.9.3&quot;"
         errorLine2="         ~~~~~~~">
         <location
             file="$HOME/projects/vibemusic-native/gradle/libs.versions.toml"
@@ -372,8 +349,15 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="28"
+            line="32"
             column="13"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"/>
     </issue>
 
     <issue
@@ -383,7 +367,7 @@
         errorLine2="                          ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="30"
+            line="62"
             column="27"/>
     </issue>
 
@@ -394,7 +378,7 @@
         errorLine2="                               ~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="33"
+            line="65"
             column="32"/>
     </issue>
 
@@ -405,7 +389,7 @@
         errorLine2="            ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="34"
+            line="66"
             column="13"/>
     </issue>
 
@@ -416,7 +400,7 @@
         errorLine2="            ~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="37"
+            line="69"
             column="13"/>
     </issue>
 
@@ -427,7 +411,7 @@
         errorLine2="                      ~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="37"
+            line="69"
             column="23"/>
     </issue>
 
@@ -438,7 +422,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="39"
+            line="71"
             column="13"/>
     </issue>
 
@@ -449,7 +433,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="40"
+            line="72"
             column="13"/>
     </issue>
 
@@ -460,7 +444,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="66"
+            line="98"
             column="22"/>
     </issue>
 
@@ -471,7 +455,7 @@
         errorLine2="                ~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="67"
+            line="99"
             column="17"/>
     </issue>
 
@@ -482,7 +466,7 @@
         errorLine2="                                   ~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="68"
+            line="100"
             column="36"/>
     </issue>
 
@@ -493,7 +477,7 @@
         errorLine2="                 ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="69"
+            line="101"
             column="18"/>
     </issue>
 
@@ -504,7 +488,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="70"
+            line="102"
             column="18"/>
     </issue>
 
@@ -515,7 +499,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="71"
+            line="103"
             column="18"/>
     </issue>
 
@@ -526,7 +510,7 @@
         errorLine2="                                  ~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="72"
+            line="104"
             column="35"/>
     </issue>
 
@@ -537,7 +521,7 @@
         errorLine2="                         ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="73"
+            line="105"
             column="26"/>
     </issue>
 
@@ -548,7 +532,7 @@
         errorLine2="                 ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="75"
+            line="107"
             column="18"/>
     </issue>
 
@@ -559,7 +543,7 @@
         errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="75"
+            line="107"
             column="43"/>
     </issue>
 
@@ -570,7 +554,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="76"
+            line="108"
             column="18"/>
     </issue>
 
@@ -581,7 +565,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="89"
+            line="121"
             column="10"/>
     </issue>
 
@@ -592,7 +576,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="96"
+            line="128"
             column="26"/>
     </issue>
 
@@ -603,7 +587,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="118"
+            line="150"
             column="26"/>
     </issue>
 
@@ -614,7 +598,7 @@
         errorLine2="                                                                ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="119"
+            line="151"
             column="65"/>
     </issue>
 
@@ -625,7 +609,7 @@
         errorLine2="                ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="120"
+            line="152"
             column="17"/>
     </issue>
 
@@ -636,7 +620,7 @@
         errorLine2="                       ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="120"
+            line="152"
             column="24"/>
     </issue>
 
@@ -647,7 +631,7 @@
         errorLine2="                           ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="124"
+            line="156"
             column="28"/>
     </issue>
 
@@ -658,7 +642,7 @@
         errorLine2="                               ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="127"
+            line="159"
             column="32"/>
     </issue>
 
@@ -669,8 +653,52 @@
         errorLine2="                           ~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="138"
+            line="170"
             column="28"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                get(context).getCachedSpans(url).map {"
+        errorLine2="                             ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
+            line="199"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                    CacheSpanRange(it.position, it.length, it.isHoleSpan())"
+        errorLine2="                                      ~~~~~~~~">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
+            line="200"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                    CacheSpanRange(it.position, it.length, it.isHoleSpan())"
+        errorLine2="                                                   ~~~~~~">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
+            line="200"
+            column="52"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                    CacheSpanRange(it.position, it.length, it.isHoleSpan())"
+        errorLine2="                                                              ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
+            line="200"
+            column="63"/>
     </issue>
 
     <issue
@@ -680,7 +708,7 @@
         errorLine2="                         ~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="155"
+            line="211"
             column="26"/>
     </issue>
 
@@ -691,7 +719,7 @@
         errorLine2="            ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="172"
+            line="228"
             column="13"/>
     </issue>
 
@@ -702,7 +730,7 @@
         errorLine2="                             ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="182"
+            line="238"
             column="30"/>
     </issue>
 
@@ -713,7 +741,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="184"
+            line="240"
             column="26"/>
     </issue>
 
@@ -724,7 +752,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="53"
+            line="64"
             column="38"/>
     </issue>
 
@@ -735,7 +763,7 @@
         errorLine2="    ^">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="54"
+            line="65"
             column="5"/>
     </issue>
 
@@ -746,7 +774,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="54"
+            line="65"
             column="14"/>
     </issue>
 
@@ -757,7 +785,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="54"
+            line="65"
             column="14"/>
     </issue>
 
@@ -768,7 +796,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="55"
+            line="66"
             column="22"/>
     </issue>
 
@@ -779,7 +807,7 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="55"
+            line="66"
             column="56"/>
     </issue>
 
@@ -790,7 +818,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="99"
+            line="110"
             column="28"/>
     </issue>
 
@@ -801,7 +829,7 @@
         errorLine2="                                                                   ~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="99"
+            line="110"
             column="68"/>
     </issue>
 
@@ -812,7 +840,7 @@
         errorLine2="     ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="100"
+            line="111"
             column="6"/>
     </issue>
 
@@ -823,7 +851,7 @@
         errorLine2="     ~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="106"
+            line="117"
             column="6"/>
     </issue>
 
@@ -834,7 +862,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="516"
+            line="497"
             column="10"/>
     </issue>
 
@@ -845,7 +873,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="517"
+            line="498"
             column="10"/>
     </issue>
 
@@ -856,7 +884,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="518"
+            line="499"
             column="10"/>
     </issue>
 
@@ -867,7 +895,7 @@
         errorLine2="            ~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="543"
+            line="534"
             column="13"/>
     </issue>
 
@@ -878,7 +906,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="543"
+            line="534"
             column="34"/>
     </issue>
 
@@ -889,18 +917,18 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="544"
+            line="535"
             column="30"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        val schemeFactory = DataSource.Factory { SchemeDataSource(cacheSourceFactory) }"
-        errorLine2="                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="        val schemeFactory = DataSource.Factory {"
+        errorLine2="                                               ^">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="573"
+            line="564"
             column="48"/>
     </issue>
 
@@ -911,7 +939,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="578"
+            line="571"
             column="14"/>
     </issue>
 
@@ -922,7 +950,7 @@
         errorLine2="             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="581"
+            line="574"
             column="14"/>
     </issue>
 
@@ -933,7 +961,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="710"
+            line="707"
             column="26"/>
     </issue>
 
@@ -944,7 +972,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="919"
+            line="963"
             column="26"/>
     </issue>
 
@@ -955,7 +983,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="922"
+            line="966"
             column="33"/>
     </issue>
 
@@ -966,30 +994,19 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="940"
+            line="984"
             column="42"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    fileFactory: DataSource.Factory = FileDataSource.Factory(),"
-        errorLine2="                                                     ~~~~~~~">
+        errorLine1="    private val localDelegate: DataSource = localFactory.createDataSource()"
+        errorLine2="                                                         ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="40"
-            column="54"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    private val fileDelegate: DataSource = fileFactory.createDataSource()"
-        errorLine2="                                                       ~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="43"
-            column="56"/>
+            line="60"
+            column="58"/>
     </issue>
 
     <issue
@@ -999,7 +1016,7 @@
         errorLine2="                                                         ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="44"
+            line="61"
             column="58"/>
     </issue>
 
@@ -1010,7 +1027,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="49"
+            line="66"
             column="18"/>
     </issue>
 
@@ -1021,19 +1038,19 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="49"
+            line="66"
             column="56"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        fileDelegate.addTransferListener(transferListener)"
-        errorLine2="                     ~~~~~~~~~~~~~~~~~~~">
+        errorLine1="        localDelegate.addTransferListener(transferListener)"
+        errorLine2="                      ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="50"
-            column="22"/>
+            line="67"
+            column="23"/>
     </issue>
 
     <issue
@@ -1043,7 +1060,7 @@
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="51"
+            line="68"
             column="23"/>
     </issue>
 
@@ -1054,7 +1071,7 @@
         errorLine2="                 ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="54"
+            line="71"
             column="18"/>
     </issue>
 
@@ -1065,18 +1082,18 @@
         errorLine2="                                ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="54"
+            line="71"
             column="33"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="            if (routeScheme(dataSpec.uri.scheme) == Route.FILE) fileDelegate"
+        errorLine1="            if (routeScheme(dataSpec.uri.scheme) == Route.LOCAL) localDelegate"
         errorLine2="                                     ~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="56"
+            line="73"
             column="38"/>
     </issue>
 
@@ -1087,7 +1104,7 @@
         errorLine2="                      ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="59"
+            line="76"
             column="23"/>
     </issue>
 
@@ -1098,7 +1115,7 @@
         errorLine2="                 ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="62"
+            line="79"
             column="18"/>
     </issue>
 
@@ -1109,7 +1126,7 @@
         errorLine2="             ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="64"
+            line="81"
             column="14"/>
     </issue>
 
@@ -1120,7 +1137,7 @@
         errorLine2="                 ~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="66"
+            line="83"
             column="18"/>
     </issue>
 
@@ -1131,7 +1148,7 @@
         errorLine2="                                          ~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="66"
+            line="83"
             column="43"/>
     </issue>
 
@@ -1142,7 +1159,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="68"
+            line="85"
             column="18"/>
     </issue>
 
@@ -1153,7 +1170,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="69"
+            line="86"
             column="17"/>
     </issue>
 
@@ -1164,7 +1181,7 @@
         errorLine2="                 ~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="71"
+            line="88"
             column="18"/>
     </issue>
 
@@ -1175,19 +1192,8 @@
         errorLine2="                    ~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="73"
+            line="90"
             column="21"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        private val fileFactory: DataSource.Factory = FileDataSource.Factory(),"
-        errorLine2="                                                                     ~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="82"
-            column="70"/>
     </issue>
 
     <issue
@@ -1197,7 +1203,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/SchemeDataSource.kt"
-            line="84"
+            line="101"
             column="22"/>
     </issue>
 
@@ -1241,7 +1247,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="28"
+            line="32"
             column="13"/>
     </issue>
 
@@ -1252,7 +1258,7 @@
         errorLine2="         ~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="36"
+            line="81"
             column="10"/>
     </issue>
 
@@ -1263,7 +1269,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MainActivity.kt"
-            line="412"
+            line="445"
             column="25"/>
     </issue>
 
@@ -1281,7 +1287,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlayerScreen.kt"
-            line="365"
+            line="402"
             column="37"/>
     </issue>
 

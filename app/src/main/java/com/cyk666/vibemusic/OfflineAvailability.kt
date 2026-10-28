@@ -70,7 +70,9 @@ fun buildOfflineAvailability(context: Context, songs: List<Song>): OfflineAvaila
             SilentFail.note("OfflineAvailability.buildOfflineAvailability:69")
         }
         try {
-            if (MediaCache.cachedBytes(app, s.streamUrl()) > 0L) {
+            // PB-4：`cachedBytes > 0` 会把"只预热了 256KB 头"的歌算成可离线播，
+            // 离线点播 4-6 秒就撞空洞。改判"从头连续可读 ≥ 阈值"。
+            if (MediaCache.cachedPrefixBytes(app, s.streamUrl()) >= OFFLINE_MIN_PREFIX_BYTES) {
                 cached.add(MediaCache.cacheKey(s))
             }
         } catch (_: Exception) {

@@ -23,14 +23,21 @@ fun manualUpdateCheckMessage(decision: UpdateDecision): String? = when (decision
 const val UPDATE_SIGNATURE_MISMATCH_MESSAGE = "签名不一致，需卸载重装（会清空离线内容）"
 
 /**
- * Pure: which release-check URL serves the OTHER update source (download
- * fallback for [downloadApk]). Gitee is primary, GitHub the fallback: a
- * primary apk URL on gitee falls back to the GitHub check, anything else
- * falls back to the Gitee check.
+ * Pure: 另一源的**同 tag** 端点（下载回退用，UPD-2）。
+ *
+ * 原来是 `.../releases/latest`：正式版 latest 排除 prerelease，于是测试通道
+ * 下载失败回退时会把**正式版** APK 装给测试版用户 —— 版本不同，而签名门
+ * 只证明"同一个开发者"，拦不住。改成单 tag 端点后回退源与主源必是同版本。
+ *
+ * [tag] 为空时拼出的 URL 会 404 → [fetchFallbackApkUrl] 返回 null（只用主源），
+ * 不会抛异常打断下载。
  */
-fun otherUpdateSourceUrl(primaryApkUrl: String): String =
-    if (primaryApkUrl.contains("gitee", ignoreCase = true)) UPDATE_LATEST_URL
-    else UPDATE_GITEE_LATEST_URL
+fun otherUpdateSourceUrl(primaryApkUrl: String, tag: String): String =
+    if (primaryApkUrl.contains("gitee", ignoreCase = true)) {
+        UPDATE_GITHUB_TAG_URL_BASE + tag.trim()
+    } else {
+        UPDATE_GITEE_TAG_URL_BASE + tag.trim()
+    }
 
 private val fallbackCheckHttp = OkHttpClient.Builder()
     .dispatcher(HttpClientCore.dispatcher)

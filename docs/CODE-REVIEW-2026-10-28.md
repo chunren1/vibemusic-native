@@ -371,19 +371,34 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 | ID | 结论 | 证据 | 后果 / 修法 |
 |---|---|---|---|
-| API-1 | `parseToggleResult` 把"data 缺失"当"已取消收藏" | `VibeApi.kt:1416-1425`：`if (root.isNull("data")) return false`（`isNull` 对"键不存在"也返回 true） | 后端省略 data → 收藏成功被读成取消，本地心形反向更新。改：`!root.has("data") \|\| root.isNull("data")` 抛协议错误 |
-| API-2 | `parseFavIds` / 删除计数用 `opt*` 兜底，把契约变更吞成空集/0 | `VibeApi.kt:1429-1432`（`optJSONArray("data") ?: return emptySet()`）、`:1842-1845`、`:1858-1861`（`else -> 0`） | 后端把 data 改成 `{ids:[…]}`/`{count:3}`（本仓库常见的加性演进）→ 心形全空、toast"已移除 0 首"而服务端已删。改：与 `listData`（`:583-593`）同策略，形状不符即抛 |
-| API-3 | 信封级 401（HTTP 200 + `code:401`）不走静默续期 | `VibeApi.kt:568-570` `checkEnvelope` 抛 `AuthException`；而 `myPlaylists()` 是 `rawGet(...)` 之后**在 `authed` 之外**调 `checkEnvelope`（`:1003-1007`） | 若后端改用 200+code:401 表达过期，所有列表调用会直接清 token 登出。改：把 `checkEnvelope` 挪进 `authed`，与 `me()` 同构。**需确认后端实际返回哪种**（当前两条路各走一半） |
-| API-4 | `AuthStore.save` 在 refreshToken 为空时保留旧值 | `AuthStore.kt:51/55`：`if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken` | 登录响应当次没带 `Set-Cookie` 时，新账号沿用旧账号的续期凭据。改：`save` 语义改为整体替换（`remove` + 清内存）；`saveTokens` 的轮转语义另说 |
+| API-1 ✅ | `parseToggleResult` 把"data 缺失"当"已取消收藏" | `VibeApi.kt:1416-1425`：`if (root.isNull("data")) return false`（`isNull` 对"键不存在"也返回 true） | 后端省略 data → 收藏成功被读成取消，本地心形反向更新。改：`!root.has("data") \|\| root.isNull("data")` 抛协议错误 |
+| API-2 ✅ | `parseFavIds` / 删除计数用 `opt*` 兜底，把契约变更吞成空集/0 | `VibeApi.kt:1429-1432`（`optJSONArray("data") ?: return emptySet()`）、`:1842-1845`、`:1858-1861`（`else -> 0`） | 后端把 data 改成 `{ids:[…]}`/`{count:3}`（本仓库常见的加性演进）→ 心形全空、toast"已移除 0 首"而服务端已删。改：与 `listData`（`:583-593`）同策略，形状不符即抛 |
+| API-3 ✅ | 信封级 401（HTTP 200 + `code:401`）不走静默续期 | `VibeApi.kt:568-570` `checkEnvelope` 抛 `AuthException`；而 `myPlaylists()` 是 `rawGet(...)` 之后**在 `authed` 之外**调 `checkEnvelope`（`:1003-1007`） | 若后端改用 200+code:401 表达过期，所有列表调用会直接清 token 登出。改：把 `checkEnvelope` 挪进 `authed`，与 `me()` 同构。**需确认后端实际返回哪种**（当前两条路各走一半） |
+| API-4 ✅ | `AuthStore.save` 在 refreshToken 为空时保留旧值 | `AuthStore.kt:51/55`：`if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken` | 登录响应当次没带 `Set-Cookie` 时，新账号沿用旧账号的续期凭据。改：`save` 语义改为整体替换（`remove` + 清内存）；`saveTokens` 的轮转语义另说 |
+
+**✅ 已修（2026-10-28，第 3 批）**
+
+- **API-1**：`parseToggleResult` 现在 `!root.has("data") || root.isNull("data")` 一律抛 `data missing`（不再把"契约缺失"读成"已取消收藏"）。
+- **API-2**：`parseFavIds` 改走既有的 `listData(root, "Favorite ids", "ids")`（形状不符即抛）；新增 `parseRemovedCount`（接受 `Number` 或 `{count:N}`，其余抛）。三处 `opt*` 兜底全部移除。
+- **API-3**：**已实测后端源码定性** —— `SecurityConfig` 把 `GET /api/songs/…` 放成 `permitAll`，`PlayHistoryController.java:39` 直接 `return Result.error(401)`（无 `@ResponseStatus`）→ **HTTP 200 + body `code:401` 真实可达**，不是"潜在"。修法：在 `rawGet` / `rawPost` / `rawPut` / `rawDelete` 四个 `authed { }` 包装内调 `throwIfEnvelopeAuth(body)`（`internal`），一处覆盖全部调用点，与 `me()` 同构。**注意 Kotlin 块注释可嵌套**：KDoc 里写 `/api/songs/**` 会开出未闭合注释（编译报 `Unclosed comment`），必须写 `/api/songs/…`。
+- **API-4**：`AuthStore.save` 改为整体替换（refreshToken 为空则 `p.remove(KEY_REFRESH)` + 清内存），`saveTokens` 的轮转语义不动（它本来就是"只换 token"）。
+- 测试：新增 `EnvelopeAuthTest`（3 例）+ `AccountFavHistoryTest` +5 + `AuthStoreTest` +2。**`EnvelopeAuthTest` 必须标 `@RunWith(RobolectricTestRunner::class)`**：不标时 `org.json` 是 android.jar 的 stub，抛 `RuntimeException("Stub!")` 被 `catch (_: Exception)` 吞掉 → 假绿。
 
 ### 4.2 自更新（UPD）
 
 | ID | 结论 | 证据 | 后果 / 修法 |
 |---|---|---|---|
 | UPD-1 | **`checkOnLaunch` 先写 24h 时间戳再拉取** —— 一次网络失败烧掉整个窗口 | `UpdateCoordinator.kt:91-104`：`saveLastUpdateCheck(context, now)` 在 `fetchLatestForChannel` 之前 | 用户断网启动一次 → 24 小时内不再检查（手动检查不受影响）。改：拿到 release 之后再写时间戳；失败记 `lastCheck` 为"上次成功"而非"上次尝试" |
-| UPD-2 | 测试通道下载回退会拿"正式版 latest"的 APK | `UpdateCoordinator.kt:161-168` + `UpdateSupport.kt:31-33`：`otherUpdateSourceUrl` 指向 `.../releases/latest`（排除 prerelease） | `rel` 来自含 prerelease 的列表，回退源却是正式版 → 版本不同。Gitee 资产无 `size` 时尺寸门退化成 Content-Length，混版文件照样通过签名门。改：回退 URL 带上同 tag；安装前断言 `versionCode >= 当前` |
-| UPD-3 | 双源只取"第一个成功"，不做版本比较 | `UpdateCheck.kt:207-208` `resolveUpdateSource`、`:229-237` 成功即 return | Gitee 滞后一个版本时永远"已是最新"（与 2026-10-27 事故同一失效面）。改：两源都取，`isNewerVersion` 取大者 |
-| UPD-4 | 自更新不校验 body 里的 sha256、不限制下载 host | `UpdateCheck.kt:305-315` `pickApkFromAsset` 接受任意 host；`:128-135` body 里的 sha256 只展示不校验 | 底线仍是签名门（同签名才能装），所以恶意包装不进去；但**降级/错版本**无拦截，账号被盗时会把用户引到第三方 host。改：解析 body sha256 落盘后校验；host 白名单（gitee.com / github.com / objects.githubusercontent.com） |
+| UPD-2 ✅ | 测试通道下载回退会拿"正式版 latest"的 APK | `UpdateCoordinator.kt:161-168` + `UpdateSupport.kt:31-33`：`otherUpdateSourceUrl` 指向 `.../releases/latest`（排除 prerelease） | `rel` 来自含 prerelease 的列表，回退源却是正式版 → 版本不同。Gitee 资产无 `size` 时尺寸门退化成 Content-Length，混版文件照样通过签名门。改：回退 URL 带上同 tag；安装前断言 `versionCode >= 当前` |
+| UPD-3 ✅ | 双源只取"第一个成功"，不做版本比较 | `UpdateCheck.kt:207-208` `resolveUpdateSource`、`:229-237` 成功即 return | Gitee 滞后一个版本时永远"已是最新"（与 2026-10-27 事故同一失效面）。改：两源都取，`isNewerVersion` 取大者 |
+| UPD-4 ✅ | 自更新不校验 body 里的 sha256、不限制下载 host | `UpdateCheck.kt:305-315` `pickApkFromAsset` 接受任意 host；`:128-135` body 里的 sha256 只展示不校验 | 底线仍是签名门（同签名才能装），所以恶意包装不进去；但**降级/错版本**无拦截，账号被盗时会把用户引到第三方 host。改：解析 body sha256 落盘后校验；host 白名单（gitee.com / github.com / objects.githubusercontent.com） |
+
+**✅ 已修（2026-10-28，第 3 批）**
+
+- **UPD-2**：`otherUpdateSourceUrl(primaryApkUrl, tag)` 改拼**单 tag** 端点（`UPDATE_GITHUB_TAG_URL_BASE` / `UPDATE_GITEE_TAG_URL_BASE`），回退源与主源必是同版本；安装前新增两道门 —— `readApkVersionCode`（API 28+ 用 `longVersionCode`，26/27 用废弃字段，与 `packageSigners` 同一处分叉）+ `isInstallableUpdate(apk >= 当前)`，坏包 `deleteQuietly` 后报错（不删的话 `isDownloadComplete` 会认为已下完，重试只会反复撞同一个坏文件）。
+- **UPD-3**：`pickBestRelease(gitee, github)` 取版本大者、相等优先 Gitee；`fetchBestOf` 并行 `async` 两源。**镜像只给 `UPDATE_MIRROR_GRACE_MS = 2500L` 宽限**并显式 `h.cancel()` —— 无条件 `await` 两边会让"检查更新"从 1s 变 15s（`api.github.com` 在国内常年不可达，connect 超时 15s）。`resolveUpdateSource` 保留但 KDoc 已标注"只表示谁应答，选择策略已被 `pickBestRelease` 取代"。
+- **UPD-4**：`isAllowedUpdateHost` 白名单 `{gitee.com, github.com, objects.githubusercontent.com}`，匹配 `host == it || host.endsWith(".$it")`（子域放行、`github.com.evil.com` 拒绝）；`pickApkFromAsset` 内拒绝并 `Log.w`，`parseLatestRelease` 把 `rejectedHost` 记进错误文案（否则线上只看到没头没尾的 "no .apk asset"）。`parseSha256FromBody` 从 release notes 抽 `APK sha256: <反引号包裹的 64 位 hex>`（正则 ``(?i)sha256[\s:：`=]*([0-9a-f]{64})``，与 `release.yml:216-219` 同格式），`verifyApkSha256` 落盘后校验；缺字段跳过（可选字段不能变硬要求）。
+- 测试：新增 `UpdateIntegrityTest`（20 例）；`UpdateWiringTest` 两例改为同 tag 断言；`UpdateCheckTest` / `UpdateChannelTest` / `UpdateSourceTest` 的 fixture host 由 `*.example` / `example.invalid` 换成 `gitee.com` / `github.com`（**白名单是行为的一部分，fixture 也必须落在白名单内**）。
 
 ### 4.3 UI 一致性（UIX）
 
@@ -418,18 +433,29 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 | ID | 结论 | 证据 | 后果 / 修法 |
 |---|---|---|---|
-| PB-3 | 弱网延迟重试只校验"还是同一首"，**不校验用户是否刚暂停** → 静默把暂停撤销 | `PlaybackService.kt:788-804`：`stillSame` 只比 `currentMediaItemIndex` + `mediaId`，随后 `cur.prepare(); cur.play()` | 错误出现后 800ms/1600ms 内按暂停（或来电被 `AUDIO_FOCUS_LOSS` 停掉）→ 被强行拉起。改：延迟体补一条与 `shouldFireRetryProbe` 同源的意愿门（`playWhenReady \|\| isPlaying`） |
-| PB-4 | 256KB 预热字节让"没下完"的歌通过离线点播门 → 离线点歌必在歌中间炸 | `MediaCache.kt:63` `PREFETCH_WARM_BYTES = 256KB`；`OfflineAvailability.kt:73` `cachedBytes(...) > 0L` 即算 `isCached`；`OfflineAvailability.kt:105-106` `isGatePlayable`；`PlaybackService.kt:590/669` 每次切歌都 `prefetchNext()` | 离线点"下一首"必过门，播 4-6 秒命中空洞报错 → "该歌曲未缓存完整"（`MainActivity.kt:2623`）。感知是"离线总在歌中间断"而非"未缓存"。改：门槛改"可连续读到的前缀 ≥ 阈值"，别让预热字节参与 offline 判定 |
-| PB-5 | 自愈路径跨 IO 间隙用陈旧 index，越界兜底把整条时间线换成 1 首 | `MainActivity.kt:1050-1056`：`if (idx in 0 until cc.mediaItemCount) replaceMediaItem(idx, …) else cc.setMediaItem(streamItem)`；调用处 `:2512/:2534` 的 `idx` 抓自错误回调，中间隔了 `isAudioFileIntact` 的 IO hop，**无任何身份复核** | (a) 探测期间用户点了别的歌 → 把别人位置替换成本曲 stream，本曲重复、被点那首丢失；(b) 用户删掉该项 → `idx == mediaItemCount` → 队列压缩成 1 首。改：落地时重读 `currentMediaItemIndex`/`mediaId` + `playGen` 做身份校验；去掉 `setMediaItem` 兜底 |
-| PB-6 | 单曲循环下"自动跳过"其实是原地重开同一首，还报"已跳过" | `PlaybackService.kt:834-838`：`shouldAutoSkip(consecFails, exo.hasNextMediaItem())` → `seekToNextMediaItem()`；`PlayMode.kt:33` `SINGLE_LOOP = REPEAT_MODE_ONE`，此时 `hasNextMediaItem()` 为 true，Media3 的 `seekToNextMediaItemInternal` 在 `next == current` 时走 `repeatCurrentMediaItem()` | 坏歌重试 3 次，3 次 toast 都是"播不了，已跳过"，实际一首没跳。改：判"存在**不同**的可播下标"（复用 `selectNextOfflineIndex` 排除当前项的语义），单曲循环下直接 stop + 提示 |
-| PB-7 | 随机播放下离线跳歌按**未洗牌的下标顺序**走 | `PlaybackService.kt:703-729`：`repeatAll = repeatMode == REPEAT_MODE_ALL` → `selectNextOfflineIndex(songs, from, …)`（`:147-161` 是 `from+1..size` 顺序扫描）；`PlayMode.kt:34` `SHUFFLE = REPEAT_MODE_ALL + shuffleOn` | 开随机时离线跳歌落到歌单下一行，之后又跳回洗牌序 → "随机模式下会突然按歌单顺序播"。`prefetchNext()` 反而对 shuffle 做了正确规避（`PlaybackService.kt:993` `if (shuffleOn) return`）。改：shuffle 开启时不按下标扫描 |
-| PB-8 | `playGen` 不覆盖 controller 重绑，跨代 controller 会在后台返回时抛"播放失败" | `MainActivity.kt:766-781` 只守 `playGen`；`:2759` `controllerGen += 1` 会 dispose 旧 effect → `release()`（`:2695-2712`），但 `playGen` 不变 | 息屏很久回前台立刻点歌 → IO hop 里 `c` 已被 release → `setMediaItems` 抛 `IllegalStateException` → `:824` 显示"播放失败: …"。改：异步落地前再校验 `c === controller`（或把 controllerGen 并进 gen 比较） |
-| PB-9 | `consecFails` 在线/离线共用，只在"真的出声"时清零 → 一次在线失败就报"连续多次失败" | `PlaybackService.kt:566-567`（唯一清零点，`if (playing)`）；`:733/739`（离线分支也自增，从不校验） | 离线连坏 3 首 → 恢复网络后点一首 404 的歌 → `shouldAutoSkip(3, …)` 为 false → 直接 `STOPPED_CONSEC_FAILURES`"连续多次失败，播放停止"，且不跳歌。改：`onMediaItemTransition` 里清零，或在线/离线各一份计数 |
+| PB-3 ✅ | 弱网延迟重试只校验"还是同一首"，**不校验用户是否刚暂停** → 静默把暂停撤销 | `PlaybackService.kt:788-804`：`stillSame` 只比 `currentMediaItemIndex` + `mediaId`，随后 `cur.prepare(); cur.play()` | 错误出现后 800ms/1600ms 内按暂停（或来电被 `AUDIO_FOCUS_LOSS` 停掉）→ 被强行拉起。改：延迟体补一条与 `shouldFireRetryProbe` 同源的意愿门（`playWhenReady \|\| isPlaying`） |
+| PB-4 ✅ | 256KB 预热字节让"没下完"的歌通过离线点播门 → 离线点歌必在歌中间炸 | `MediaCache.kt:63` `PREFETCH_WARM_BYTES = 256KB`；`OfflineAvailability.kt:73` `cachedBytes(...) > 0L` 即算 `isCached`；`OfflineAvailability.kt:105-106` `isGatePlayable`；`PlaybackService.kt:590/669` 每次切歌都 `prefetchNext()` | 离线点"下一首"必过门，播 4-6 秒命中空洞报错 → "该歌曲未缓存完整"（`MainActivity.kt:2623`）。感知是"离线总在歌中间断"而非"未缓存"。改：门槛改"可连续读到的前缀 ≥ 阈值"，别让预热字节参与 offline 判定 |
+| PB-5 ✅ | 自愈路径跨 IO 间隙用陈旧 index，越界兜底把整条时间线换成 1 首 | `MainActivity.kt:1050-1056`：`if (idx in 0 until cc.mediaItemCount) replaceMediaItem(idx, …) else cc.setMediaItem(streamItem)`；调用处 `:2512/:2534` 的 `idx` 抓自错误回调，中间隔了 `isAudioFileIntact` 的 IO hop，**无任何身份复核** | (a) 探测期间用户点了别的歌 → 把别人位置替换成本曲 stream，本曲重复、被点那首丢失；(b) 用户删掉该项 → `idx == mediaItemCount` → 队列压缩成 1 首。改：落地时重读 `currentMediaItemIndex`/`mediaId` + `playGen` 做身份校验；去掉 `setMediaItem` 兜底 |
+| PB-6 ✅ | 单曲循环下"自动跳过"其实是原地重开同一首，还报"已跳过" | `PlaybackService.kt:834-838`：`shouldAutoSkip(consecFails, exo.hasNextMediaItem())` → `seekToNextMediaItem()`；`PlayMode.kt:33` `SINGLE_LOOP = REPEAT_MODE_ONE`，此时 `hasNextMediaItem()` 为 true，Media3 的 `seekToNextMediaItemInternal` 在 `next == current` 时走 `repeatCurrentMediaItem()` | 坏歌重试 3 次，3 次 toast 都是"播不了，已跳过"，实际一首没跳。改：判"存在**不同**的可播下标"（复用 `selectNextOfflineIndex` 排除当前项的语义），单曲循环下直接 stop + 提示 |
+| PB-7 ✅ | 随机播放下离线跳歌按**未洗牌的下标顺序**走 | `PlaybackService.kt:703-729`：`repeatAll = repeatMode == REPEAT_MODE_ALL` → `selectNextOfflineIndex(songs, from, …)`（`:147-161` 是 `from+1..size` 顺序扫描）；`PlayMode.kt:34` `SHUFFLE = REPEAT_MODE_ALL + shuffleOn` | 开随机时离线跳歌落到歌单下一行，之后又跳回洗牌序 → "随机模式下会突然按歌单顺序播"。`prefetchNext()` 反而对 shuffle 做了正确规避（`PlaybackService.kt:993` `if (shuffleOn) return`）。改：shuffle 开启时不按下标扫描 |
+| PB-8 ✅ | `playGen` 不覆盖 controller 重绑，跨代 controller 会在后台返回时抛"播放失败" | `MainActivity.kt:766-781` 只守 `playGen`；`:2759` `controllerGen += 1` 会 dispose 旧 effect → `release()`（`:2695-2712`），但 `playGen` 不变 | 息屏很久回前台立刻点歌 → IO hop 里 `c` 已被 release → `setMediaItems` 抛 `IllegalStateException` → `:824` 显示"播放失败: …"。改：异步落地前再校验 `c === controller`（或把 controllerGen 并进 gen 比较） |
+| PB-9 ✅ | `consecFails` 在线/离线共用，只在"真的出声"时清零 → 一次在线失败就报"连续多次失败" | `PlaybackService.kt:566-567`（唯一清零点，`if (playing)`）；`:733/739`（离线分支也自增，从不校验） | 离线连坏 3 首 → 恢复网络后点一首 404 的歌 → `shouldAutoSkip(3, …)` 为 false → 直接 `STOPPED_CONSEC_FAILURES`"连续多次失败，播放停止"，且不跳歌。改：`onMediaItemTransition` 里清零，或在线/离线各一份计数 |
+
+**✅ 已修（2026-10-28，第 3 批）**
+
+- **PB-3**：弱网延迟重试体里补意愿门 —— `cur.playWhenReady || cur.isPlaying` 为假直接 `return@postDelayed`，与 `shouldFireRetryProbe` 同源。这 800/1600ms 里用户按暂停（或来电 `AUDIO_FOCUS_LOSS` 停掉）不再被 `prepare()+play()` 静默撤销。
+- **PB-4**：新增 `MediaCache.cachedPrefixBytes` + 纯函数 `contiguousPrefixBytes(List<CacheSpanRange>)` —— 按 span 顺序累加、遇空洞 span 或 `position > end` 立即停，得到"从头连续可读到哪"。离线门由 `cachedBytes > 0` 改成 `>= OFFLINE_MIN_PREFIX_BYTES`（1MB ≈ 128kbps 下 65 秒）。**这是下界不是全长**：`SimpleCache` 不落 EOF 标记，无法区分"256KB 的完整小文件"和"5MB 文件的前 256KB"，所以只能取阈值 + 无空洞；残留局限（只播了 1-2 分钟的长歌仍可能过门）已写进常量 KDoc。
+- **PB-5**：`swapToStreamAndPlay(idx, song, expectedMediaId)` 落地前复核 `currentMediaItemIndex == idx && mediaId == expectedMediaId`，不匹配 `SilentFail.note("MainActivity.swapToStreamAndPlay:stale")` 返回；**删掉 `setMediaItem` 越界兜底**（那正是"队列压缩成 1 首"的来源）。
+- **PB-6**：`shouldAutoSkip(consecFails, hasNext, repeatMode = REPEAT_MODE_OFF)`，`REPEAT_MODE_ONE` 恒 false；新增 `SkipOutcome.STOPPED_SINGLE_LOOP` + `exo.stop()` + 文案「单曲循环下无法跳过」（不再谎称已跳过）。
+- **PB-7**：shuffle 开启时**不再**走 `selectNextOfflineIndex` 的下标扫描，改 `exo.seekToNextMediaItem()`（尊重洗牌序），仍受 `offlineFails` 预算约束。原计划的 `STOPPED_SHUFFLE_OFFLINE` 文案**已撤回删除** —— 跳歌现在是"沿洗牌序前进"，不存在"跳不了"这个结局，多一种文案就是多一条谎。
+- **PB-8**：`playAt` 与 `ensureTimeline` 在 IO hop 之后加 `if (c !== controller) return` —— `playGen` 不覆盖 controller 重绑（`controllerGen += 1` 会 release 旧实例），落地前必须确认还是同一个。
+- **PB-9**：新增 `private var offlineFails`，离线跳歌只增它；`onIsPlayingChanged(playing = true)` 同时清零 `consecFails` / `offlineFails`；**切轨不清零**（清了两个坏文件会互相弹跳、永远跳不完）。
+- 测试：新增 `PlaybackGuardTest`（12 例）。PB-3 / PB-5 / PB-7 / PB-8 **无法单测**（需真实 Player / Activity），只有代码审阅 + 真机验证。
 
 **播放线查过、确认没问题（不用重复排查）**
 
 1. 焦点被拒补试不会把"播放中被打断"误判成"点播被拒"：`PlaybackService.kt:594-617` 依赖 `wasPlayingBeforeFocusChange` 的旧值，已核对 Media3 1.9.3 的 `onPlayWhenReadyChanged` 派发顺序成立。
-2. 不会误删好文件：`healAction` 只有 `fileValid == false` 且 `fails >= 2` 才 `DELETE_AND_STREAM`（`CachePolicy.kt:76`）；`delete(OfflineMeta.of(song, 0L))` 重建的 probe Song 得到同一个 `offlineBaseName`，删不到别的文件。
+2. 不会误删好文件：`healAction` 的 `DELETE_AND_STREAM` 只来自两条路 —— `fileValid == false && fails >= 2`，或（PB-2 新增）`fails >= LOCAL_HEAL_FORCE_DELETE_AFTER(5)` 的越线强删；`delete(OfflineMeta.of(song, 0L))` 重建的 probe Song 得到同一个 `offlineBaseName`，删不到别的文件。
 3. `customCacheKey` 与 `local:` 前缀不冲突：local 项是 `file://`，走 `DefaultDataSource`，完全绕过 CacheDataSource。
 4. 资源无泄漏路径：`MediaMetadataRetriever`/`Cursor`/`InputStream` 都有 `finally`/`use`；`serviceIoScope` 在 `onDestroy` cancel；`MediaCache.clear()` 用 `removeResource` 而非 `release`（在读音轨不被物理删除）。
 
@@ -439,14 +465,14 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 ## 5. 结构性债务
 
-### 5.1 `MainActivity.kt` 3517 纯 LOC —— 拆分方案已有，执行停摆
+### 5.1 `MainActivity.kt` 3551 纯 LOC —— 拆分方案已有，执行停摆
 
 实测（本次重新统计，非引用文档）：
 
 | 指标 | 数值 |
 |---|---|
-| 纯 LOC（排除空行/注释） | **3517** |
-| `by remember` 状态 | **104** |
+| 纯 LOC（排除空行/注释） | **3551**（第 3 批又 +34：PB-5/PB-8 身份复核） |
+| `by remember` 状态 | **107** |
 | 类内局部 `fun` | **71** |
 | `LaunchedEffect` | **19** |
 | 最深缩进 | **15 级** |
@@ -483,10 +509,10 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 | 文件 | 写的 | 实际 |
 |---|---|---|
-| `README.md:18`、`:67` | 956 用例 | **970** |
-| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **970**；**2.0.19-ai**（97） |
+| `README.md:18`、`:67` | 956 用例 | **1023**（第 3 批后） |
+| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **1023**；**2.0.19-ai**（97） |
 | `PLAN.md:198` | AI 版当前 `v2.0.17-ai` | **2.0.19-ai** |
-| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3517 纯 LOC**（`wc -l` 口径不同）/ **104** / **970** |
+| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3551 纯 LOC**（`wc -l` 口径不同）/ **107** / **1023** |
 | `.github/workflows/release.yml:2` | 注释「当前 v2.0.17-ai」 | 2.0.19-ai |
 
 `AGENTS.md` 标注"由人手编写并审校、禁止 agent 自动改写"，所以这条**只报不改**，等用户确认。
@@ -541,12 +567,16 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 - 验收：`testDebugUnitTest` **982 例全绿**（+2：`HealActionTest.validFile_forcedDeleteAfterQuietThreshold`、`SelfHealTest.serviceDefersToHeal_onlyForLocalItemsWhileOnline`；`validFile_alwaysStreamsOnce` 按新真值表改写）；`lintRelease` 0 error；`assembleDebug` 通过
 - 需真机回归：飞行模式下截断的下载文件应自动跳下一首、连播不断；在线连播 5 次后应真删 + 转在线 + 重下
 
-**第 3 批（契约健壮性 + 自更新 + 播放边缘）**
-- API-1~4、UPD-2~4
-- PB-3~PB-9（弱网重试意愿门、离线门改"连续前缀"、自愈身份复核、单曲循环跳歌、shuffle 下标、controllerGen、consecFails 分账）
+**第 3 批（契约健壮性 + 自更新 + 播放边缘）—— ✅ 已修（2026-10-28）**
+- API-1~4：`throwIfEnvelopeAuth` 收进四个 `authed` 包装（一处覆盖全部调用点）、`parseFavIds` 走 `listData`、新增 `parseRemovedCount`、`parseToggleResult` 缺 `data` 抛错、`AuthStore.save` 整体替换
+- UPD-2~4：回退源改**单 tag** 端点 + 安装前 `versionCode` 门、`pickBestRelease` 两源取大者（镜像 2.5s 宽限）、host 白名单 + body sha256 落盘校验
+- PB-3~PB-9：弱网重试意愿门、离线门改"连续前缀 ≥ 1MB"、自愈身份复核、单曲循环如实停手、shuffle 走 Exo 洗牌序、`c !== controller` 双处守卫、`offlineFails` 与 `consecFails` 分账
+- 验收：`testDebugUnitTest` **1023 例全绿**（992 → +31：`EnvelopeAuthTest` 3 + `UpdateIntegrityTest` 20 + `PlaybackGuardTest` 12，另有 `AccountFavHistoryTest` +5 / `AuthStoreTest` +2 / 旧更新用例改写）；`lintRelease` **0 error**（仅 2 条 Information：`LintBaseline` / `LintBaselineFixed`）；`assembleDebug` 通过（`app-debug.apk` 24,136,149 B）
+- `lint-baseline.xml` 按 `build.gradle.kts` 注释跑了 `updateLintBaseline` 重生成（163+/157-）：新增 4 条 `UnsafeOptInUsageError`（MediaCache 新代码）+ 重新分组既有条目。**`@OptIn(UnstableApi::class)` 在本工具链（AGP 8.5.2）下对 `UnsafeOptInUsageError` 不生效**（`PlaybackService` 类级标注后条目仍在 baseline 里），所以只能靠 baseline；而 baseline 按**行号**匹配，本文件一插行就失配成 error —— 这就是为什么改完 MediaCache 必须先跑 `updateLintBaseline` 再跑 `lintRelease`
+- 需真机回归：随机模式下离线跳歌落点（PB-7）、弱网重试期间按暂停不被拉起（PB-3）、息屏久回前台立刻点歌（PB-8）
 
 **第 4 批（工程门禁与债务）**
-- CI-1 加 PR 触发
+- ~~CI-1 加 PR 触发~~（已在第 2 批完成）
 - 纯 LOC 守卫
 - `MainActivity` C5 拆分（单独一轮，不与其他批并行）
 - CODE-1~8 的孪生副本收敛
@@ -562,7 +592,7 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 1. 歌词页性能：100ms ticker + 每 tick 全量 `filterNot`/`indexOfLast`，在 vivo Y 系低端机 + 200 行以上歌词时是否掉帧 —— 需 Perfetto / `dumpsys gfxinfo`。
 2. 横屏播放页是"被裁"还是"被压"（§UI-5 的 440dp 是推演）。
 3. 系统字号 1.3/2.0 下 `LyricOffsetRow`（4 个按钮无 weight）、`PlaylistsUi` 多选行、`UpdateChannelRow` 是否挤爆。
-4. 后端 token 过期返回 HTTP 401 还是 200+`code:401`（决定 API-3 是"潜在"还是"现实"）。
+4. ~~后端 token 过期返回 HTTP 401 还是 200+`code:401`~~ —— **第 3 批已实测定性**：两种都有。`SecurityConfig` 的 entry point 走 HTTP 401；`GET /api/songs/…` 是 `permitAll`，`PlayHistoryController.java:39` 直接 `Result.error(401)`（无 `@ResponseStatus`）→ HTTP 200 + body `code:401` **真实可达**。API-3 因此是现实缺陷，已修。
 5. 后端 `/api/auth/logout` 是否吊销 refresh（决定 SEC-1 的严重度上限）。
 
 **需要真机才能验的（与发版前一致）**
@@ -576,4 +606,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）已修并验收；第 3、4 批待开工，工具链升级与 i18n 待用户决策。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）已修并验收，单测基线 **1023 例**；第 4 批（纯 LOC 守卫 / `MainActivity` C5 拆分 / CODE-1~8 收敛）待开工，工具链升级与 i18n 待用户决策。*

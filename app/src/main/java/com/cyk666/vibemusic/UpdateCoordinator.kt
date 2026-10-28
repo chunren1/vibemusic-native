@@ -163,13 +163,25 @@ class UpdateCoordinator(
                 val safeTag = rel.tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
                 val apk = File(dir, "vibemusic-$safeTag.apk")
                 if (!isDownloadComplete(apk, rel.apkSize)) {
-                    val fallback = fetchFallbackApkUrl(otherUpdateSourceUrl(rel.apkUrl))
+                    // 回退源必须带**同 tag**：`.../latest` 是正式版，测试通道回退
+                    // 会装到另一个版本（UPD-2）。
+                    val fallback = fetchFallbackApkUrl(otherUpdateSourceUrl(rel.apkUrl, rel.tag))
                     downloadApk(
                         rel.apkUrl,
                         apk,
                         fallbackApkUrl = fallback,
                         expectedBytes = rel.apkSize
                     )
+                }
+                // UPD-4：body 里的 sha256 是 CI 对**这份字节**的承诺。签名门只证明
+                // "同一个开发者"，混版/被投毒的包签名相同照样能过 —— 这里才是内容门。
+                if (!verifyApkSha256(apk, rel.sha256)) {
+                    deleteQuietly(apk)
+                    withContext(Dispatchers.Main) {
+                        busy = false
+                        onError("安装包校验失败（sha256 不符），已删除，请重试")
+                    }
+                    return@launch
                 }
                 withContext(Dispatchers.Main) {
                     busy = false
@@ -199,6 +211,19 @@ class UpdateCoordinator(
                 }
                 return
             }
+            // UPD-2：装之前断言 versionCode >= 当前。回退源曾可能给出另一个版本，
+            // 而签名门对"同开发者的另一个版本"完全放行。
+            val apkCode = readApkVersionCode(context, apk)
+            if (apkCode == null) {
+                deleteQuietly(apk)
+                onError("安装包无法解析，已删除，请重试")
+                return
+            }
+            if (!isInstallableUpdate(apkCode, installedVersionCode())) {
+                deleteQuietly(apk)
+                onError("安装包版本低于当前版本，已取消安装（请重试）")
+                return
+            }
             if (!isSameSignature(context, apk)) {
                 onError(UPDATE_SIGNATURE_MISMATCH_MESSAGE)
                 return
@@ -218,6 +243,30 @@ class UpdateCoordinator(
         } catch (e: Exception) {
             onError("安装失败: ${friendlyNetworkMessage(e)}")
         }
+    }
+
+    /**
+     * 删掉判定为坏的安装包：不删的话 [isDownloadComplete] 会认为"已下载完"，
+     * 用户点重试只会反复撞同一个坏文件。
+     */
+    private fun deleteQuietly(file: File) {
+        try {
+            file.delete()
+        } catch (_: Exception) {
+            SilentFail.note("UpdateCoordinator.deleteQuietly")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionCode(): Long = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+    } catch (_: Exception) {
+        -1L
     }
 
     private fun installedVersionName(): String = try {

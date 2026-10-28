@@ -118,26 +118,26 @@ class UpdateCheckTest {
 
     @Test
     fun parseRelease_fullPicksApk() {
-        val assets = """{"name":"notes.txt","browser_download_url":"https://x/notes.txt"},""" +
-            """{"name":"app.apk","browser_download_url":"https://x/app.apk"}"""
+        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.com/notes.txt"},""" +
+            """{"name":"app.apk","browser_download_url":"https://gitee.com/app.apk"}"""
         val r = parseLatestRelease(releaseJson(assets))
         assertEquals("v1.0.17-ai", r.tag)
         assertEquals("1.0.17-ai", r.name)
         assertTrue(r.body.contains("fix x"))
-        assertEquals("https://x/app.apk", r.apkUrl)
+        assertEquals("https://gitee.com/app.apk", r.apkUrl)
     }
 
     @Test
     fun parseRelease_picksAssetSizeWhenPresent() {
-        val assets = """{"name":"app.apk","browser_download_url":"https://x/app.apk","size":12345678}"""
+        val assets = """{"name":"app.apk","browser_download_url":"https://gitee.com/app.apk","size":12345678}"""
         val r = parseLatestRelease(releaseJson(assets))
-        assertEquals("https://x/app.apk", r.apkUrl)
+        assertEquals("https://gitee.com/app.apk", r.apkUrl)
         assertEquals(12345678L, r.apkSize)
     }
 
     @Test
     fun parseRelease_missingSizeDefaultsUnknown() {
-        val assets = """{"name":"app.apk","browser_download_url":"https://x/app.apk"}"""
+        val assets = """{"name":"app.apk","browser_download_url":"https://gitee.com/app.apk"}"""
         val r = parseLatestRelease(releaseJson(assets))
         assertEquals(-1L, r.apkSize)
     }
@@ -145,9 +145,9 @@ class UpdateCheckTest {
     @Test
     fun parseReleaseList_picksApkUrlAndSize() {
         val json = """[{"tag_name":"v1.0.57-ai","name":"v","body":"b","prerelease":false,"assets":[{""" +
-            """"name":"a.apk","browser_download_url":"https://y/a.apk","size":777}]}]"""
+            """"name":"a.apk","browser_download_url":"https://gitee.com/a.apk","size":777}]}]"""
         val r = parseReleaseList(json)
-        assertEquals("https://y/a.apk", r?.apkUrl)
+        assertEquals("https://gitee.com/a.apk", r?.apkUrl)
         assertEquals(777L, r?.apkSize)
     }
 
@@ -185,7 +185,7 @@ class UpdateCheckTest {
 
     @Test
     fun parseRelease_noApkAssetThrows() {
-        val assets = """{"name":"notes.txt","browser_download_url":"https://x/notes.txt"}"""
+        val assets = """{"name":"notes.txt","browser_download_url":"https://gitee.com/notes.txt"}"""
         try {
             parseLatestRelease(releaseJson(assets))
             fail("expected RuntimeException for no apk asset")

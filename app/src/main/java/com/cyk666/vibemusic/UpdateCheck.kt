@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -37,6 +40,28 @@ const val UPDATE_RELEASES_URL =
 const val UPDATE_GITEE_RELEASES_URL =
     "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases?per_page=100&direction=desc"
 
+/**
+ * 单 tag 端点（UPD-2 下载回退用）：回退源必须拿**同一个 tag**的资产。
+ * 原来回退到 `.../releases/latest`，而正式版 latest 排除 prerelease ——
+ * 测试通道回退时会把正式版 APK 装进测试版用户手里（版本不同，签名门拦不住：
+ * 同一个开发者签名）。
+ */
+const val UPDATE_GITHUB_TAG_URL_BASE =
+    "https://api.github.com/repos/chunren1/vibemusic-native/releases/tags/"
+
+const val UPDATE_GITEE_TAG_URL_BASE =
+    "https://gitee.com/api/v5/repos/green-leavesQAQ/vibemusic-native/releases/tags/"
+
+/**
+ * APK 资产允许的下载 host（UPD-4）。release 元数据是**外部输入**：账号被盗时
+ * 攻击者可以把 `browser_download_url` 指到任意域名。签名门只保证"同一个开发者"，
+ * 不保证"同一个来源"。
+ *
+ * 子域一并放行（`api.github.com`、`objects.githubusercontent.com` 这类官方 CDN）；
+ * 比较用 `host == it || host.endsWith(".$it")`，所以 `github.com.evil.com` 会被拒。
+ */
+val UPDATE_HOST_ALLOWLIST = setOf("gitee.com", "github.com", "objects.githubusercontent.com")
+
 /** Minimum gap between automatic update checks. */
 const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
@@ -51,7 +76,14 @@ data class GithubRelease(
      * Release 资产字节数（GitHub assets 自带 `size`；Gitee 附件接口不带则为 -1，
      * 此时下载校验退化为 Content-Length/非空门，续传不受影响）。
      */
-    val apkSize: Long = -1L
+    val apkSize: Long = -1L,
+    /**
+     * Release body 里 CI 写的 `APK sha256: <hex>`（.github/workflows/release.yml
+     * 生成的 notes）。下载落盘后按它校验：签名门只证明"同一个开发者"，不证明
+     * "同一份字节"，混版/降级要靠这个拦（CODE-REVIEW-2026-10-28 UPD-4）。
+     * null = 该 release 没写（老版本），跳过校验 —— 保持可选字段语义。
+     */
+    val sha256: String? = null
 )
 
 private fun numericCore(version: String): List<Int> {
@@ -116,22 +148,37 @@ fun parseLatestRelease(json: String): GithubRelease {
     val assets = root.optJSONArray("assets")
         ?: throw RuntimeException("Parse release failed: $tag has no assets array")
     var apk: ApkAsset? = null
+    var rejectedHost: String? = null
     for (i in 0 until assets.length()) {
         val o = assets.optJSONObject(i) ?: continue
+        // 白名单外的 host 只跳过这个资产、继续找下一个候选；但要把 host 记下来，
+        // 否则"上游换了域名"只会表现为一句没头没尾的 no .apk asset，线上没法定位。
+        val raw = apkUrlOf(o)
+        if (raw != null && !isAllowedUpdateHost(raw)) {
+            rejectedHost = hostOf(raw) ?: raw
+            continue
+        }
         val found = pickApkFromAsset(o)
         if (found != null) {
             apk = found
             break
         }
     }
-    if (apk == null) throw RuntimeException("Parse release failed: $tag has no .apk asset")
+    if (apk == null) {
+        throw RuntimeException(
+            if (rejectedHost == null) "Parse release failed: $tag has no .apk asset"
+            else "Parse release failed: $tag has no .apk asset (host not allowed: $rejectedHost)"
+        )
+    }
+    val body = root.optString("body")
     return GithubRelease(
         tag = tag,
         name = root.optString("name"),
-        body = root.optString("body"),
+        body = body,
         apkUrl = apk.url,
         prerelease = root.optBoolean("prerelease", false),
-        apkSize = apk.size
+        apkSize = apk.size,
+        sha256 = parseSha256FromBody(body)
     )
 }
 
@@ -198,14 +245,30 @@ enum class UpdateSource {
 }
 
 /**
- * Pure: pick the winning update source. Gitee is primary, GitHub is the
- * fallback: the FIRST successful source wins, so a stale-but-reachable
- * Gitee release is used as-is (no cross-source version merge — keeps the
- * check to one round trip and the behavior predictable). Both failed →
- * null (caller maps to CHECK_FAILED).
+ * Pure: which source answered. **注意**：这只是"谁应答了"，不再是选择策略 ——
+ * "首个成功者胜"已被 [pickBestRelease]（按版本号取大者）取代，因为 Gitee 滞后
+ * 一个版本时会让用户永远看到"已是最新"（2026-10-27 事故同一失效面，UPD-3）。
+ * 保留它给只需要"谁应答"的诊断/日志场景。
  */
 fun resolveUpdateSource(giteeOk: Boolean, githubOk: Boolean): UpdateSource? =
     if (giteeOk) UpdateSource.GITEE else if (githubOk) UpdateSource.GITHUB else null
+
+/**
+ * Pure: 两源结果里取**版本更大**者（UPD-3）。
+ *
+ * - 一边为 null 就用另一边（单源可用即不失败）；
+ * - 两边都在 → [isNewerVersion] 比较，相等时仍优先 Gitee（首选源）；
+ * - 两边都 null → null（调用方映射 CHECK_FAILED）。
+ */
+fun pickBestRelease(
+    gitee: GithubRelease?,
+    github: GithubRelease?
+): Pair<UpdateSource, GithubRelease>? = when {
+    gitee == null -> github?.let { UpdateSource.GITHUB to it }
+    github == null -> UpdateSource.GITEE to gitee
+    isNewerVersion(gitee.tag, github.tag) -> UpdateSource.GITHUB to github
+    else -> UpdateSource.GITEE to gitee
+}
 
 private suspend fun fetchReleaseJson(url: String, accept: String?): GithubRelease =
     withContext(Dispatchers.IO) {
@@ -222,26 +285,67 @@ private suspend fun fetchReleaseJson(url: String, accept: String?): GithubReleas
     }
 
 /**
- * Suspend: fetch latest release, Gitee first, GitHub fallback on ANY
- * Gitee failure (network / non-200 / unparseable — silent). Throws only
- * when both sources fail (caller stays silent / snackbars once).
+ * Suspend: 两源**都取**，按版本号取大者（CODE-REVIEW-2026-10-28 UPD-3）。
+ *
+ * 旧实现是"首个成功者胜"：Gitee 滞后一个版本时永远提示"已是最新" ——
+ * 2026-10-27 的事故就是这个失效面（Gitee 缺 release，用户看到已是最新）。
+ * 现在两源并行取（延迟取两者较大值，不是相加），[isNewerVersion] 取大者，
+ * 版本相等时仍优先 Gitee。任一源失败不影响另一源；两源都失败才抛。
  */
-suspend fun fetchLatestRelease(): GithubRelease {
-    var giteeError: Exception? = null
+suspend fun fetchLatestRelease(): GithubRelease = fetchBestOf(
+    gitee = { fetchReleaseJson(UPDATE_GITEE_LATEST_URL, null) },
+    github = { fetchReleaseJson(UPDATE_LATEST_URL, "application/vnd.github+json") }
+)
+
+/**
+ * 镜像源（非主源）的宽限：主源已经答完后，最多再等这么久拿镜像的版本号。
+ *
+ * 为什么需要：`api.github.com` 在国内常年不可达，connect 超时 15s。并行取两源后
+ * 如果无条件 `await` 两边，"检查更新"会从 1s 变成 15s —— 用户点一下要转圈 15 秒。
+ * 主源（Gitee）照常等满，镜像只给一小段；超时按"没应答"处理（用主源的结果）。
+ */
+const val UPDATE_MIRROR_GRACE_MS = 2_500L
+
+/** 单源取回的结果：release 与错误都留着，用于"两源都失败"的诊断文案。 */
+private class ReleaseAttempt(val release: GithubRelease?, val error: Exception?)
+
+private suspend fun attemptRelease(block: suspend () -> GithubRelease): ReleaseAttempt =
     try {
-        val rel = fetchReleaseJson(UPDATE_GITEE_LATEST_URL, null)
-        android.util.Log.d("UpdateCheck", "update source=gitee tag=${rel.tag}")
-        return rel
+        ReleaseAttempt(block(), null)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
-        giteeError = e
+        ReleaseAttempt(null, e)
     }
-    try {
-        val rel = fetchReleaseJson(UPDATE_LATEST_URL, "application/vnd.github+json")
-        android.util.Log.d("UpdateCheck", "update source=github tag=${rel.tag} (gitee failed: ${giteeError?.message})")
-        return rel
-    } catch (e: Exception) {
-        throw RuntimeException("Update check failed: gitee (${giteeError?.message}) + github (${e.message})")
-    }
+
+/**
+ * Suspend: 并行问两个源，返回版本更大的那个（相等 → Gitee）。
+ * 两个都失败才抛，消息里带两边原始原因 —— 单源抖动不该让用户看不到更新。
+ */
+internal suspend fun fetchBestOf(
+    gitee: suspend () -> GithubRelease,
+    github: suspend () -> GithubRelease
+): GithubRelease = coroutineScope {
+    val g = async { attemptRelease(gitee) }
+    val h = async { attemptRelease(github) }
+    val giteeAttempt = g.await()
+    val githubAttempt = withTimeoutOrNull(UPDATE_MIRROR_GRACE_MS) { h.await() }
+        ?: ReleaseAttempt(null, null)
+    // 宽限内没回来的镜像请求要显式取消：coroutineScope 会等所有子任务，
+    // 不取消就还是会被 15s 的 connect 超时拖住。
+    h.cancel()
+    val picked = pickBestRelease(giteeAttempt.release, githubAttempt.release)
+        ?: throw RuntimeException(
+            "Update check failed: gitee (${giteeAttempt.error?.message})" +
+                " + github (${githubAttempt.error?.message})"
+        )
+    android.util.Log.d(
+        "UpdateCheck",
+        "update source=${picked.first} tag=${picked.second.tag}" +
+            " gitee=${giteeAttempt.release?.tag ?: "err"}" +
+            " github=${githubAttempt.release?.tag ?: "err"}"
+    )
+    picked.second
 }
 
 /** 更新通道：STABLE 只看正式版（.../latest，自动排除 prerelease）；BETA 看含预发布的最新版。 */
@@ -302,14 +406,42 @@ suspend fun fetchLatestForChannel(
 
 private data class ApkAsset(val url: String, val size: Long)
 
-private fun pickApkFromAsset(o: JSONObject): ApkAsset? {
+/** 资产里的下载 URL（按 GitHub/Gitee 字段优先级取第一个 `.apk`），不看 host。 */
+private fun apkUrlOf(o: JSONObject): String? {
     val candidates = listOf(
         o.optString("browser_download_url"),
         o.optString("download_url"),
         o.optString("url")
     )
-    val url = candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
-        ?: return null
+    return candidates.firstOrNull { it.isNotBlank() && it.lowercase().endsWith(".apk") }
+}
+
+/** 解析 URL 的 host（小写）；畸形 URL 返回 null（调用方按"不在白名单"处理 = fail closed）。 */
+private fun hostOf(url: String): String? =
+    try {
+        java.net.URI(url.trim()).host?.lowercase()
+    } catch (_: Exception) {
+        null
+    }
+
+/**
+ * Pure: 该下载 URL 的 host 是否在白名单内（UPD-4）。
+ * 子域放行（官方 CDN 常是 `xxx.githubusercontent.com`），`github.com.evil.com`
+ * 这种后缀伪装不放行 —— 匹配的是 `.github.com` 这个点分后缀，不是裸 endsWith。
+ */
+fun isAllowedUpdateHost(url: String): Boolean {
+    val host = hostOf(url) ?: return false
+    return UPDATE_HOST_ALLOWLIST.any { host == it || host.endsWith(".$it") }
+}
+
+private fun pickApkFromAsset(o: JSONObject): ApkAsset? {
+    val url = apkUrlOf(o) ?: return null
+    if (!isAllowedUpdateHost(url)) {
+        // 可观察信号：被拒的 host 必须能在 logcat 里看到（静默丢弃会让
+        // "上游换了资产域名"表现成"没有 APK"）。
+        android.util.Log.w("UpdateCheck", "rejected apk asset host: ${hostOf(url)} url=$url")
+        return null
+    }
     val size = o.optLong("size", -1L).takeIf { it > 0L } ?: -1L
     return ApkAsset(url, size)
 }
@@ -346,13 +478,15 @@ fun parseReleaseList(json: String): GithubRelease? {
             }
         }
         if (apk == null) continue
+        val body = o.optString("body")
         val candidate = GithubRelease(
             tag = tag,
             name = o.optString("name"),
-            body = o.optString("body"),
+            body = body,
             apkUrl = apk.url,
             prerelease = o.optBoolean("prerelease", false),
-            apkSize = apk.size
+            apkSize = apk.size,
+            sha256 = parseSha256FromBody(body)
         )
         val incumbent = best
         if (incumbent == null || isNewerVersion(incumbent.tag, candidate.tag)) {
@@ -377,35 +511,19 @@ private suspend fun fetchReleaseListJson(url: String, accept: String?): String =
     }
 
 /**
- * Suspend: fetch newest release INCLUDING prereleases (测试通道用),
- * Gitee first, GitHub fallback on ANY Gitee failure. Throws only when both fail.
- * 正式通道继续用 [fetchLatestRelease]（.../latest，天然排除 prerelease）。
+ * Suspend: 测试通道 —— 含 prerelease 的最新版，同样两源取大者（UPD-3）。
+ * 正式通道继续用 [fetchLatestRelease]（`.../latest`，天然排除 prerelease）；
+ * 通道语义不变，改的只是"两源怎么合并"。
  */
-suspend fun fetchLatestReleaseIncludingPrerelease(): GithubRelease {
-    var giteeError: Exception? = null
-    try {
-        val body = fetchReleaseListJson(UPDATE_GITEE_RELEASES_URL, null)
-        val rel = parseReleaseList(body)
-        if (rel != null) {
-            android.util.Log.d("UpdateCheck", "update source=gitee tag=${rel.tag} prerelease=${rel.prerelease}")
-            return rel
-        }
-        giteeError = RuntimeException("gitee release list has no .apk entry")
-    } catch (e: Exception) {
-        giteeError = e
-    }
-    try {
-        val body = fetchReleaseListJson(UPDATE_RELEASES_URL, "application/vnd.github+json")
-        val rel = parseReleaseList(body)
-        if (rel != null) {
-            android.util.Log.d("UpdateCheck", "update source=github tag=${rel.tag} prerelease=${rel.prerelease} (gitee failed: ${giteeError?.message})")
-            return rel
-        }
-        throw RuntimeException("github release list has no .apk entry")
-    } catch (e: Exception) {
-        throw RuntimeException("Update check failed: gitee (${giteeError?.message}) + github (${e.message})")
-    }
-}
+suspend fun fetchLatestReleaseIncludingPrerelease(): GithubRelease = fetchBestOf(
+    gitee = { fetchListRelease(UPDATE_GITEE_RELEASES_URL, null) },
+    github = { fetchListRelease(UPDATE_RELEASES_URL, "application/vnd.github+json") }
+)
+
+/** 列表端点取单条：没有带 .apk 的条目 → 抛（与单条端点同一错误口径）。 */
+private suspend fun fetchListRelease(url: String, accept: String?): GithubRelease =
+    parseReleaseList(fetchReleaseListJson(url, accept))
+        ?: throw RuntimeException("release list has no .apk entry")
 
 /** Suspend: download the release apk to [destFile] (throws on HTTP/empty; caller snackbars once). */
 suspend fun downloadApk(apkUrl: String, destFile: File): File =
@@ -509,6 +627,77 @@ fun isDownloadComplete(file: File, expectedBytes: Long): Boolean {
         return false
     }
 }
+
+/**
+ * Pure: 从 release body 里抽 CI 写的 sha256。
+ *
+ * release.yml 生成的 notes 形如 ``APK sha256: `<64 hex>` ``（正式版与测试版
+ * 都是这个格式）。没有这个字段 → null，调用方跳过校验：老 release 不写，
+ * 不能把可选字段变成硬要求。
+ */
+fun parseSha256FromBody(body: String): String? =
+    Regex("(?i)sha256[\\s:：`=]*([0-9a-f]{64})").find(body)
+        ?.groupValues?.get(1)?.lowercase()
+
+/** 流式算文件 SHA-256（32KB 缓冲，不把 APK 读进内存）；读失败返回 null。 */
+fun sha256OfFile(file: File): String? =
+    try {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(32 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n == -1) break
+                md.update(buf, 0, n)
+            }
+        }
+        md.digest().joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+    } catch (_: Exception) {
+        null
+    }
+
+/**
+ * Pure-ish gate: 落盘文件是否与 release 声明的 sha256 一致。
+ * [expected] 为空（release 没写）→ true（可选字段，保持现状）；
+ * 非空但算不出来 → false（fail closed：宁可让用户重下一次）。
+ */
+fun verifyApkSha256(file: File, expected: String?): Boolean {
+    val want = expected?.trim()?.lowercase().orEmpty()
+    if (want.isEmpty()) return true
+    val got = sha256OfFile(file) ?: return false
+    return got == want
+}
+
+/**
+ * APK 的 versionCode；解析失败返回 null（调用方 fail-closed，绝不安装）。
+ *
+ * API 28+ 用 `longVersionCode`，26/27 用已废弃的 `versionCode` —— 与
+ * [packageSigners] 同一处分叉（直接摸 28+ 的字段在 26/27 上是 NoSuchFieldError）。
+ */
+@Suppress("DEPRECATION")
+fun readApkVersionCode(context: Context, apkFile: File): Long? =
+    try {
+        val info = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        if (info == null) {
+            null
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
+    } catch (_: Throwable) {
+        // Throwable：与签名门同理，26/27 上摸 API 28 字段抛的是 Error 不是 Exception。
+        null
+    }
+
+/**
+ * Pure: 安装门 —— 只有 `apk >= 当前` 才允许安装（UPD-2）。
+ * 回退源原来指向正式版 latest，测试通道可能拿到**另一个版本**的 APK；
+ * 签名门拦不住（同一个开发者签名），所以必须比 versionCode。
+ * [currentVersionCode] <= 0（读不到当前版本）时不拦，交给签名门兜底。
+ */
+fun isInstallableUpdate(apkVersionCode: Long, currentVersionCode: Long): Boolean =
+    currentVersionCode <= 0L || apkVersionCode >= currentVersionCode
 
 /**
  * Fail-closed signature check for the Top-5 install gate (wiring task):
