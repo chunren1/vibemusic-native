@@ -89,11 +89,6 @@ class UpdateCoordinator(
                     0L
                 }
                 if (!shouldRunUpdateCheck(now, last, force = false)) return@launch
-                try {
-                    QueueStore.saveLastUpdateCheck(context, now)
-                } catch (_: Exception) {
-                    SilentFail.note("UpdateCoordinator.checkOnLaunch:94")
-                }
                 val storedChannel = try {
                     QueueStore.loadUpdateChannel(context)
                 } catch (_: Exception) {
@@ -103,7 +98,15 @@ class UpdateCoordinator(
                 val rel = try {
                     fetchLatestForChannel(storedChannel)
                 } catch (_: Exception) {
+                    // 拉取失败**不**记时间戳：否则断网启动一次就把 24h 窗口烧掉，
+                    // 用户接下来一天都收不到更新（手动检查不受影响，但没人会去点）。
                     return@launch
+                }
+                // 只在真的拿到 release 之后才推进节流窗口（2026-10-28 修正）。
+                try {
+                    QueueStore.saveLastUpdateCheck(context, now)
+                } catch (_: Exception) {
+                    SilentFail.note("UpdateCoordinator.checkOnLaunch:94")
                 }
                 val current = installedVersionName()
                 when (compareAndDecide(current, rel.tag, fetchOk = true)) {
@@ -126,16 +129,17 @@ class UpdateCoordinator(
         scope.launch {
             try {
                 val now = System.currentTimeMillis()
-                try {
-                    QueueStore.saveLastUpdateCheck(context, now)
-                } catch (_: Exception) {
-                    SilentFail.note("UpdateCoordinator.checkManual:131")
-                }
                 val rel = try {
                     fetchLatestForChannel(channel)
                 } catch (e: Exception) {
                     onError(friendlyNetworkMessage(e))
                     return@launch
+                }
+                // 同 checkOnLaunch：手动检查失败也不该重置自动检查的 24h 窗口。
+                try {
+                    QueueStore.saveLastUpdateCheck(context, now)
+                } catch (_: Exception) {
+                    SilentFail.note("UpdateCoordinator.checkManual:131")
                 }
                 val current = appVersionName.ifBlank { installedVersionName() }
                 val decision = compareAndDecide(current, rel.tag, fetchOk = true)

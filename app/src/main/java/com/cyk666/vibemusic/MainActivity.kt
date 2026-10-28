@@ -1420,6 +1420,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            /**
+             * 会话终结的统一收尾（CODE-REVIEW-2026-10-28 SEC-1 + SEC-2）。
+             *
+             * 1) 同步关续期闸 + 清内存 CookieJar：否则在飞请求 401 后会拿残留的
+             *    `VIBE_REFRESH` 续期成功、把新 token 写回磁盘 —— "退出登录"在下次
+             *    冷启动时被静默撤销。
+             * 2) 清本地凭据。
+             * 3) 清本地搜索历史：这是"这个人查过什么"，不能随设备留给下一个账号
+             *    （云端副本仍在服务端，同账号重登 pullAndMerge 会拉回来）。
+             *
+             * 所有"凭据已死"的路径都必须走这里，否则同一个泄漏会在别的分支复活。
+             */
+            suspend fun endLocalSession() {
+                VibeApi.endSession()
+                try {
+                    AuthStore.clear(context)
+                } catch (_: Exception) {
+                    SilentFail.note("MainActivity.endLocalSession")
+                }
+                try {
+                    SearchStore.clearHistory(context)
+                } catch (_: Exception) {
+                    SilentFail.note("MainActivity.endLocalSession.searchHistory")
+                }
+                searchHistory = emptyList()
+            }
+
             fun loadPlaylists(background: Boolean = false) {
                 if (playlistsLoading) return
                 if (currentUser == null) return
@@ -1433,13 +1460,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
-                        scope.launch {
-                            try {
-                                AuthStore.clear(context)
-                            } catch (_: Exception) {
-                                SilentFail.note("MainActivity.onCreate:1399")
-                            }
-                        }
+                        endLocalSession()
                         currentUser = null
                         playlists = emptyList()
                     } catch (e: Exception) {
@@ -1476,13 +1497,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         showError(e.message ?: "密码错/登录过期，请重登")
-                        scope.launch {
-                            try {
-                                AuthStore.clear(context)
-                            } catch (_: Exception) {
-                                SilentFail.note("MainActivity.onCreate:1442")
-                            }
-                        }
+                        endLocalSession()
                         currentUser = null
                     } catch (e: Exception) {
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
@@ -1518,13 +1533,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
                         showError(e.message ?: "密码错/登录过期，请重登")
-                        scope.launch {
-                            try {
-                                AuthStore.clear(context)
-                            } catch (_: Exception) {
-                                SilentFail.note("MainActivity.onCreate:1484")
-                            }
-                        }
+                        endLocalSession()
                         currentUser = null
                     } catch (e: Exception) {
                         if (isStalePlaylistSongs(gen, songsGen, selectedPlaylist?.id, plId)) return@launch
@@ -1644,12 +1653,12 @@ class MainActivity : ComponentActivity() {
             fun handleAuthLost(msg: String?, clearTokens: Boolean = true) {
                 showError(msg ?: "密码错/登录过期，请重登")
                 if (!clearTokens) return
+                // 凭据已死：关闸 + 清凭据 + 清本地搜索历史（同一个收尾，别再分叉）。
+                // endSession 必须**同步**先跑：放进 scope.launch 会留一个窗口，让这一瞬
+                // 在飞的 401 用残留 cookie 续期成功。endLocalSession 内部再调一次是幂等的。
+                VibeApi.endSession()
                 scope.launch {
-                    try {
-                        AuthStore.clear(context)
-                    } catch (_: Exception) {
-                        SilentFail.note("MainActivity.onCreate:1610")
-                    }
+                    endLocalSession()
                     try {
                         QueueStore.saveAuthDiag(context, "ME_401_INVALID")
                     } catch (_: Exception) {
@@ -2291,6 +2300,10 @@ class MainActivity : ComponentActivity() {
             }
 
             fun doLogout() {
+                // 同步先关会话闸（清 CookieJar + 置"已登出"），再走网络登出。
+                // 顺序反了就会给在飞请求留窗口：它 401 后用残留的 VIBE_REFRESH
+                // 续期成功、把新 token 写回磁盘，下次冷启动静默登回原账号。
+                VibeApi.endSession()
                 scope.launch {
                     try {
                         VibeApi.logoutBestEffort()
@@ -2303,6 +2316,14 @@ class MainActivity : ComponentActivity() {
                         showError("退出失败: ${e.message ?: e.javaClass.simpleName}")
                         return@launch
                     }
+                    // 搜索历史是"这个人查过什么"，不能留给下一个账号：
+                    // 云端副本仍在服务端，同账号下次登录 pullAndMerge 会拉回来。
+                    try {
+                        SearchStore.clearHistory(context)
+                    } catch (_: Exception) {
+                        SilentFail.note("MainActivity.doLogout.searchHistory")
+                    }
+                    searchHistory = emptyList()
                     recordAuthDiag("USER_LOGOUT")
                     currentUser = null
                     playlists = emptyList()
@@ -2884,11 +2905,7 @@ class MainActivity : ComponentActivity() {
                         }
                         when {
                             invalidCredential -> {
-                                try {
-                                    AuthStore.clear(context)
-                                } catch (_: Exception) {
-                                    SilentFail.note("MainActivity.onCreate:2979")
-                                }
+                                endLocalSession()
                                 currentUser = null
                                 showError(
                                     settledError?.message ?: "密码错/登录过期，请重登"

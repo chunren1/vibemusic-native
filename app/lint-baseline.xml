@@ -34,49 +34,6 @@
             column="62"/>
     </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 26): `android.content.pm.SigningInfo#getApkContentsSigners`"
-        errorLine1="        val apkSigners = archive.signingInfo?.apkContentsSigners"
-        errorLine2="                                              ~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="516"
-            column="47"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 28 (current min is 26): `android.content.pm.PackageInfo#signingInfo`"
-        errorLine1="        val apkSigners = archive.signingInfo?.apkContentsSigners"
-        errorLine2="                         ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="516"
-            column="26"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 26): `android.content.pm.SigningInfo#getApkContentsSigners`"
-        errorLine1="        val appSigners = installed.signingInfo?.apkContentsSigners"
-        errorLine2="                                                ~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="517"
-            column="49"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 28 (current min is 26): `android.content.pm.PackageInfo#signingInfo`"
-        errorLine1="        val appSigners = installed.signingInfo?.apkContentsSigners"
-        errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/UpdateCheck.kt"
-            line="517"
-            column="26"/>
-    </issue>
 
     <issue
         id="BatteryLife"

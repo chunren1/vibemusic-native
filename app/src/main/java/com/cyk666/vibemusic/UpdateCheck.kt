@@ -513,10 +513,10 @@ fun isDownloadComplete(file: File, expectedBytes: Long): Boolean {
 /**
  * Fail-closed signature check for the Top-5 install gate (wiring task):
  * true only when [apkFile] parses AND its APK-content signers exactly match
- * the installed app's signers (`GET_SIGNING_CERTIFICATES` compare — no
- * reflection, R8-safe). Any failure (missing/truncated file, unparsable
- * package, pre-API-28 no signingInfo, signer mismatch — e.g. the 1.0.40-ai
- * key rotation vs a store build) returns false.
+ * the installed app's signers (`GET_SIGNING_CERTIFICATES` on API 28+,
+ * `GET_SIGNATURES` on 26/27 — no reflection, R8-safe). Any failure (missing/
+ * truncated file, unparsable package, no signers, signer mismatch — e.g. the
+ * 1.0.40-ai key rotation vs a store build) returns false.
  * Intended call site (wiring task): `MainActivity.tryInstallUpdate` calls
  * this BEFORE the FileProvider launch — false means "show 签名不一致，需卸载重装
  * (会清空离线内容） and do NOT launch the installer"; true proceeds.
@@ -525,22 +525,48 @@ fun isSameSignature(context: Context, apkFile: File): Boolean {
     try {
         if (!apkFile.exists() || apkFile.length() <= 0L) return false
         val pm = context.packageManager
-        @Suppress("DEPRECATION")
-        val archive = pm.getPackageArchiveInfo(
-            apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES
-        ) ?: return false
-        @Suppress("DEPRECATION")
-        val installed = pm.getPackageInfo(
-            context.packageName, PackageManager.GET_SIGNING_CERTIFICATES
-        ) ?: return false
-        val apkSigners = archive.signingInfo?.apkContentsSigners
-        val appSigners = installed.signingInfo?.apkContentsSigners
+        val apkSigners = packageSigners(pm, apkFile.absolutePath, archive = true)
+        val appSigners = packageSigners(pm, context.packageName, archive = false)
         if (apkSigners.isNullOrEmpty() || appSigners.isNullOrEmpty()) return false
         return apkSigners.map { it.toCharsString() }.toSet() ==
             appSigners.map { it.toCharsString() }.toSet()
-    } catch (_: Exception) {
+    } catch (_: Throwable) {
+        // Throwable, not Exception: on API 26/27 a field added in API 28 throws
+        // NoSuchFieldError (an Error), which used to escape this gate and crash
+        // the caller's coroutine. The API branch below is the real fix; this
+        // catch is the backstop so no install path can ever take the app down.
         return false
     }
+}
+
+/**
+ * Signers of an APK archive ([archive] = true) or of the installed app.
+ *
+ * API split is mandatory: `PackageInfo.signingInfo` only exists on API 28+.
+ * On 26/27 the field access throws `NoSuchFieldError` — not catchable as
+ * `Exception` — so 8.0/8.1 users could never install an update (and crashed
+ * on the way there). `GET_SIGNATURES` is the only door on those versions.
+ */
+@Suppress("DEPRECATION")
+private fun packageSigners(
+    pm: PackageManager,
+    path: String,
+    archive: Boolean
+): Array<android.content.pm.Signature>? {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        val info = if (archive) {
+            pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            pm.getPackageInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+        } ?: return null
+        return info.signingInfo?.apkContentsSigners
+    }
+    val info = if (archive) {
+        pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNATURES)
+    } else {
+        pm.getPackageInfo(path, PackageManager.GET_SIGNATURES)
+    } ?: return null
+    return info.signatures
 }
 
 private fun downloadSingleApk(url: String, destFile: File, expectedBytes: Long): File {

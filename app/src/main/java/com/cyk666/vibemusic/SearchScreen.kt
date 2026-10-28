@@ -353,7 +353,7 @@ fun SearchScreen(
                         // 重复 key 会让 LazyColumn 直接抛异常。
                         itemsIndexed(
                             guessSongs,
-                            key = { index, s -> "guess-$index-${s.sourceId}-${s.platform}" }
+                            key = { index, s -> songRowKey(index, s, "guess") }
                         ) { index, song ->
                             SongRow(
                                 model = buildSongRowModel(song),
@@ -498,7 +498,7 @@ fun SearchScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(visible, key = { _, s -> s.sourceId + s.platform }) { index, song ->
+                    itemsIndexed(visible, key = { index, s -> songRowKey(index, s, "result") }) { index, song ->
                         SongRow(
                             model = buildSongRowModel(song),
                             meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,

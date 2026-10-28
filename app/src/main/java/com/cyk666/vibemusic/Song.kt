@@ -51,6 +51,18 @@ fun formatDuration(totalSec: Int): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
+/**
+ * Stable `LazyColumn` key for a song row: `"<prefix>-<index>-<sourceId>-<platform>"`.
+ *
+ * The index is **mandatory**, not decoration: `randomSongs` / aggregated search
+ * do not guarantee `sourceId + platform` is unique within one list, and a
+ * duplicate key makes `LazyColumn` throw `IllegalStateException: Key was
+ * already used`. Four call sites had drifted to the index-less form and only
+ * one had the fix — hence this single helper (see CODE-REVIEW-2026-10-28 UI-2).
+ */
+fun songRowKey(index: Int, song: Song, prefix: String = "song"): String =
+    "$prefix-$index-${song.sourceId}-${song.platform}"
+
 // Shared [Song] JSON codec (2026-09-17): single implementation for both the
 // QueueStore snapshot and the hotspot disk cache — a second copy would drift.
 // Field set matches the queue snapshot contract exactly (playSave/restore).

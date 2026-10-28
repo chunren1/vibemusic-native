@@ -501,14 +501,14 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 不追求一次修完。按"风险 × 改动量"分四批：
 
-**第 1 批（凭据与崩溃，改动小、收益最高，建议立刻做）**
-- SEC-1 登出清 cookieJar + 拒绝"已登出"状态用 jar cookie
-- SEC-2 登出清 `SearchStore` + `searchHistory`
-- SEC-3 `isSameSignature` 加 API 26/27 分支 + `catch (Throwable)` + 删 lint baseline 两条
-- UI-2 四处 `LazyColumn` key 统一（抽 `songRowKey` + 单测）
-- UPD-1 `checkOnLaunch` 时间戳后置
+**第 1 批（凭据与崩溃）—— ✅ 已修（2026-10-28）**
+- SEC-1 `AuthToken.sessionEnded` 闸 + `VibeApi.endSession()`（清 jar + 置闸），`trySilentRefreshWith` 在 `refreshMutex` 内首行检查；`doLogout` / `handleAuthLost` **同步**先关闸再走网络
+- SEC-2 会话终结统一收口成 `MainActivity.endLocalSession()`（关闸 + 清凭据 + 清 `SearchStore` + `searchHistory`）。**实际不止登出两处**：`loadPlaylists` / `playlistSongs` / `recommendDetailSongs` 的 `AuthException` 分支与冷启动 `me()` 凭据失效共 4 处原本各自 `AuthStore.clear`，同样会把上一个人的关键词带进下一个账号，一并改走同一收口
+- SEC-3 `packageSigners()` 按 `SDK_INT >= 28` 分流（`GET_SIGNING_CERTIFICATES` / `GET_SIGNATURES`）+ `catch (Throwable)`；`lint-baseline.xml` 删掉 4 条 `signingInfo`/`apkContentsSigners` NewApi
+- UI-2 抽 `songRowKey(index, song, prefix)` 到 `Song.kt`，5 处调用点统一
+- UPD-1 `checkOnLaunch` / `checkManual` 的 `saveLastUpdateCheck` 移到拉取成功之后
 
-预计 diff：`VibeApi.kt` ~15 行、`AuthStore.kt` ~5、`MainActivity.kt` ~15、`UpdateCheck.kt` ~20、`UpdateCoordinator.kt` ~8、`SearchScreen.kt`/`DiscoverUi.kt` 各 ~4。新增测试 4-6 例。
+验收：`testDebugUnitTest` **975 例全绿**（+5：`SongRowKeyTest` 4 + `CookieRefreshTest` 1）、`lintRelease` 通过（仅 8 条 `GradleDependency` 版本提示 + baseline 信息项，`UpdateCheck` 零告警）、`assembleDebug` 通过。
 
 **第 2 批（用户可见的"数据消失"与"页面不好用"）**
 - UI-1 四屏 error 态

@@ -332,6 +332,24 @@ object VibeApi {
 
     internal fun clearCookiesForTest() = cookieJar.clear()
 
+    /**
+     * End the session on the client side: drop the in-memory `VIBE_REFRESH`
+     * cookie AND close the silent-refresh gate.
+     *
+     * Must run **before** the logout call and before any in-flight authed
+     * request can 401 — otherwise `trySilentRefreshWith` falls back to the jar
+     * cookie, refreshes successfully, and writes a fresh token back to disk,
+     * silently undoing the logout on the next cold start.
+     *
+     * Cancelling in-flight jobs is not needed and not sufficient: the gate is
+     * checked under `refreshMutex`, so a request that is already flying simply
+     * fails instead of resurrecting the session.
+     */
+    fun endSession() {
+        AuthToken.sessionEnded = true
+        cookieJar.clear()
+    }
+
     @Volatile
     private var appContext: android.content.Context? = null
 
@@ -354,6 +372,10 @@ object VibeApi {
         client: OkHttpClient
     ): RefreshOutcome {
         refreshMutex.withLock {
+            // Logged out: never resurrect the session from a leftover cookie.
+            // (endSession() also clears the jar; this is the belt to that brace,
+            // covering an in-flight request that grabbed the jar before the clear.)
+            if (AuthToken.sessionEnded) return RefreshOutcome.NETWORK_FAIL
             if (shouldReuseRefreshedToken(AuthToken.token, failedToken)) return RefreshOutcome.REFRESHED
             val ctx = appContext ?: return RefreshOutcome.NETWORK_FAIL
             val rt = AuthToken.refreshToken

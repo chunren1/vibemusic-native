@@ -19,6 +19,19 @@ object AuthToken {
     @Volatile var token: String = ""
     @Volatile var refreshToken: String = ""
     @Volatile var username: String = ""
+
+    /**
+     * Set by logout / auth-loss, cleared by the next successful login.
+     *
+     * Why it exists: the silent-refresh path deliberately falls back to the
+     * HttpOnly `VIBE_REFRESH` cookie in [VibeApi.cookieJar] when the persisted
+     * refreshToken is blank (cookie-only sessions). After a logout that jar
+     * still holds the cookie, so an in-flight 401 could refresh successfully
+     * and write a fresh access token back to disk — "退出登录" would silently
+     * undo itself on the next cold start. This flag is the gate that makes
+     * "logged out" distinguishable from "cookie-only session".
+     */
+    @Volatile var sessionEnded: Boolean = false
 }
 
 /** Token-only persistence. Password is never stored. */
@@ -53,6 +66,8 @@ object AuthStore {
         AuthToken.token = token
         AuthToken.username = username
         if (refreshToken.isNotBlank()) AuthToken.refreshToken = refreshToken
+        // A successful login/register re-arms silent refresh.
+        AuthToken.sessionEnded = false
     }
 
     suspend fun saveTokens(context: Context, token: String, refreshToken: String) {
@@ -74,6 +89,7 @@ object AuthStore {
         AuthToken.token = ""
         AuthToken.refreshToken = ""
         AuthToken.username = ""
+        AuthToken.sessionEnded = true
     }
 
     suspend fun load(context: Context): Snapshot {

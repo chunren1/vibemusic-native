@@ -9,6 +9,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -201,6 +202,47 @@ class CookieRefreshTest {
             assertEquals("VIBE_REFRESH=jar-ref", stub.cookieHeaders.single())
             assertEquals("new-acc", AuthToken.token)
             assertEquals("new-jar-ref", AuthStore.load(context()).refreshToken)
+        } finally {
+            stub.stop()
+        }
+    }
+
+    // ---- #1d: endSession 后即使 jar 仍带 cookie 也拒绝续期（SEC-1 回归） ----
+
+    @Test
+    fun endSession_blocksJarCookieRefreshAndLeavesDiskUntouched(): Unit = runBlocking {
+        val stub = CookieStub(
+            listOf(Triple(200, listOf(setRefreshCookie("new-ref")), tokenOnlyBody("new-acc")))
+        )
+        stub.start()
+        try {
+            val url = stub.endpoint().toHttpUrl()
+            val seed = Cookie.parse(
+                url, "VIBE_REFRESH=jar-ref; Path=/api/auth/refresh; Max-Age=604800; HttpOnly"
+            )!!
+            VibeApi.cookieJar.saveFromResponse(url, listOf(seed))
+            // cookie-only 会话：持久化 refreshToken 为空，jar 是唯一凭据。
+            AuthToken.refreshToken = ""
+            assertEquals("jar-ref", VibeApi.refreshCookieFor(stub.endpoint()))
+
+            // doLogout 的第一步就是它：清 jar + 置闸。
+            VibeApi.endSession()
+            assertTrue(AuthToken.sessionEnded)
+            assertEquals("", VibeApi.refreshCookieFor(stub.endpoint()))
+
+            // 把 cookie 塞回 jar，模拟"在飞请求在 clear 之前已经抓到 cookie"——
+            // 闸必须独立生效，不能只靠清 jar。
+            VibeApi.cookieJar.saveFromResponse(url, listOf(seed))
+
+            val outcome = VibeApi.trySilentRefreshWith("old-acc", stub.endpoint(), testClient)
+            assertEquals(RefreshOutcome.NETWORK_FAIL, outcome)
+            // 一次网络都没打：闸在发请求之前。
+            assertEquals(0, stub.hits.get())
+            // 磁盘凭据没被续期改写 → 下次冷启动不会静默登回原账号。
+            val snap = AuthStore.load(context())
+            assertEquals("old-acc", snap.token)
+            assertEquals("old-ref", snap.refreshToken)
+            assertNotEquals("new-acc", AuthToken.token)
         } finally {
             stub.stop()
         }

@@ -453,7 +453,7 @@ fun DiscoverScreen(
                     ) {
                         itemsIndexed(
                             dailyGated,
-                            key = { _, s -> "daily-" + s.sourceId + s.platform }
+                            key = { index, s -> songRowKey(index, s, "daily") }
                         ) { index, song ->
                             val back = dailyGated.getOrNull(index + 1)?.coverUrl.orEmpty()
                             HomeSongCard(
@@ -498,7 +498,7 @@ fun DiscoverScreen(
                     ) {
                         itemsIndexed(
                             guessGated,
-                            key = { _, s -> "guess-" + s.sourceId + s.platform }
+                            key = { index, s -> songRowKey(index, s, "guess") }
                         ) { index, song ->
                             val back = guessGated.getOrNull(index + 1)?.coverUrl.orEmpty()
                             HomeSongCard(
@@ -536,7 +536,7 @@ fun DiscoverScreen(
             if (dailyGated.isNotEmpty()) {
                 itemsIndexed(
                     dailyGated,
-                    key = { _, s -> "encounter-" + s.sourceId + s.platform }
+                    key = { index, s -> songRowKey(index, s, "encounter") }
                 ) { index, song ->
                     EncounterRow(
                         song = song,
