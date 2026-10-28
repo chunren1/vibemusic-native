@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,6 +24,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -76,6 +78,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,7 +87,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +97,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -129,6 +135,19 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
+
+/**
+ * UI-5：可用高度低于此值（横屏、折叠屏半开、分屏）时，播放页封面分支改为可滚动布局。
+ * 预算：非加权子项合计约 440dp + 上下 12dp padding + 状态栏 ≈ 470dp，取 480dp 为界；
+ * 竖屏手机（≥600dp）与横屏平板都不会误触发。
+ */
+private const val PLAYER_COMPACT_HEIGHT_DP = 480
+
+/**
+ * UI-5：紧凑布局下封面的固定边长（正方形）。横屏时不能再用 weight 吃剩余空间 ——
+ * verticalScroll 会给子项无限高约束，加权子项会被算成 0 高（封面直接消失）。
+ */
+private val PLAYER_COMPACT_COVER_DP = 180.dp
 
 @Composable
 fun HeroControls(
@@ -352,15 +371,33 @@ fun PlayerScreen(
     onOpenSearch: () -> Unit = {}
 ) {
     val song = queue.getOrNull(currentIndex)
-    val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
-        .filterNot { isBlankLyricLine(it.text) || isMusicSymbolLine(it.text) }
+    // UI-3：过滤只在歌词变化时做一次。原实现每次重组都新建 List + 全表 filterNot，
+    // 而 500ms 的位置 tick 会稳定触发重组 —— 几百行歌词每 tick 白白分配/扫描一遍。
+    val lines = remember(lyricState) {
+        (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
+            .filterNot { isBlankLyricLine(it.text) || isMusicSymbolLine(it.text) }
+    }
     // Manual per-song karaoke offset: the effective clock drives the active
     // line, the sweep, and the cover preview — one shift, everywhere.
     val offsetMs = clampLyricOffset(lyricOffsetMs)
     val effPositionMs = applyLyricOffset(positionMs, offsetMs)
-    val currentLine = lines.indexOfLast { it.timeSec * 1000 <= effPositionMs }
+    // UI-3：positionMs 是普通参数（每个 tick 都是新值），derivedStateOf 的计算式
+    // 只有读到 State 才会被失效重算，所以先把它装进 State。这样包在
+    // derivedStateOf 里的读取只有「effPositionState.value + lines」；计算结果
+    // （当前行下标）与上次相同时不会向下游通知，因此歌词行的"当前行高亮"只在
+    // 跨行那一刻重组，而不是每个 tick 都重组一遍。
+    val effPositionState = rememberUpdatedState(effPositionMs)
+    val currentLine by remember(lines) {
+        derivedStateOf {
+            lines.indexOfLast { it.timeSec * 1000 <= effPositionState.value }
+        }
+    }
     val lyricsListState = rememberLazyListState()
-    var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
+    // UI-4：不再拿 song?.sourceId 当 key —— 自动切歌（一首播完进下一首）不该把
+    // 正在看歌词的用户弹回封面。至于"重新进入播放页回封面"，由组合生命周期保证：
+    // MainActivity 的 Crossfade(targetState = screen) 在离开 Screen.Player 后会
+    // 销毁本组合，remember 自然重置成 COVER，无需挂在歌曲变化上。
+    var view by remember { mutableStateOf(PlayerView.COVER) }
     var showHints by remember { mutableStateOf(false) }
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
@@ -400,12 +437,42 @@ fun PlayerScreen(
         label = "coverCorner"
     )
 
-    LaunchedEffect(currentLine, lines, view) {
-        if (view == PlayerView.LYRICS && currentLine >= 0) {
+    // UI-3：自动跟随必须让位于用户手势。
+    // ① isScrollInProgress：手指还按着或惯性未停时不抢；
+    // ② lastManualScrollAt：用户拖动过列表后 LYRIC_MANUAL_SCROLL_HOLD_MS 内不自动跟随
+    //    （想往上翻副歌，不能每换一句就被硬拉回当前行）。
+    // 时间基准用 elapsedRealtime：墙钟会被用户改系统时间影响（与 CODE-7 同一笔债务）。
+    val lastManualScrollAt = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(lyricsListState) {
+        // interactionSource 只在"用户拖动"时发 DragInteraction.Start；
+        // 程序化的 scrollToItem 不会产生它，所以不会自己把自己锁住 5 秒。
+        lyricsListState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                lastManualScrollAt.longValue = SystemClock.elapsedRealtime()
+            }
+        }
+    }
+    LaunchedEffect(view, lines) {
+        if (view != PlayerView.LYRICS) return@LaunchedEffect
+        // snapshotFlow 自带去重：读的是 derivedStateOf，值不变就不发事件，
+        // 因此这里只在"当前行变了"时执行，不会跟着 500ms tick 反复滚。
+        var firstEmission = true
+        snapshotFlow { currentLine }.collect { line ->
+            // 刚进入歌词页 / 刚换完歌词的第一次必须立刻定位，否则"防抢手势"
+            // 会退化成"永远不跟随"。
+            val entering = firstEmission
+            firstEmission = false
+            if (line < 0) return@collect
+            if (lyricsListState.isScrollInProgress) return@collect
+            if (!entering && SystemClock.elapsedRealtime() - lastManualScrollAt.longValue <
+                LYRIC_MANUAL_SCROLL_HOLD_MS
+            ) {
+                return@collect
+            }
             try {
-                lyricsListState.scrollToItem(currentLine)
+                lyricsListState.scrollToItem(line)
             } catch (_: Exception) {
-                SilentFail.note("PlayerScreen.PlayerScreen:407")
+                SilentFail.note("PlayerScreen.PlayerScreen:autoScroll")
             }
         }
     }
@@ -696,9 +763,20 @@ fun PlayerScreen(
             }
         } else {
             // Same unified top inset as the LYRICS branch above.
+            // UI-5：横屏（可用高度 < PLAYER_COMPACT_HEIGHT_DP）时，非加权子项合计约
+            // 440dp 会把进度条和播放键挤出屏幕。竖屏保持原布局（封面用 weight 吃掉
+            // 剩余空间，视觉零变化）；横屏改为整列可滚动 + 封面固定高度。
+            // 二者必须互斥：verticalScroll 给子项的是无限高约束，加权子项会被算成 0 高
+            // （封面直接消失），所以横屏这一支不保留任何 weight。
+            val compactHeight =
+                LocalConfiguration.current.screenHeightDp < PLAYER_COMPACT_HEIGHT_DP
             Column(
                 modifier = Modifier.fillMaxSize().statusBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .then(
+                        if (compactHeight) Modifier.verticalScroll(rememberScrollState())
+                        else Modifier
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
@@ -731,8 +809,15 @@ fun PlayerScreen(
                 }
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                        // 竖屏：weight 吃剩余高度（原行为）；横屏：固定正方形，因为滚动
+                        // 容器里没有"剩余高度"可分配（见上方 compactHeight 注释）。
+                        // 用 size 而不是 height：VinylCover 是"按宽度取边长"的
+                        // （fillMaxWidth(fraction) + aspectRatio(1f)），只限高会让
+                        // 0.62×宽度 超过可用高度，aspectRatio 退化成非正方形。
+                        .then(
+                            if (compactHeight) Modifier.size(PLAYER_COMPACT_COVER_DP)
+                            else Modifier.weight(1f).fillMaxWidth()
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -768,7 +853,8 @@ fun PlayerScreen(
                             spinKey = song?.sourceId,
                             scale = coverScale,
                             cornerDp = coverCornerDp,
-                            fraction = 0.62f
+                            // 紧凑布局下 Box 已是定宽正方形，fraction=1 才能铺满且不畸变。
+                            fraction = if (compactHeight) 1f else 0.62f
                         )
                     }
                 }

@@ -510,13 +510,19 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 验收：`testDebugUnitTest` **975 例全绿**（+5：`SongRowKeyTest` 4 + `CookieRefreshTest` 1）、`lintRelease` 通过（仅 8 条 `GradleDependency` 版本提示 + baseline 信息项，`UpdateCheck` 零告警）、`assembleDebug` 通过。
 
-**第 2 批（用户可见的"数据消失"与"页面不好用"）**
-- UI-1 四屏 error 态
-- UI-3 歌词页 remember + 手势保护
-- UI-4 `view` 去 key
-- UI-5 `rememberSaveable` + 播放页滚动
-- UI-6 返回键/收藏键 contentDescription
-- PB-1 离线 local 错误交回单属主前进（需真机回归：离线连播、坏文件跳歌）
+**第 2 批（用户可见的"数据消失"与"页面不好用"）—— ✅ 已修（UI 六条 + CI-1，2026-10-28）**
+- UI-1 四屏 error 态：`HistoryScreen` / `FavoritesScreen` / `PlaylistsScreen` / `MineScreen` 各加 `error: String? = null`（`MineScreen` 为 `playlistsError`），统一走纯函数 `selectListState(loading, error, isEmpty)` 分派，ERROR 分支复用 `DiscoverRetryRow`。**只有"列表空 + 有 error"才显示失败行**，有数据时不抢屏。`MainActivity` 新增 `favError` / `historyError` / `playlistsError`（成功清零、失败记 `friendlyNetworkMessage(e)`），`endLocalSession()` 一并清三者（否则换账号会看到上一个人的失败态）。`MineScreen.onRetryPlaylists` 由此从死参数变成真实重试入口
+- UI-3 歌词页：`lines` 过滤改 `remember(lyricState)`（原每 tick 全量 `filterNot` + 分配）；`currentLine` 改 `derivedStateOf` + `rememberUpdatedState`（失效粒度仍是每 tick，**通知粒度降到"行号变了"**）；跟随改 `snapshotFlow { currentLine }` + `isScrollInProgress` + 手动拖动打点（`interactionSource` 的 `DragInteraction.Start`）+ 5s 静默窗（`LYRIC_MANUAL_SCROLL_HOLD_MS`，`SystemClock.elapsedRealtime()`），进歌词页首帧强制定位。`KaraokeLine` 非激活行 `bodyMedium` → `titleMedium`，字号层级改由颜色表达，行高恒定
+- UI-4 `view` 去掉 `song?.sourceId` key（换歌不再弹回封面）。已核实离开 `Screen.Player` 时 `Crossfade` 分支销毁组合、`remember` 自然重置，"关闭再打开回封面"不受影响
+- UI-5 导航态：`Screen.kt` 新增 `screenRoute` / `encodeScreen` / `decodeScreen` / `ScreenSaver`（`route|字段…`，`%` 与 `|` 转义；**未知 route / 字段截断 / 非法数字一律降级 `Screen.Discover`，绝不崩**）；`screen` 改 `rememberSaveable(stateSaver = ScreenSaver)`，`recommendImportId` 一并存盘（丢了会把 `recommend:xxx` 当歌单 id 请求 → 必然 404）；恢复成 `PlaylistDetail` 且 `playlistSongs` 已空时补拉一次（`songsLoadedFor` / `songsLoading` 守卫，正常点入不会重复请求）
+- UI-5 横屏：`screenHeightDp < PLAYER_COMPACT_HEIGHT_DP(480)` 时**只给封面分支**加 `verticalScroll`，封面改固定 180dp 正方形 + `fraction = 1f`（`weight` 与滚动互斥，滚动容器下加权子项会塌成 0）。歌词分支仍只有 `LazyColumn` 一层垂直滚动 —— 不存在"滚动容器套 LazyColumn"的无限高崩溃
+- UI-6 语义标签：`PlaylistDetailUi` 唯一的图标返回键补 `contentDescription = "返回"`；`FavHeart` 按 `faved` 给「取消收藏 / 收藏」。`CHEVRON_LEFT` 其余 7 处均为 `TextButton` 内"图标 + 中文文字"，补标签会重复播报，判定为装饰不动（`AppIcon` 形参本就有 `contentDescription`，未改签名）
+- CI-1：`android-smoke.yml` 的 `paths` 补 `app/src/**` / `lint-baseline.xml` / `proguard-rules.pro`，加 `pull_request` 触发、`testDebugUnitTest` 步骤、同分支并发取消。此后改一行 Kotlin 也会跑全量单测 + `assembleDebug`（`lintRelease` 仍留 `release.yml`，属发版门）
+
+验收：`testDebugUnitTest` **980 例全绿**（+5：`ScreenTest` 5；`SongRowKeyTest` 4 已在第 1 批）、`lintRelease` 通过（0 error / 8 条 `GradleDependency` 版本提示 + 2 条 baseline 信息项）、`assembleDebug` 通过（`app-debug.apk` 24,129,073 B）。
+
+**第 2 批剩余（需真机回归，暂缓）**
+- PB-1 离线 local 错误交回单属主前进（离线连播、坏文件跳歌）
 - PB-2 `fails` 越线后真删+重下，或改文案说真话
 
 **第 3 批（契约健壮性 + 自更新 + 播放边缘）**
@@ -550,7 +556,8 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 - 安装器在 API 26/27 设备上的行为（SEC-3 修完后回归）
 - 离线连播 + 坏文件自动跳歌（PB-1/PB-2 修完后回归，需飞行模式 + 一个截断的下载文件）
 - 随机模式下离线跳歌落点（PB-7）
+- 第 2 批新增：横屏播放页（`PLAYER_COMPACT_HEIGHT_DP = 480` 阈值、封面 180dp 观感）、歌词页手势（拖动后 5s 内不抢滚动）与滚动流畅度、系统字号 1.3/2.0 下四屏与歌词页、旋转后是否停留原页（含歌单详情）
 
 ---
 
-*本报告未改动任何仓库文件。是否入库（`docs/CODE-REVIEW-2026-10-28.md`）与是否按第 1 批开修，等确认。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）与第 2 批的 UI 六条 + CI-1 已修并验收；PB-1/PB-2 与第 3、4 批待开工，工具链升级与 i18n 待用户决策。*

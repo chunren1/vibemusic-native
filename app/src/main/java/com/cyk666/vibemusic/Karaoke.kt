@@ -243,6 +243,13 @@ const val KARAOKE_SMOOTH_MS = 120
 const val LYRIC_FAST_TICK_MS = 100L
 
 /**
+ * UI-3: 用户手动拖动歌词列表后，自动跟随静默的窗口（毫秒）。
+ * 5s 够翻完一段副歌；过后由下一次跨行自然恢复跟随，不需要额外定时器。
+ * 计时用 elapsedRealtime，不受用户改系统时间影响。
+ */
+const val LYRIC_MANUAL_SCROLL_HOLD_MS = 5_000L
+
+/**
  * Pure: fraction of [lineStartMs, lineEndMs) covered at [positionMs],
  * clamped to 0..1. Degenerate windows (end <= start) snap to 0/1 by side.
  */
@@ -446,9 +453,11 @@ fun KaraokeLine(
         line.text.ifBlank { " " }
     }
     if (!isActive) {
+        // UI-3：非激活行曾用 bodyMedium，激活行用 titleMedium —— 换行时整列行高
+        // 跳变、列表上下抖动。行高恒定是本意，字号层级改由颜色表达（Dim → Lit）。
         Text(
             text = plain,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = KaraokeDim,
             modifier = modifier
         )

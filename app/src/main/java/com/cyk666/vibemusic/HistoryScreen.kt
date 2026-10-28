@@ -139,6 +139,7 @@ fun HistoryScreen(
     modifier: Modifier = Modifier,
     items: List<VibeApi.HistoryItem>,
     loading: Boolean,
+    error: String? = null,
     favIds: Set<String> = emptySet(),
     onPlayAt: (Int) -> Unit,
     onToggleFav: (Song) -> Unit = {},
@@ -169,34 +170,34 @@ fun HistoryScreen(
             }
         }
         Spacer(Modifier.height(4.dp))
-        if (loading) {
-            SearchSkeleton()
-            return
-        }
-        if (items.isEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text("还没有播放记录，去搜一首播吧")
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRetry) {
-                Text("刷新")
+        // 失败 ≠ 空：断网时若落进 empty 分支，用户会以为播放记录被清空了
+        when (selectListState(loading = loading, error = error, isEmpty = items.isEmpty())) {
+            ListState.LOADING -> SearchSkeleton()
+            ListState.ERROR -> DiscoverRetryRow(message = error.orEmpty(), onRetry = onRetry)
+            ListState.EMPTY -> {
+                Spacer(Modifier.height(16.dp))
+                Text("还没有播放记录，去搜一首播吧")
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onRetry) {
+                    Text("刷新")
+                }
             }
-            return
-        }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(items, key = { idx, h -> h.song.sourceId + h.song.platform + idx }) { index, item ->
-                val song = item.song
-                SongRow(
-                    model = buildSongRowModel(
-                        song,
-                        subtitleOverride = if (item.playedAt.isNotBlank()) {
-                            item.playedAt.replace("T", " ").take(16) + " · " + song.artist
-                        } else {
-                            "第${index + 1}首 · " + song.artist
-                        }
-                    ),
-                    onClick = { onPlayAt(index) },
-                    onOverflow = { sheetFor = item }
-                )
+            ListState.CONTENT -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                itemsIndexed(items, key = { idx, h -> h.song.sourceId + h.song.platform + idx }) { index, item ->
+                    val song = item.song
+                    SongRow(
+                        model = buildSongRowModel(
+                            song,
+                            subtitleOverride = if (item.playedAt.isNotBlank()) {
+                                item.playedAt.replace("T", " ").take(16) + " · " + song.artist
+                            } else {
+                                "第${index + 1}首 · " + song.artist
+                            }
+                        ),
+                        onClick = { onPlayAt(index) },
+                        onOverflow = { sheetFor = item }
+                    )
+                }
             }
         }
     }

@@ -134,7 +134,10 @@ fun PlaylistDetailScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted)
+                // 这一页只有图标返回键、没有「返回/我的」文字入口：CHEVRON_LEFT 默认标签是
+                // null（其他页面靠旁边文字兜底，见 defaultAppIconLabel），此处必须显式给标签，
+                // 否则 TalkBack 只会念「按钮」，读屏用户无法离开歌单详情。
+                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, contentDescription = "返回")
             }
             Text(
                 text = playlist.name.ifBlank { "(untitled)" },

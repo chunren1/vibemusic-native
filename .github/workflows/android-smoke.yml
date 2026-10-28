@@ -1,11 +1,13 @@
-# 编译冒烟：验证「工具链外围」还能不能构建
+# 编译 + 单测冒烟：验证「源码改动」还能不能编、测试还绿不绿
 #
-# 为什么需要它：release.yml 只在打 tag 时跑，所以 action 大版本升级 / runner 镜像切换
-# 之后，没有任何廉价办法确认链路没坏 —— 要么盲发一版，要么等下一次真发版翻车。
-# 本 workflow 用**与 release.yml 完全相同的 action 版本与 runner**，只做到
-# assembleDebug，几分钟出结论，可手动触发也可在相关文件变更时自动跑。
+# 为什么需要它（2026-10-28 代码审查 CI-1）：
+# release.yml 只在打 tag 时跑，android-smoke 原来只认工具链外围文件 —— 也就是说
+# **改任何 app/src/**/*.kt 都不会触发任何 CI**，问题只在打 tag 那一刻暴露，而工作流
+# 取自 tag 指向的提交，tag 打错了改不动（2026-10-27 已踩过）。本 workflow 补上
+# "改源码就跑 testDebugUnitTest + assembleDebug" 这条最便宜的回路。
 #
-# 它不替代发版：不签名、不发 Release、不碰 Gitee。
+# 它不替代发版：不签名、不发 Release、不碰 Gitee、不跑 lintRelease（lint 依赖
+# app/lint-baseline.xml 快照，属发版门，放在 release.yml 里一次跑完更省）。
 
 name: android-smoke
 
@@ -19,12 +21,32 @@ on:
       - 'settings.gradle.kts'
       - 'build.gradle.kts'
       - 'app/build.gradle.kts'
+      - 'app/proguard-rules.pro'
+      - 'app/lint-baseline.xml'
+      - 'app/src/**'
+      - 'gradle.properties'
+  pull_request:
+    paths:
+      - '.github/workflows/android-smoke.yml'
+      - '.github/workflows/release.yml'
+      - 'gradle/**'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
+      - 'app/build.gradle.kts'
+      - 'app/proguard-rules.pro'
+      - 'app/lint-baseline.xml'
+      - 'app/src/**'
       - 'gradle.properties'
 
+# 同一分支连推两次时取消上一轮（冒烟结论只对最新提交有意义）
+concurrency:
+  group: android-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  assemble-debug:
+  test-and-assemble:
     runs-on: ubuntu-24.04 # 与 release.yml 一致（ubuntu-latest 自 2026-10-19 起迁 26.04）
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +65,10 @@ jobs:
 
       - name: Grant gradlew
         run: chmod +x gradlew
+
+      # ★ 验收门：970+ 例单测必须全绿（与 release.yml 同一个任务，同一份真值）
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
 
       - name: assembleDebug
         run: ./gradlew assembleDebug --no-daemon

@@ -139,6 +139,7 @@ fun FavoritesScreen(
     modifier: Modifier = Modifier,
     songs: List<Song>,
     loading: Boolean,
+    error: String? = null,
     favIds: Set<String> = emptySet(),
     onPlayAt: (Int) -> Unit,
     onToggleFav: (Song) -> Unit = {},
@@ -167,18 +168,26 @@ fun FavoritesScreen(
             }
         }
         Spacer(Modifier.height(4.dp))
-        if (loading) {
-            SearchSkeleton()
-            return
-        }
-        if (songs.isEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text("还没有收藏，去搜一首点❤吧")
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRetry) {
-                Text("刷新")
+        // 失败 ≠ 空：断网时若落进 empty 分支，用户会以为收藏被清空了
+        when (selectListState(loading = loading, error = error, isEmpty = songs.isEmpty())) {
+            ListState.LOADING -> {
+                SearchSkeleton()
+                return
             }
-            return
+            ListState.ERROR -> {
+                DiscoverRetryRow(message = error.orEmpty(), onRetry = onRetry)
+                return
+            }
+            ListState.EMPTY -> {
+                Spacer(Modifier.height(16.dp))
+                Text("还没有收藏，去搜一首点❤吧")
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onRetry) {
+                    Text("刷新")
+                }
+                return
+            }
+            ListState.CONTENT -> Unit
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(songs, key = { idx, s -> s.sourceId + s.platform + idx }) { index, song ->

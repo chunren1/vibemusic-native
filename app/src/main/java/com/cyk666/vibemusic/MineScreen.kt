@@ -142,6 +142,7 @@ fun MineScreen(
     authChecked: Boolean,
     playlists: List<Playlist>,
     playlistsLoading: Boolean,
+    playlistsError: String? = null,
     onLoginClick: () -> Unit,
     onRetryPlaylists: () -> Unit,
     onSelectPlaylist: (Playlist) -> Unit,
@@ -290,16 +291,25 @@ fun MineScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
-        if (playlistsLoading) {
-            SearchSkeleton()
-        } else if (playlists.isEmpty()) {
-            EmptyStateLine(
+        // 失败 ≠ 空：加载失败要给出重试入口，否则用户以为歌单被删光了（本页原本没有重试按钮）
+        when (
+            selectListState(
+                loading = playlistsLoading,
+                error = playlistsError,
+                isEmpty = playlists.isEmpty()
+            )
+        ) {
+            ListState.LOADING -> SearchSkeleton()
+            ListState.ERROR -> DiscoverRetryRow(
+                message = playlistsError.orEmpty(),
+                onRetry = onRetryPlaylists
+            )
+            ListState.EMPTY -> EmptyStateLine(
                 text = "还没有歌单，新建一个开始收藏吧",
                 actionLabel = "去搜索",
                 onAction = onGoSearch
             )
-        } else {
-            MineSectionCard {
+            ListState.CONTENT -> MineSectionCard {
                 playlists.forEachIndexed { index, pl ->
                     if (index > 0) MineDivider()
                     EntryRow(

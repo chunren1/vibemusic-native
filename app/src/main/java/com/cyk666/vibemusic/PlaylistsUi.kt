@@ -42,6 +42,7 @@ fun PlaylistsScreen(
     modifier: Modifier = Modifier,
     playlists: List<Playlist>,
     playlistsLoading: Boolean,
+    error: String? = null,
     onBack: () -> Unit = {},
     onSelectPlaylist: (Playlist) -> Unit = {},
     onCreatePlaylist: (String, String) -> Unit = { _, _ -> },
@@ -175,16 +176,25 @@ fun PlaylistsScreen(
             )
         }
         Spacer(Modifier.height(4.dp))
-        if (playlistsLoading) {
-            SearchSkeleton()
-        } else if (playlists.isEmpty()) {
-            EmptyStateLine(
+        // 失败 ≠ 空：加载失败时若落进 empty 分支，用户会以为歌单被删光了
+        when (
+            selectListState(
+                loading = playlistsLoading,
+                error = error,
+                isEmpty = playlists.isEmpty()
+            )
+        ) {
+            ListState.LOADING -> SearchSkeleton()
+            ListState.ERROR -> DiscoverRetryRow(
+                message = error.orEmpty(),
+                onRetry = onRetryPlaylists
+            )
+            ListState.EMPTY -> EmptyStateLine(
                 text = "还没有歌单，新建一个开始收藏吧",
                 actionLabel = "去搜索",
                 onAction = onGoSearch
             )
-        } else {
-            MineSectionCard {
+            ListState.CONTENT -> MineSectionCard {
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),

@@ -637,7 +637,10 @@ fun FavHeart(faved: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
             kind = AppIconKind.HEART,
             tint = if (faved) UiFavRed else UiMuted,
             filled = faved,
-            size = 24.dp
+            size = 24.dp,
+            // HEART 的默认标签固定是「收藏」，已收藏时读屏仍念「收藏」，用户判断不了点下去
+            // 是收藏还是取消；按状态给动作名（这是切换按钮，标签应描述点击结果）。
+            contentDescription = if (faved) "取消收藏" else "收藏"
         )
     }
 }

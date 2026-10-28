@@ -86,6 +86,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -219,7 +220,11 @@ class MainActivity : ComponentActivity() {
             // QueueStore snapshot — never on session callbacks (see
             // PlaybackService NOTEs: materializers reverted twice).
             var controllerGen by remember { mutableIntStateOf(0) }
-            var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
+            // 旋转/进程重建后留在原页（UI-5）：设置里可选「跟随系统」方向，那时
+            // Activity 会被重建，普通 remember 一律回首页。编码规则见 Screen.kt。
+            var screen by rememberSaveable(stateSaver = ScreenSaver) {
+                mutableStateOf<Screen>(Screen.Discover)
+            }
             // Phase 10: where the user came from before entering Player, so
             // swipe-down-close returns to the previous tab (default Search).
             var playerOrigin by remember { mutableStateOf<Screen>(Screen.Search) }
@@ -322,14 +327,19 @@ class MainActivity : ComponentActivity() {
             var favBusy by remember { mutableStateOf(setOf<String>()) }
             var favSongs by remember { mutableStateOf(listOf<Song>()) }
             var favLoading by remember { mutableStateOf(false) }
+            // 失败 ≠ 空（UI-1）：没有这个状态时，断网会把「我的收藏」渲染成
+            // 「还没有收藏」，用户会以为收藏被清空了。
+            var favError by remember { mutableStateOf<String?>(null) }
             var historyItems by remember { mutableStateOf(listOf<VibeApi.HistoryItem>()) }
             var historyLoading by remember { mutableStateOf(false) }
+            var historyError by remember { mutableStateOf<String?>(null) }
             var lastReportedKey by remember { mutableStateOf<String?>(null) }
             var uploadTarget by remember { mutableStateOf<String?>(null) }
 
             // ---- mine state ----
             var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
             var playlistsLoading by remember { mutableStateOf(false) }
+            var playlistsError by remember { mutableStateOf<String?>(null) }
             var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
             var playlistSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
             var songsLoading by remember { mutableStateOf(false) }
@@ -344,7 +354,9 @@ class MainActivity : ComponentActivity() {
             // Unimported treasure view: raw recommend id behind the transient
             // recommend:xxx detail (drives the detail [加入我的歌单] button;
             // null on normal Mine details so the button stays hidden).
-            var recommendImportId by remember { mutableStateOf<String?>(null) }
+            // 必须一起存盘：恢复出的 PlaylistDetail 靠它区分「推荐详情」与「自建歌单」，
+            // 丢了会把 recommend:xxx 当歌单 id 请求（必然 404）。
+            var recommendImportId by rememberSaveable { mutableStateOf<String?>(null) }
             // Playback generation: bumped on every playAt / queueSeekTo /
             // queueRemoveAt so a stale async seek (slow IO landing after a
             // rapid double-tap) can never hit the new song. Same idiom as
@@ -1445,6 +1457,11 @@ class MainActivity : ComponentActivity() {
                     SilentFail.note("MainActivity.endLocalSession.searchHistory")
                 }
                 searchHistory = emptyList()
+                // 会话结束时列表也一起清了，失败态必须跟着清：否则换账号登录后
+                // 会在空列表上继续显示上一个人的「加载失败」。
+                favError = null
+                historyError = null
+                playlistsError = null
             }
 
             fun loadPlaylists(background: Boolean = false) {
@@ -1454,6 +1471,7 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         playlists = VibeApi.myPlaylists()
+                        playlistsError = null
                         playlistsLastLoaded = System.currentTimeMillis()
                         currentUser?.userId?.let { uid ->
                             HotspotStore.write(context, "playlists", encodePlaylists(uid, playlists))
@@ -1467,6 +1485,9 @@ class MainActivity : ComponentActivity() {
                         // Background refresh failures stay silent when stale
                         // content keeps showing; foreground loads surface them
                         // with a diagnosable message (no silent failure).
+                        // error 状态无条件记：有内容时 selectListState 返回 CONTENT，
+                        // 失败行不会抢屏；只有列表真的空时才显示它。
+                        playlistsError = friendlyNetworkMessage(e)
                         if (!background) {
                             showError(diagnosableError("歌单加载失败", e))
                         }
@@ -1695,11 +1716,15 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         historyItems = VibeApi.history(20)
+                        historyError = null
                     } catch (e: NetworkAuthException) {
                         handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
+                        // 记进状态：断网时列表为空 + 有 error → 显示「加载失败/重试」，
+                        // 而不是「还没有播放记录」（UI-1）。
+                        historyError = friendlyNetworkMessage(e)
                         showError("历史加载失败: ${friendlyNetworkMessage(e)}")
                     } finally {
                         historyLoading = false
@@ -1744,11 +1769,13 @@ class MainActivity : ComponentActivity() {
                 scope.launch {
                     try {
                         favSongs = VibeApi.favList(200)
+                        favError = null
                     } catch (e: NetworkAuthException) {
                         handleAuthLost(e.message, clearTokens = false)
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
+                        favError = friendlyNetworkMessage(e)
                         showError(diagnosableError("收藏加载失败", e))
                     } finally {
                         favLoading = false
@@ -3020,6 +3047,21 @@ class MainActivity : ComponentActivity() {
                 if (screen is Screen.Favorites && currentUser != null && favSongs.isEmpty() && !favLoading) {
                     loadFavorites()
                 }
+                // 旋转/进程重建后 screen 被恢复成 PlaylistDetail，但内存里的
+                // playlistSongs 已清空（songsLoadedFor 也一起失效）—— 不补拉就会停在
+                // 「上次的内容已过期」态。只在真的缺数据时拉一次：正常点进歌单时
+                // 点击处已经 loadSongs（songsLoading 同步置 true），这里不会重复请求。
+                val restoredDetail = screen as? Screen.PlaylistDetail
+                if (restoredDetail != null && currentUser != null &&
+                    songsLoadedFor != restoredDetail.playlist.id && !songsLoading
+                ) {
+                    val rid = recommendImportId
+                    if (isRecommendDetail(restoredDetail.playlist, rid)) {
+                        loadRecommendSongs(rid.orEmpty(), restoredDetail.playlist)
+                    } else {
+                        loadSongs(restoredDetail.playlist)
+                    }
+                }
             }
 
             // Discover SWR on tab visit: per-section TTLs (30 min). Fresh cache
@@ -3648,6 +3690,7 @@ class MainActivity : ComponentActivity() {
                                 authChecked = authChecked,
                                 playlists = playlists,
                                 playlistsLoading = playlistsLoading,
+                                playlistsError = playlistsError,
                                 onLoginClick = {
                                     loginInitialRegister = false
                                     screen = Screen.Login
@@ -3694,6 +3737,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 playlists = playlists,
                                 playlistsLoading = playlistsLoading,
+                                error = playlistsError,
                                 onBack = { screen = Screen.Mine },
                                 onSelectPlaylist = { pl ->
                                     recommendImportId = null
@@ -3755,6 +3799,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 items = historyItems,
                                 loading = historyLoading,
+                                error = historyError,
                                 favIds = favIds,
                                 onPlayAt = { idx ->
                                     val songs = historyItems.map { it.song }
@@ -3776,6 +3821,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 songs = favSongs,
                                 loading = favLoading,
+                                error = favError,
                                 favIds = favIds,
                                 onPlayAt = { idx ->
                                     if (favSongs.isNotEmpty()) playAt(favSongs, idx.coerceIn(favSongs.indices))
