@@ -39,7 +39,12 @@ enum class LocalErrorAction {
     /** Poisoned local file + online: delete file+meta, fall back to stream. */
     DELETE_AND_STREAM,
 
-    /** Poisoned local file + offline: show message, stop (no skip-loop). */
+    /**
+     * Poisoned local file + offline: Activity only reports; **PlaybackService**
+     * owns the advance (`selectNextOfflineIndex`). Heal cannot do anything
+     * offline, so if nobody advanced here one truncated download would stall
+     * the whole queue (CODE-REVIEW-2026-10-28 PB-1).
+     */
     ERROR_MESSAGE,
 
     /** Stream/cached item: keep the existing auto-skip path. */
@@ -51,6 +56,16 @@ fun localErrorDecision(mediaId: String, isOnline: Boolean): LocalErrorAction = w
     isOnline -> LocalErrorAction.DELETE_AND_STREAM
     else -> LocalErrorAction.ERROR_MESSAGE
 }
+
+/**
+ * 服务端是否把当前错误**完全交给** Activity 的自愈路径（只有"在线 + local 项"）。
+ *
+ * 在线时自愈能真做事（删坏文件 + 转流 + 重下），服务端若同时跳歌就是两边抢队列；
+ * 离线时自愈什么也做不了，服务端必须自己推进，否则整条队列停在第一个坏文件上
+ * （CODE-REVIEW-2026-10-28 PB-1）。
+ */
+fun defersLocalErrorToHeal(mediaId: String, isOnline: Boolean): Boolean =
+    mediaId.startsWith("local:") && isOnline
 
 /** Validate-before-delete self-heal decision for a local-file error (pure). */
 enum class HealAction {
@@ -67,11 +82,20 @@ enum class HealAction {
 /** Strikes before a suspect file is treated as confirmed poison. */
 const val LOCAL_HEAL_DELETE_THRESHOLD = 2
 
-/** Consecutive heal attempts before going quiet (heal not converging). */
-const val LOCAL_HEAL_QUIET_AFTER = 4
+/**
+ * 连续失败到这个次数后**不再相信** `isAudioFileIntact` 的结论，一律按确认中毒处理。
+ *
+ * 为什么需要它（CODE-REVIEW-2026-10-28 PB-2）：探针只读文件头 4 字节 + 大小门，
+ * **截断体能通过**；旧版 `fileValid` 分支排在阈值之前，于是这种文件永远走
+ * KEEP_STREAM_ONCE、永远删不掉，到第 5 次只弹一句"联网后重新下载"就再也没人管
+ * —— 而重下从未发生。连续失败越线 = 探针不可信，删掉重下才让文案成真。
+ */
+const val LOCAL_HEAL_FORCE_DELETE_AFTER = 5
 
 fun healAction(fileValid: Boolean, consecFails: Int, isOnline: Boolean): HealAction = when {
     !isOnline -> HealAction.ERROR_MESSAGE
+    // 探针不可信 → 先于 fileValid 判断（否则头部合法的截断体永远删不掉）
+    consecFails >= LOCAL_HEAL_FORCE_DELETE_AFTER -> HealAction.DELETE_AND_STREAM
     fileValid -> HealAction.KEEP_STREAM_ONCE
     consecFails >= LOCAL_HEAL_DELETE_THRESHOLD -> HealAction.DELETE_AND_STREAM
     else -> HealAction.KEEP_STREAM_ONCE

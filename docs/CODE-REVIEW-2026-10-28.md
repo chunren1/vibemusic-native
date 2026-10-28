@@ -318,6 +318,13 @@ LocalErrorAction.ERROR_MESSAGE -> { showError("本地文件已损坏，联网后
 
 顺带：`CachePolicy.kt:74` 的 `!isOnline -> HealAction.ERROR_MESSAGE` 是**不可达死分支** —— 外层 `localErrorDecision` 已用同一个 `online` 判过，进到 `healAction` 时必然在线。这也印证了"离线 local 错误无人接管"。
 
+**✅ 已修（2026-10-28，PB-1）**
+
+- 新增纯函数 `defersLocalErrorToHeal(mediaId, isOnline)`（`CachePolicy.kt`）= `local:` **且在线**才放手。`PlaybackService.onPlayerError` 原来无条件 `if (isLocal) return`，改成 `if (defersLocalErrorToHeal(mediaId, online)) return` —— **离线时 local 项落进与 stream 错误同一条单属主离线跳歌路径**（`buildOfflineAvailability` + `selectNextOfflineIndex`），Activity 只报告不推进。
+- 顺手补了这条路径的**上界**：离线跳歌原来看 `target >= 0` 就跳，两个坏文件 + 列表循环会互相弹跳、永远在报错。现在复用既有的 `shouldAutoSkip(consecFails, target >= 0)`（`consecFails < 3`），连续 3 次失败即停（`consecFails` 在 `onIsPlayingChanged(true)` 归零，语义仍是"连续"）。
+- Activity 的离线 local 文案由「本地文件已损坏，联网后重新下载」改为「本地文件已损坏，离线无法播放」—— 离线时没人会去重下，旧文案承诺的是不会发生的事。
+- 真机待验：飞行模式 + 一个截断的下载文件，确认播到它时**自动跳下一首**、连播不断。
+
 #### PB-2 `fails` 越线后三不管：不自愈、不跳歌、也不重下 —— 而文案承诺了"联网后重新下载"
 
 **证据**
@@ -346,6 +353,13 @@ fun healAction(fileValid: Boolean, consecFails: Int, isOnline: Boolean): HealAct
 `localFailCounts` 的清理点只有 4 处（`MainActivity.kt:1087/1332/1409/2382`），最后一处是"local 项真的出声了"——而它已经不可能再出声。**本次进程内该曲永久哑掉。**
 
 **修法要点**：到顶后要么真删（`OfflineStore.delete` + `redownloadSong`），要么交给 PB-1 的离线跳歌路径前进；不要留下"只弹提示"的第三态。文案要么改成真话（"本地文件损坏，请手动删除后重下"），要么让它成真。
+
+**✅ 已修（2026-10-28，PB-2）—— 选"让文案成真"**
+
+- 根因在 `healAction` 的分支顺序：`fileValid` 排在阈值之前，而 `isAudioFileIntact` 只读 4 字节 + 大小门（截断体能过）→ 这种文件**永远**走 `KEEP_STREAM_ONCE`，攒到第 5 次后撞上 `MainActivity` 的 `fails > LOCAL_HEAL_QUIET_AFTER` 只弹提示就 `return`。
+- 改法：常量改名 `LOCAL_HEAL_QUIET_AFTER(4)` → `LOCAL_HEAL_FORCE_DELETE_AFTER(5)`，`healAction` 里 `consecFails >= 5` **先于** `fileValid` 判断 —— 连续失败越线 = 探针不可信，一律按确认中毒处理（删 + 转在线 + `redownloadSong`）。`MainActivity` 的"只弹提示"第三态整段删除，`when` 不再有"什么都不做"的分支。
+- `DELETE_AND_STREAM` 分支的计数器由 `key to fails` 改为**清掉该 key**：文件已不在，计数属于旧文件；重下若又是个坏文件，会重新攒满一轮预算，而不是"第一次失败就立刻再删"。
+- 真机待验：截断的下载文件连播 5 次后应看到「本地文件已损坏已删除，转在线播放」，且下载列表里该曲重新出现下载中 → 完成。
 
 PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线门、自愈用陈旧下标、单曲循环假跳过、shuffle 下离线跳错、controllerGen、consecFails 混账），统一收在 §4.5。
 
@@ -521,9 +535,11 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 验收：`testDebugUnitTest` **980 例全绿**（+5：`ScreenTest` 5；`SongRowKeyTest` 4 已在第 1 批）、`lintRelease` 通过（0 error / 8 条 `GradleDependency` 版本提示 + 2 条 baseline 信息项）、`assembleDebug` 通过（`app-debug.apk` 24,129,073 B）。
 
-**第 2 批剩余（需真机回归，暂缓）**
-- PB-1 离线 local 错误交回单属主前进（离线连播、坏文件跳歌）
-- PB-2 `fails` 越线后真删+重下，或改文案说真话
+**第 2 批（播放两条）—— ✅ 已修（PB-1 / PB-2，2026-10-28）**
+- PB-1 离线 local 错误交回单属主前进（`defersLocalErrorToHeal` + 离线跳歌 3 次预算）
+- PB-2 `fails` 越线后真删+重下（`LOCAL_HEAL_FORCE_DELETE_AFTER` 先于 `fileValid`；删除后清计数）
+- 验收：`testDebugUnitTest` **982 例全绿**（+2：`HealActionTest.validFile_forcedDeleteAfterQuietThreshold`、`SelfHealTest.serviceDefersToHeal_onlyForLocalItemsWhileOnline`；`validFile_alwaysStreamsOnce` 按新真值表改写）；`lintRelease` 0 error；`assembleDebug` 通过
+- 需真机回归：飞行模式下截断的下载文件应自动跳下一首、连播不断；在线连播 5 次后应真删 + 转在线 + 重下
 
 **第 3 批（契约健壮性 + 自更新 + 播放边缘）**
 - API-1~4、UPD-2~4
@@ -560,4 +576,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）与第 2 批的 UI 六条 + CI-1 已修并验收；PB-1/PB-2 与第 3、4 批待开工，工具链升级与 i18n 待用户决策。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）已修并验收；第 3、4 批待开工，工具链升级与 i18n 待用户决策。*

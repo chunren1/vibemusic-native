@@ -2539,10 +2539,10 @@ class MainActivity : ComponentActivity() {
                                 }
                                 val key = playKey(song)
                                 val fails = (localFailCounts[key] ?: 0) + 1
-                                if (fails > LOCAL_HEAL_QUIET_AFTER) {
-                                    showError("本地文件已损坏，联网后重新下载")
-                                    return
-                                }
+                                // 这里曾有第三个状态：fails 越线后只弹"联网后重新下载"
+                                // 就 return —— 不删、不转在线、不重下，而文案承诺的事
+                                // 从未发生（PB-2）。越线判定已下移到 healAction（探针
+                                // 不可信 → 强制删），这里不再有"什么都不做"的分支。
                                 val idx = try {
                                     c?.currentMediaItemIndex ?: 0
                                 } catch (_: Exception) {
@@ -2567,7 +2567,10 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     HealAction.DELETE_AND_STREAM -> {
-                                        localFailCounts = localFailCounts + (key to fails)
+                                        // 文件马上被删：计数属于旧文件，清掉。
+                                        // 重下若又是个坏文件，会重新攒满一轮预算，
+                                        // 而不是"第一次失败就立刻再删"。
+                                        localFailCounts = localFailCounts - key
                                         scope.launch(Dispatchers.IO) {
                                             try {
                                                 OfflineStore.delete(
@@ -2586,13 +2589,19 @@ class MainActivity : ComponentActivity() {
                                         showError("本地文件已损坏已删除，转在线播放")
                                     }
                                     HealAction.ERROR_MESSAGE -> {
-                                        showError("本地文件已损坏，联网后重新下载")
+                                        // 防御分支：healAction 只在 online 时被调用，
+                                        // 正常不可达（离线 local 已在上面 ERROR_MESSAGE
+                                        // 分支返回）。保留只为穷尽 when，文案不承诺重下。
+                                        showError("本地文件已损坏，无法播放")
                                     }
                                 }
                                 }
                             }
                             LocalErrorAction.ERROR_MESSAGE -> {
-                                showError("本地文件已损坏，联网后重新下载")
+                                // 离线：前进由 PlaybackService 单属主负责（PB-1），
+                                // Activity 只报告。文案不再承诺"联网后重新下载"
+                                // （离线时没人会去重下），只陈述当下事实。
+                                showError("本地文件已损坏，离线无法播放")
                             }
                             LocalErrorAction.SKIP -> {
                                 // Single owner: PlaybackService already jumps to

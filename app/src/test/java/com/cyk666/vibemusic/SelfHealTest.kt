@@ -54,6 +54,19 @@ class SelfHealTest {
         assertEquals(LocalErrorAction.SKIP, localErrorDecision("LOCAL:netease:1", true))
     }
 
+    /**
+     * PB-1：服务端只在"在线 + local 项"时放手（自愈能真做事）；离线必须自己推进，
+     * 否则一个截断的下载会让整条离线队列停住 —— 而自愈在离线什么也做不了。
+     */
+    @Test
+    fun serviceDefersToHeal_onlyForLocalItemsWhileOnline() {
+        assertEquals(true, defersLocalErrorToHeal("local:netease:1", true))
+        assertEquals(false, defersLocalErrorToHeal("local:netease:1", false))
+        assertEquals(false, defersLocalErrorToHeal("1895330088", true))
+        assertEquals(false, defersLocalErrorToHeal("1895330088", false))
+        assertEquals(false, defersLocalErrorToHeal("", true))
+    }
+
     @Test
     fun playSource_healthyDownloadPlaysLocal() {
         assertEquals(

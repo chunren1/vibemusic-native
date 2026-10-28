@@ -675,17 +675,19 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onPlayerError(error: PlaybackException) {
                 PlayDiag.mark(this@PlaybackService, "error:${error.errorCodeName}")
-                // Local (downloaded-file) items are owned by MainActivity's
-                // self-heal path (delete + fall back to stream, or message
-                // when offline). Skipping here would race the heal and burn
-                // the queue, so hands off local: items entirely.
-                val isLocal = try {
-                    exo.currentMediaItem?.mediaId?.startsWith("local:") == true
+                // Local (downloaded-file) items: **在线**时归 MainActivity 的自愈
+                // 路径（删坏文件 + 转流 + 重下），这里跳歌会跟自愈抢队列，所以完全
+                // 放手。**离线**时自愈什么也做不了 —— 若也放手，一个截断的下载就让
+                // 整条离线队列停在原地（CODE-REVIEW-2026-10-28 PB-1），因此离线一律
+                // 落到下面的单属主离线跳歌路径。
+                val mediaId = try {
+                    exo.currentMediaItem?.mediaId.orEmpty()
                 } catch (_: Exception) {
-                    false
+                    ""
                 }
-                if (isLocal) return
-                if (!isNetworkAvailable(this@PlaybackService)) {
+                val online = isNetworkAvailable(this@PlaybackService)
+                if (defersLocalErrorToHeal(mediaId, online)) return
+                if (!online) {
                     // SINGLE owner of offline-next transport (Activity only
                     // reports): snapshot + target compute on IO, transport
                     // back on main. Same triage bar, zero main-thread I/O.
@@ -729,7 +731,9 @@ class PlaybackService : MediaLibraryService() {
                         )
                         serviceMainHandler.post {
                             try {
-                                if (target >= 0) {
+                                // 同一条"连续失败预算"（shouldAutoSkip）：离线跳歌若不设
+                                // 上限，两个坏文件 + 列表循环会互相弹跳、永远在报错。
+                                if (shouldAutoSkip(consecFails, target >= 0)) {
                                     consecFails++
                                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                                     exo.seekTo(target, 0L)

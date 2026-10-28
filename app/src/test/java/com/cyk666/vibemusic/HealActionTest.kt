@@ -20,10 +20,22 @@ class HealActionTest {
     }
 
     @Test
-    fun validFile_alwaysStreamsOnce() {
+    fun validFile_streamsOnceUntilProbeStopsBeingTrusted() {
         assertEquals(HealAction.KEEP_STREAM_ONCE, healAction(true, 1, true))
         assertEquals(HealAction.KEEP_STREAM_ONCE, healAction(true, 2, true))
-        assertEquals(HealAction.KEEP_STREAM_ONCE, healAction(true, 9, true))
+        assertEquals(HealAction.KEEP_STREAM_ONCE, healAction(true, 4, true))
+    }
+
+    /**
+     * PB-2 的真值表：`isAudioFileIntact` 只读 4 字节 + 大小门，**截断体能通过**，
+     * 所以"探针说没问题"不能无限可信 —— 连续失败越线必须强制删，否则这种文件
+     * 永远删不掉、文案承诺的"联网后重新下载"永不发生。
+     */
+    @Test
+    fun validFile_forcedDeleteAfterQuietThreshold() {
+        assertEquals(5, LOCAL_HEAL_FORCE_DELETE_AFTER)
+        assertEquals(HealAction.DELETE_AND_STREAM, healAction(true, 5, true))
+        assertEquals(HealAction.DELETE_AND_STREAM, healAction(true, 9, true))
     }
 
     @Test
