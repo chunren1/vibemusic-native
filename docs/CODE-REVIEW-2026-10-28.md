@@ -1,0 +1,556 @@
+# 代码审查报告 — vibemusic-native
+
+> 审查对象：`2.0.19-ai`（versionCode 97，HEAD `0baaa31`）
+> 日期：2026-10-28 · 性质：**只读审查，未改一行代码**
+> 规模：57 个 main `.kt` / 83 个测试文件 / 970 例单测 / 3 个 workflow
+> 证据标准：每条结论都带 `文件:行号`，且由我或子线**真读过代码**；未取证的标「需确认」。工具链（Gradle 8.10.2 / AGP 8.5.2 / Kotlin 2.0.20 / compileSdk 35）视为冻结，所有建议都不要求升级工具链。
+
+---
+
+## 0. 摘要
+
+**没有发现 P0（必崩 / 必丢数据 / 可直接利用的漏洞）。** 但有 **12 条 P1**，其中 3 条涉及**凭据与隐私**，2 条是**条件崩溃**，2 条让**核心播放场景（离线连播 / 歌词页）在有好数据时反而失效**。
+
+按主题分：
+
+| 主题 | 结论 | 条目 |
+|---|---|---|
+| 凭据 | 登出只清 DataStore，不清内存 CookieJar → 可能静默登回原账号 | SEC-1 |
+| 隐私 | 搜索历史不按账号隔离 → 换账号时上一个人的关键词进入新账号云端 | SEC-2 |
+| 崩溃 | `isSameSignature` 用 API 28 才有的 `signingInfo` 字段，API 26/27 抛 `NoSuchFieldError`（`Error` 逃出 `catch (Exception)`） | SEC-3 |
+| 播放 | 离线时一个坏本地文件掐断整条队列的自动前进（服务端 `return` + 客户端只弹提示） | PB-1 |
+| 播放 | `localFailCounts` 越线后三不管：不自愈、不跳歌、不重下，而文案承诺"联网后重新下载" | PB-2 |
+| 状态覆盖 | 历史 / 收藏 / 歌单 / 我的 四屏**没有 error 态**，请求失败被渲染成"你什么都没有" | UI-1 |
+| 崩溃 | 4 处 `LazyColumn` 的 key 未带 index，重复 key 会 `IllegalStateException` | UI-2 |
+| 可用性 | 歌词页每 500ms 全量重建列表，且自动滚动无条件抢用户手势 | UI-3 |
+| 可用性 | 看歌词时自动切歌会被弹回封面（`remember` 的 key 是歌曲 id） | UI-4 |
+| 可用性 | 旋转屏幕回到首页；横屏播放页控件被挤出屏幕 | UI-5 |
+| 无障碍 | 歌单详情唯一的返回键没有 `contentDescription` → TalkBack 用户出不去 | UI-6 |
+| 工程 | **改任何 `.kt` 都不触发 CI**（三个 workflow 的 `paths` 都不含 `app/src/**`） | CI-1 |
+
+另外三条结构性事实，比单点 bug 更值得排期：
+
+1. `MainActivity.kt` **3517 纯 LOC**、104 个 `remember`、71 个局部函数、最深 15 级嵌套 —— 一个 `onCreate` 持有整个应用状态。`docs/REFACTOR-mainactivity.md` 有现成方案，**C1/C4 已做，C2/C5/C6 停着**（§5）。
+2. 项目自定规矩「单文件 ≤250 纯 LOC」被 **18 个文件**违反，且**零机器守卫**（无 detekt/ktlint，无自定义断言）（§5.2）。
+3. 三处文档数字漂移 + 两处版本号过期，会让下一个 agent 按错的门禁干活（§6）。
+
+---
+
+## 1. 审查方法
+
+四条并行只读线 + 我自己复核：
+
+| 线 | 范围 | 产出 |
+|---|---|---|
+| 播放与媒体核心 | `PlaybackService` / `MediaCache` / `SchemeDataSource` / `CachePolicy` / `PlaybackStateStore` / `MainActivity` 播放片段 | §3.3 |
+| 数据·契约·安全 | `VibeApi` / `AuthStore` / 三个 Store / `UpdateCheck` / Manifest / ProGuard | §3.1、§4.1、§4.2 |
+| 机械扫描 | 体量 / 吞错 / 危险写法 / 孪生副本 / CI / 依赖 / 硬编码 | §4.4、§6 |
+| UI·UX | 8 个界面文件 + 路由 | §3.2、§4.3 |
+
+**复核方式**：子线给的每条 P0/P1，我都回原文件读行号，能复现的留下，读不到或已被现状推翻的删掉。本报告里没有"子线说了但没人看过"的条目。
+
+---
+
+## 2. P0
+
+**无。**
+
+明确说明为什么几条"看起来像 P0"的不算：
+
+- 外部音频 `content://` 走 HTTP 上游（100% 失败）已在 `2.0.19-ai` 修掉（`8dd0a41`），不在本次范围。
+- `isSameSignature` 崩溃只发生在 API 26/27 且用户点"立即更新"，属条件崩溃 → P1。
+- 搜索历史跨账号是隐私泄漏，但需要"同一台设备换账号"这一前提 → P1。
+- PB-1（离线坏文件掐断队列）不会崩、不丢文件，手动点下一首就能继续 → P1。
+- PB-2（`fails` 越线后三不管）只让**单曲**在本次进程内哑掉，且需要"头部合法但解码不了"的坏文件 → P1。
+
+---
+
+## 3. P1
+
+### 3.1 凭据与隐私
+
+#### SEC-1 登出只清 DataStore，不清内存 CookieJar —— 退出登录可能被后台请求"撤销"
+
+**证据**
+
+```kotlin
+// VibeApi.kt:364-371 —— 持久化的 refreshToken 空掉后，会回退到 jar 里的 cookie
+val rt = AuthToken.refreshToken
+val jarCookie = refreshCookieFor(endpoint)
+if (rt.isBlank() && jarCookie.isBlank()) return RefreshOutcome.NETWORK_FAIL
+val res = try { postRefresh(endpoint, client, rt.ifBlank { jarCookie }) } ...
+AuthToken.token = res.token
+AuthStore.saveTokens(ctx, AuthToken.token, AuthToken.refreshToken)   // ← 写回磁盘
+```
+
+```kotlin
+// VibeApi.kt:333 —— 全仓唯一的 cookieJar.clear()，只在测试里用
+internal fun clearCookiesForTest() = cookieJar.clear()
+```
+
+```kotlin
+// AuthStore.kt:67-77 —— clear() 只清 token/refresh/username/nickname
+suspend fun clear(context: Context) {
+    context.authDataStore.edit { p -> p.remove(KEY_TOKEN); p.remove(KEY_REFRESH); ... }
+    AuthToken.token = ""; AuthToken.refreshToken = ""; AuthToken.username = ""
+}
+```
+
+`grep -rn "cookieJar"` 全仓 5 处命中，**生产路径没有一处调用 `clear()`**。
+
+**触发条件**：登出瞬间仍有在飞的 authed 请求（`pullAndMerge`、`loadPlaylists(background=true)`、`reportPlay`），它们吃到 401 → `trySilentRefresh` → 持久化 refreshToken 已空 → 用 jar 里的 `VIBE_REFRESH` → 后端认 → 新 token 写回 DataStore → 下次冷启动 `AuthStore.load` 静默登回原账号。
+
+**后果**：共享设备上"退出登录"等于没退；且用户看不到任何提示。`doLogout` 的注释与 `AuthStore.clear` 的命名都暗示"清干净了"，实际没有。
+
+**修法要点**
+1. `doLogout` 与 `handleAuthLost` 都调 `cookieJar.clear()`（把 `clearCookiesForTest` 改成正式的 `clearCookies()`）。
+2. `doLogout` 先取消所有 authed job 再清凭据（顺序反了就等于给在飞请求留窗口）。
+3. `trySilentRefreshWith` 加一道闸：`AuthToken.username.isBlank()` 时拒绝使用 jar cookie（"已登出"与"cookie-only 会话"要能区分）。
+4. 需确认：后端 `/api/auth/logout` 是否吊销 refresh（注释称 JWT stateless，很可能不吊销）—— 若不吊销，客户端这道闸是唯一防线。
+
+#### SEC-2 搜索历史不按账号隔离 —— 换账号时上一个人的关键词进新账号云端
+
+**证据**
+
+```kotlin
+// MainActivity.kt:2303-2316 —— 登出清理清单，没有 searchHistory / SearchStore
+currentUser = null; playlists = emptyList(); selectedPlaylist = null
+playlistSongs = emptyList(); favIds = emptySet(); favBusy = emptySet()
+favSongs = emptyList(); historyItems = emptyList(); lastReportedKey = null
+screen = Screen.Login
+```
+
+```kotlin
+// MainActivity.kt:2124-2126 —— 登录成功后直接 pullAndMerge
+SearchHistorySync.pullAndMerge(context)?.let { searchHistory = it }
+```
+
+```kotlin
+// SearchHistorySync.kt:83-96 —— merge 的 local 来自本机 DataStore，merge 后全量 push
+val local = SearchStore.loadHistory(context)
+val merged = mergeSearchHistories(local, remote)
+SearchStore.saveHistory(context, merged)
+VibeApi.pushSearchHistory(merged)      // ← 把 A 的词写进 B 的云端
+```
+
+**后果**：A 的私人查询词（可能含姓名、病情、公司内部词）① 登出后在登录页的搜索框仍然可见；② 登录 B 后进入 B 的云端历史，B 换设备也能拉到。
+
+**修法要点**：登出时 `SearchStore.clearHistory` + `searchHistory = emptyList()`（A 的云端副本留在服务端，别 `clearCloud`）；或更彻底：`SearchStore` 按 `userId` 分文件，登录后先清本地再 pull。
+
+#### SEC-3 `isSameSignature` 在 API 26/27 抛 `NoSuchFieldError`（`Error` 不被 `catch (Exception)` 接住）
+
+**证据**
+
+```kotlin
+// UpdateCheck.kt:524-543
+fun isSameSignature(context: Context, apkFile: File): Boolean {
+    try {
+        val archive = pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES) ?: return false
+        val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES) ?: return false
+        val apkSigners = archive.signingInfo?.apkContentsSigners    // ← API 28+ 字段
+        val appSigners = installed.signingInfo?.apkContentsSigners
+        ...
+    } catch (_: Exception) { return false }                          // Error 逃逸
+}
+```
+
+`app/lint-baseline.xml:50/72` 已经把这条记成历史债（`Field requires API level 28 (current min is 26)`），所以 lint 永远不会红。
+
+调用点 `UpdateCoordinator.kt:198` **没有 SDK 守卫**：`if (!isSameSignature(context, apk)) { ... }`。
+
+**后果**：minSdk 26 = 安卓 8.0/8.1 在支持范围内。这两版上 `PackageInfo.signingInfo` 字段不存在 → 字段访问抛 `NoSuchFieldError`（`Error` 的子类，不是 `Exception`）→ 逃出 `isSameSignature` 的 catch → 也逃出 `tryInstall` 的 `catch (e: Exception)`（`UpdateCoordinator.kt:184/213`）→ 主线程协程未捕获 → **App 崩溃**。即使不崩，注释也承认 API<28 返回 false，等于 8.x 用户永远装不上更新。
+
+**修法要点**：`Build.VERSION.SDK_INT >= 28` 走 `signingInfo`；26/27 走 `@Deprecated getPackageInfo(..., GET_SIGNATURES).signatures` 比较；catch 改 `Throwable`（或至少 `catch (e: Error)` 单列并记 SilentFail）。修完把 `lint-baseline.xml` 里这两条删掉，让 lint 重新守住。
+
+### 3.2 UI 状态与崩溃
+
+#### UI-1 历史 / 收藏 / 歌单 / 我的 四屏没有 error 态 —— 请求失败被渲染成"你什么都没有"
+
+**证据**
+
+```kotlin
+// HistoryScreen.kt:138-149 —— 形参里没有 error
+fun HistoryScreen(items: List<VibeApi.HistoryItem>, loading: Boolean, favIds: Set<String> = emptySet(), ...)
+// HistoryScreen.kt:176-183 —— 失败与"确实没有记录"共用同一分支
+if (items.isEmpty()) {
+    Spacer(Modifier.height(16.dp))
+    Text("还没有播放记录，去搜一首播吧")
+    OutlinedButton(onClick = onRetry) { Text("刷新") }
+```
+
+`FavoritesScreen.kt:138-148` 同样没有 `error`。`MineScreen.kt:146` 声明了 `onRetryPlaylists: () -> Unit` 但全文件再无引用（死参数），`:293-300` 加载失败落到 `EmptyStateLine("还没有歌单…")`。
+
+对照：仓库里已经有现成的三态模型 —— `PlaylistDetail.kt:75-103` 六态、`BeautyPhase10.kt:98-106` 的 `selectListState`，只有搜索页和歌单详情在用。
+
+**后果**：断网 / 后端 502 时"我的收藏"显示"还没有收藏"，用户第一反应是"我的收藏被清空了"；"我的"页连重试按钮都没有，只能杀进程。这是**信任级**问题，不是美观问题。
+
+**修法要点**：四个屏加 `error: String?` 形参，用现成 `selectListState(loading, error, isEmpty)` 分派；`ERROR` 分支复用 `DiscoverRetryRow(message, onRetry)`；文案 `"加载失败：$error"`。顺手删掉 `MineScreen` 的死参数。
+
+#### UI-2 `LazyColumn` 稳定 key 只修了一处，其余 4 处重复 key 会崩
+
+**证据**
+
+```kotlin
+// SearchScreen.kt:352-356 —— 已修，注释写明了原因
+// key 带上 index：randomSongs 不保证 sourceId+platform 唯一，
+// 重复 key 会让 LazyColumn 直接抛异常。
+key = { index, s -> "guess-$index-${s.sourceId}-${s.platform}" }
+```
+
+```kotlin
+// SearchScreen.kt:501 —— 未修
+itemsIndexed(visible, key = { _, s -> s.sourceId + s.platform })
+// DiscoverUi.kt:456 / :501 / :539 —— 未修
+key = { _, s -> "daily-" + s.sourceId + s.platform }
+key = { _, s -> "guess-" + s.sourceId + s.platform }
+key = { _, s -> "encounter-" + s.sourceId + s.platform }
+```
+
+**后果**：同一屏内同曲重复（多源聚合去重不严、后端随机接口重复返回）→ `IllegalStateException: Key was already used` → 闪退。注意已修的那处注释明确说"randomSongs 不保证唯一"，而 `daily`/`guess` 走的是同一批随机接口。
+
+**修法要点**：抽 `fun songRowKey(index: Int, song: Song) = "$index-${song.sourceId}-${song.platform}"` 纯函数 + 单测，四处统一调用（顺带把"前缀"参数化，避免再次漏改）。
+
+#### UI-3 歌词页每 500ms 全量重建列表，自动滚动无条件抢用户手势
+
+**证据**
+
+```kotlin
+// PlayerScreen.kt:355-361 —— 每次重组都新建 List（无 remember）
+val lines = (lyricState as? LyricUiState.Ok)?.lines.orEmpty()
+    .filterNot { isBlankLyricLine(it.text) || isMusicSymbolLine(it.text) }
+val currentLine = lines.indexOfLast { it.timeSec * 1000 <= effPositionMs }
+```
+
+```kotlin
+// PlayerScreen.kt:403-410 —— 没有 isScrollInProgress 保护
+LaunchedEffect(currentLine, lines, view) {
+    if (view == PlayerView.LYRICS && currentLine >= 0) { lyricsListState.scrollToItem(currentLine) }
+```
+
+```kotlin
+// Karaoke.kt:449-452 vs :463 —— 激活行 titleMedium、非激活行 bodyMedium
+Text(text = plain, style = MaterialTheme.typography.bodyMedium, ...)
+val style = MaterialTheme.typography.titleMedium
+```
+
+**后果**：① 想往上翻看副歌，每换一句就被硬拉回当前行，长按也压不住；② 激活行变大会让整列上下抖动；③ 300 行歌词 × 每 500ms 一次分配 + 全表扫描，低端机耗电掉帧。
+
+**修法要点**：`val lines = remember(lyricState) { ... }`、`val currentLine by remember(...) { derivedStateOf { ... } }`；`scrollToItem` 外包 `if (!lyricsListState.isScrollInProgress)`，用户手动滚动后 5s 内不自动跟随；非激活行也用 `titleMedium`，只改颜色（`KaraokeDim` → `KaraokeLit`）保持行高恒定。
+
+#### UI-4 看歌词时自动切歌会被弹回封面
+
+**证据**
+
+```kotlin
+// PlayerScreen.kt:363
+var view by remember(song?.sourceId) { mutableStateOf(PlayerView.COVER) }
+```
+
+**后果**：用户正在看歌词，一首播完自动下一首 → 画面闪回封面，得再点一次"词"。连播整张专辑时几乎无法停留在歌词页。
+
+**修法要点**：去掉 key（`remember { mutableStateOf(PlayerView.COVER) }`）；若要"新会话回封面"，用显式关闭动作触发，不要挂在歌曲变化上。
+
+#### UI-5 旋转屏幕回到首页；横屏播放页控件被挤出屏幕
+
+**证据**
+
+```kotlin
+// MainActivity.kt:222 —— 普通 remember，非 rememberSaveable
+var screen by remember { mutableStateOf<Screen>(Screen.Discover) }
+// UpdateCheck.kt:279-280 —— 官方文案自己承认了
+else "跟随系统 · 旋转会重建界面并回到首页"
+// PlayerScreen.kt:699-702 —— 固定 padding 的 Column，无滚动
+Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp), ...)
+```
+
+**后果**：设置里选"跟随系统"后横屏，播放页非加权子项合计约 440dp > 横屏可用约 360dp → 进度条/播放键被推出屏幕；转一下手机直接跳回首页，歌还在响但界面没了。
+
+**修法要点**：`screen` 改 `rememberSaveable` + `Saver`（`PlaylistDetail` 存 id）；`PlayerScreen` 根部加 `verticalScroll(rememberScrollState())`，或横屏改 `Row`（左封面右控件）。
+
+> 需真机确认：横屏到底是"被裁"还是"被压"——`VinylCover(fraction = 0.62f)` 按宽度取尺寸，可能纵向超出。上面的 440dp 是按固定高度累加的推演，未真机验证。
+
+#### UI-6 歌单详情唯一的返回键没有 `contentDescription`
+
+**证据**
+
+```kotlin
+// AppIconDrawing.kt:277-278 —— 返回箭头默认标签被显式设成 null（当装饰用）
+AppIconKind.CHECK, AppIconKind.CHEVRON_RIGHT, AppIconKind.CHEVRON_LEFT,
+AppIconKind.MUSIC_NOTE, AppIconKind.MESSAGE -> null
+// PlaylistDetailUi.kt:136-138 —— 但它是这一页唯一的返回入口
+IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted) }
+```
+
+**后果**：TalkBack 用户在歌单详情页找不到"返回"（读屏只念"按钮"或直接跳过），只能杀 App。
+
+同类（同一修法，一并处理）：`UiAtoms.kt:636-641` 的 `FavHeart` 已收藏仍读"收藏"，用户无法判断点下去是收藏还是取消。
+
+**修法要点**：详情页返回传 `contentDescription = "返回"`；`FavHeart` 传 `if (faved) "取消收藏" else "收藏"`；下载键按状态给"下载中/已下载/下载"。
+
+### 3.3 播放与媒体核心
+
+#### PB-1 离线时一个坏本地文件会掐断整条队列的自动前进（两端都不接手）
+
+**证据**
+
+```kotlin
+// PlaybackService.kt:682-687 —— 服务端把 local: 完全交出去
+val isLocal = exo.currentMediaItem?.mediaId?.startsWith("local:") == true
+if (isLocal) return
+```
+
+```kotlin
+// CachePolicy.kt:49-53 —— 离线 + local → 只报错，不跳
+fun localErrorDecision(mediaId: String, isOnline: Boolean): LocalErrorAction = when {
+    !mediaId.startsWith("local:") -> LocalErrorAction.SKIP
+    isOnline -> LocalErrorAction.DELETE_AND_STREAM
+    else -> LocalErrorAction.ERROR_MESSAGE
+}
+// MainActivity.kt:2546-2548 —— 该分支只弹提示
+LocalErrorAction.ERROR_MESSAGE -> { showError("本地文件已损坏，联网后重新下载") }
+```
+
+服务端注释（`PlaybackService.kt:678-681`）写的理由是"Skipping here would race the heal and burn the queue"——在线时成立；**离线时 heal 什么都不做**，于是没人推进。讽刺的是安全前进的机制（`selectNextOfflineIndex`，`:139-163`，会排除当前项防死循环）就在同一个文件里，只服务非 `local:` 分支。
+
+**后果**：离线状态下列表里只要有一个截断/损坏的下载，播到它就停住，后面所有歌**一首都不会自动响**，必须手动点下一首。离线连播这个核心场景直接失效。
+
+**修法要点**：离线 local 错误走与 stream 错误同一条单属主前进路径（服务端已有 `buildOfflineAvailability + selectNextOfflineIndex`），提示文案保留；不要两端各写一半。
+
+顺带：`CachePolicy.kt:74` 的 `!isOnline -> HealAction.ERROR_MESSAGE` 是**不可达死分支** —— 外层 `localErrorDecision` 已用同一个 `online` 判过，进到 `healAction` 时必然在线。这也印证了"离线 local 错误无人接管"。
+
+#### PB-2 `fails` 越线后三不管：不自愈、不跳歌、也不重下 —— 而文案承诺了"联网后重新下载"
+
+**证据**
+
+```kotlin
+// MainActivity.kt:2492-2497
+val fails = (localFailCounts[key] ?: 0) + 1
+if (fails > LOCAL_HEAL_QUIET_AFTER) {          // 4
+    showError("本地文件已损坏，联网后重新下载")
+    return                                      // 不转在线、不删、不跳、不重下
+}
+```
+
+```kotlin
+// CachePolicy.kt:73-78 —— fileValid 分支在阈值判断之前，所以"头部合法"的文件永远走 KEEP_STREAM_ONCE
+fun healAction(fileValid: Boolean, consecFails: Int, isOnline: Boolean): HealAction = when {
+    !isOnline -> HealAction.ERROR_MESSAGE
+    fileValid -> HealAction.KEEP_STREAM_ONCE
+    consecFails >= LOCAL_HEAL_DELETE_THRESHOLD -> HealAction.DELETE_AND_STREAM
+    else -> HealAction.KEEP_STREAM_ONCE
+}
+```
+
+`OfflineStore.isAudioFileIntact` 只读 4 字节 + 大小门，**截断体完全能过**。这种文件会稳定累积到第 5 次，然后走上面那条 `return`。`redownloadSong` 只在 `DELETE_AND_STREAM` 分支调用（`:2527`），所以"联网后重新下载"从未发生。
+
+`localFailCounts` 的清理点只有 4 处（`MainActivity.kt:1087/1332/1409/2382`），最后一处是"local 项真的出声了"——而它已经不可能再出声。**本次进程内该曲永久哑掉。**
+
+**修法要点**：到顶后要么真删（`OfflineStore.delete` + `redownloadSong`），要么交给 PB-1 的离线跳歌路径前进；不要留下"只弹提示"的第三态。文案要么改成真话（"本地文件损坏，请手动删除后重下"），要么让它成真。
+
+PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线门、自愈用陈旧下标、单曲循环假跳过、shuffle 下离线跳错、controllerGen、consecFails 混账），统一收在 §4.5。
+
+---
+
+## 4. P2
+
+### 4.1 契约健壮性（API）
+
+| ID | 结论 | 证据 | 后果 / 修法 |
+|---|---|---|---|
+| API-1 | `parseToggleResult` 把"data 缺失"当"已取消收藏" | `VibeApi.kt:1416-1425`：`if (root.isNull("data")) return false`（`isNull` 对"键不存在"也返回 true） | 后端省略 data → 收藏成功被读成取消，本地心形反向更新。改：`!root.has("data") \|\| root.isNull("data")` 抛协议错误 |
+| API-2 | `parseFavIds` / 删除计数用 `opt*` 兜底，把契约变更吞成空集/0 | `VibeApi.kt:1429-1432`（`optJSONArray("data") ?: return emptySet()`）、`:1842-1845`、`:1858-1861`（`else -> 0`） | 后端把 data 改成 `{ids:[…]}`/`{count:3}`（本仓库常见的加性演进）→ 心形全空、toast"已移除 0 首"而服务端已删。改：与 `listData`（`:583-593`）同策略，形状不符即抛 |
+| API-3 | 信封级 401（HTTP 200 + `code:401`）不走静默续期 | `VibeApi.kt:568-570` `checkEnvelope` 抛 `AuthException`；而 `myPlaylists()` 是 `rawGet(...)` 之后**在 `authed` 之外**调 `checkEnvelope`（`:1003-1007`） | 若后端改用 200+code:401 表达过期，所有列表调用会直接清 token 登出。改：把 `checkEnvelope` 挪进 `authed`，与 `me()` 同构。**需确认后端实际返回哪种**（当前两条路各走一半） |
+| API-4 | `AuthStore.save` 在 refreshToken 为空时保留旧值 | `AuthStore.kt:51/55`：`if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken` | 登录响应当次没带 `Set-Cookie` 时，新账号沿用旧账号的续期凭据。改：`save` 语义改为整体替换（`remove` + 清内存）；`saveTokens` 的轮转语义另说 |
+
+### 4.2 自更新（UPD）
+
+| ID | 结论 | 证据 | 后果 / 修法 |
+|---|---|---|---|
+| UPD-1 | **`checkOnLaunch` 先写 24h 时间戳再拉取** —— 一次网络失败烧掉整个窗口 | `UpdateCoordinator.kt:91-104`：`saveLastUpdateCheck(context, now)` 在 `fetchLatestForChannel` 之前 | 用户断网启动一次 → 24 小时内不再检查（手动检查不受影响）。改：拿到 release 之后再写时间戳；失败记 `lastCheck` 为"上次成功"而非"上次尝试" |
+| UPD-2 | 测试通道下载回退会拿"正式版 latest"的 APK | `UpdateCoordinator.kt:161-168` + `UpdateSupport.kt:31-33`：`otherUpdateSourceUrl` 指向 `.../releases/latest`（排除 prerelease） | `rel` 来自含 prerelease 的列表，回退源却是正式版 → 版本不同。Gitee 资产无 `size` 时尺寸门退化成 Content-Length，混版文件照样通过签名门。改：回退 URL 带上同 tag；安装前断言 `versionCode >= 当前` |
+| UPD-3 | 双源只取"第一个成功"，不做版本比较 | `UpdateCheck.kt:207-208` `resolveUpdateSource`、`:229-237` 成功即 return | Gitee 滞后一个版本时永远"已是最新"（与 2026-10-27 事故同一失效面）。改：两源都取，`isNewerVersion` 取大者 |
+| UPD-4 | 自更新不校验 body 里的 sha256、不限制下载 host | `UpdateCheck.kt:305-315` `pickApkFromAsset` 接受任意 host；`:128-135` body 里的 sha256 只展示不校验 | 底线仍是签名门（同签名才能装），所以恶意包装不进去；但**降级/错版本**无拦截，账号被盗时会把用户引到第三方 host。改：解析 body sha256 落盘后校验；host 白名单（gitee.com / github.com / objects.githubusercontent.com） |
+
+### 4.3 UI 一致性（UIX）
+
+| ID | 结论 | 证据 | 修法 |
+|---|---|---|---|
+| UIX-1 | 播放页「封面」与「歌词」是两套手写控件：主播放键 56dp vs 64dp、关闭键右上 vs 左上 | `PlayerScreen.kt:651-663`（歌词分支 56dp 手写 Box）vs `:875-881`（`HeroControls(heroSize = 64.dp)`，默认值 `:140`） | 抽 `PlayerControlDeck(heroSize = 56.dp)` 两分支共用；关闭键统一左上 |
+| UIX-2 | 触达区标准不统一：`MIN_TOUCH_DP = 44` + M3 默认 40dp 按钮 + 约 38dp 联想行 | `BeautyPhase10.kt:43`、`:284/293`；`SearchScreen.kt:235-240`；对照 `UiAtoms.kt:447` 行内按钮 48dp | 常量改 48；`Button/OutlinedButton` 统一 `heightIn(min = 48.dp)`；联想行 `heightIn(min = 48.dp)` |
+| UIX-3 | `SettingsRowShell` 把 `padding` 写在 `clickable` 前，整行上下 8dp 点不到 | `BeautyPhase10.kt:403-408`：`.heightIn(min=56.dp).padding(vertical=8.dp)` 之后才 `.clickable` | 调换顺序：`clickable` 在前、`padding` 在内 |
+| UIX-4 | 切 Tab 用 `Crossfade` 销毁旧屏，所有列表滚动位置与多选态丢失 | `MainActivity.kt:3289-3293`；全仓无 `rememberLazyListState` 实际使用 | 用 `SaveableStateHolder().SaveableStateProvider(screen)` 包住 `when`，或把 listState 提到 Activity |
+| UIX-5 | 设置页把"后台保活"讲了两遍；"最近 5 条诊断"被 `maxLines = 2` 截掉 | `SettingsScreen.kt:501-514` 与 `BeautyPhase10.kt:202-211`；`BeautyPhase10.kt:420-426` 的 `maxLines = 2` | 删重复行；`SettingsRowShell` 加 `subtitleMaxLines` 参数 |
+| UIX-6 | 空状态两套实现，且"去搜一首"旁边是「刷新」按钮 | `HistoryScreen.kt:176-183`（裸 Text + 刷新）vs `BeautyPhase10.kt:270-288`（`EmptyStateLine`） | 统一用 `EmptyStateLine(text, actionLabel = "去搜索", onAction, secondaryActionLabel = "刷新")` |
+| UIX-7 | 搜索页空态写"下拉刷新试试"，但这页没有下拉刷新（全仓只有 `DiscoverUi.kt:368` 一处） | `SearchScreen.kt:371-375` | 改「换一批」+ `onRetryGuess` |
+| UIX-8 | 同一概念四种叫法：「最近播放」「最近」「历史」「播放记录」；首页"偶遇心动单曲"复用的就是"每日推荐"那份列表 | `UiAtoms.kt:322/731`、`HistoryScreen.kt:161/225/178`、`AppIconDrawing.kt:273`；`DiscoverUi.kt:536-547` | 全站统一「最近播放」；「偶遇」换独立数据源，拿不到就整段隐藏 |
+| UIX-9 | 设计 token 三份拷贝，副标题颜色/圆角/骨架屏各写各的 | `UiTheme.kt:9-15` / `UiAtoms.kt:129-137` / `BeautyPhase10.kt:36-40` 同组颜色三份；`SettingsScreen.kt:159-164` 副标题没设 color；圆角 8/10/12 混用；横滑卡片位用 `SearchSkeleton`（`DiscoverUi.kt:446-448`） | `UiTheme.kt` 作唯一 token 源；副标题统一 `UiMuted`；封面圆角统一 12dp；加 `CardRowSkeleton` |
+
+### 4.4 代码健康（CODE）
+
+| ID | 结论 | 证据 |
+|---|---|---|
+| CODE-1 | `currentMediaItem!!` 在队列空时 NPE，被外层 `catch (Exception)` 吞掉 → 播放计数/上报静默丢失 | `MainActivity.kt:2434` + `:2437` 的 catch |
+| CODE-2 | 播放/下载失败文案各有 2-3 份孪生字面量（且半角冒号与全仓全角不一致） | `MainActivity.kt:826 / :932 / :1043`（`"播放失败: "`）、`:1092/:1343`、`:1097/:1350` |
+| CODE-3 | 下载流程两份独立实现（`redownloadSong` vs `downloadSong`） | `MainActivity.kt:1075-1100` vs `:1300-1355` |
+| CODE-4 | 播放上报判定散在 3 个函数（`shouldReportPlay` / `maybeReportPlay` / `maybeCountPlay`），各自判 `sourceId` / `isExternalSong` / `playKey` | `VibeApi.kt:1496`、`MainActivity.kt:1750`、`:1357` |
+| CODE-5 | 搜索历史去重写了 3 遍（单条插入 / 两表合并 / decode），折叠规则共用但去重不共用 | `SearchStore.kt:65`、`SearchHistorySync.kt:18`、`SearchStore.kt:88` |
+| CODE-6 | 后端域名硬编码两处、格式不同 —— **漏改 `Song.kt` 会"登录正常但所有播放流 404"** | `VibeApi.kt:266` `BASE_URL`、`Song.kt:23` `.authority("vibe.cyk666.top")` |
+| CODE-7 | 6 处用墙钟 `System.currentTimeMillis()` 算间隔，与 `PlaybackService` 的 `elapsedRealtime` 两套并存（用户改系统时间会让节流失真） | `MainActivity.kt:975/1082/1325/1384/2991/3027`、`PlayerScreen.kt:415`；对照 `PlaybackService.kt:578/601/620/628/660/1068/1082` |
+| CODE-8 | 中文字符串字面量直写（实测 ≥742 处，粗略正则单行统计；`strings.xml` 只有 4 行）。无 i18n 计划则可接受，但孪生文案使"改一处漏一处"必现 | `grep -oP '"…CJK…"'` 统计 |
+| CODE-9 | 测试缺口 top5（含纯逻辑、零对应测试）：`betaNumber`/`pickApkFromAsset`（2026-10-27 三起事故现场）、`songFromJsonObject` round-trip、`Discover.kt` 整套解析、`sanitizeFilePart`、`UpdateCoordinator` 整个 class | 全仓符号↔测试映射 |
+| CODE-10 | 依赖可零成本升级 4 项（其余被 compileSdk 35 / AGP 8.5.2 硬挡） | media3 1.9.3→**1.9.4**（1.9.4 `minCompileSdk=35`；1.10.0+ 才是 36）、activity-compose 1.9.3→**1.10.1**、robolectric 4.14.1→**4.17**、bugly 4.1.9→**4.1.9.3** |
+
+### 4.5 播放相关（PB）
+
+| ID | 结论 | 证据 | 后果 / 修法 |
+|---|---|---|---|
+| PB-3 | 弱网延迟重试只校验"还是同一首"，**不校验用户是否刚暂停** → 静默把暂停撤销 | `PlaybackService.kt:788-804`：`stillSame` 只比 `currentMediaItemIndex` + `mediaId`，随后 `cur.prepare(); cur.play()` | 错误出现后 800ms/1600ms 内按暂停（或来电被 `AUDIO_FOCUS_LOSS` 停掉）→ 被强行拉起。改：延迟体补一条与 `shouldFireRetryProbe` 同源的意愿门（`playWhenReady \|\| isPlaying`） |
+| PB-4 | 256KB 预热字节让"没下完"的歌通过离线点播门 → 离线点歌必在歌中间炸 | `MediaCache.kt:63` `PREFETCH_WARM_BYTES = 256KB`；`OfflineAvailability.kt:73` `cachedBytes(...) > 0L` 即算 `isCached`；`OfflineAvailability.kt:105-106` `isGatePlayable`；`PlaybackService.kt:590/669` 每次切歌都 `prefetchNext()` | 离线点"下一首"必过门，播 4-6 秒命中空洞报错 → "该歌曲未缓存完整"（`MainActivity.kt:2623`）。感知是"离线总在歌中间断"而非"未缓存"。改：门槛改"可连续读到的前缀 ≥ 阈值"，别让预热字节参与 offline 判定 |
+| PB-5 | 自愈路径跨 IO 间隙用陈旧 index，越界兜底把整条时间线换成 1 首 | `MainActivity.kt:1050-1056`：`if (idx in 0 until cc.mediaItemCount) replaceMediaItem(idx, …) else cc.setMediaItem(streamItem)`；调用处 `:2512/:2534` 的 `idx` 抓自错误回调，中间隔了 `isAudioFileIntact` 的 IO hop，**无任何身份复核** | (a) 探测期间用户点了别的歌 → 把别人位置替换成本曲 stream，本曲重复、被点那首丢失；(b) 用户删掉该项 → `idx == mediaItemCount` → 队列压缩成 1 首。改：落地时重读 `currentMediaItemIndex`/`mediaId` + `playGen` 做身份校验；去掉 `setMediaItem` 兜底 |
+| PB-6 | 单曲循环下"自动跳过"其实是原地重开同一首，还报"已跳过" | `PlaybackService.kt:834-838`：`shouldAutoSkip(consecFails, exo.hasNextMediaItem())` → `seekToNextMediaItem()`；`PlayMode.kt:33` `SINGLE_LOOP = REPEAT_MODE_ONE`，此时 `hasNextMediaItem()` 为 true，Media3 的 `seekToNextMediaItemInternal` 在 `next == current` 时走 `repeatCurrentMediaItem()` | 坏歌重试 3 次，3 次 toast 都是"播不了，已跳过"，实际一首没跳。改：判"存在**不同**的可播下标"（复用 `selectNextOfflineIndex` 排除当前项的语义），单曲循环下直接 stop + 提示 |
+| PB-7 | 随机播放下离线跳歌按**未洗牌的下标顺序**走 | `PlaybackService.kt:703-729`：`repeatAll = repeatMode == REPEAT_MODE_ALL` → `selectNextOfflineIndex(songs, from, …)`（`:147-161` 是 `from+1..size` 顺序扫描）；`PlayMode.kt:34` `SHUFFLE = REPEAT_MODE_ALL + shuffleOn` | 开随机时离线跳歌落到歌单下一行，之后又跳回洗牌序 → "随机模式下会突然按歌单顺序播"。`prefetchNext()` 反而对 shuffle 做了正确规避（`PlaybackService.kt:993` `if (shuffleOn) return`）。改：shuffle 开启时不按下标扫描 |
+| PB-8 | `playGen` 不覆盖 controller 重绑，跨代 controller 会在后台返回时抛"播放失败" | `MainActivity.kt:766-781` 只守 `playGen`；`:2759` `controllerGen += 1` 会 dispose 旧 effect → `release()`（`:2695-2712`），但 `playGen` 不变 | 息屏很久回前台立刻点歌 → IO hop 里 `c` 已被 release → `setMediaItems` 抛 `IllegalStateException` → `:824` 显示"播放失败: …"。改：异步落地前再校验 `c === controller`（或把 controllerGen 并进 gen 比较） |
+| PB-9 | `consecFails` 在线/离线共用，只在"真的出声"时清零 → 一次在线失败就报"连续多次失败" | `PlaybackService.kt:566-567`（唯一清零点，`if (playing)`）；`:733/739`（离线分支也自增，从不校验） | 离线连坏 3 首 → 恢复网络后点一首 404 的歌 → `shouldAutoSkip(3, …)` 为 false → 直接 `STOPPED_CONSEC_FAILURES`"连续多次失败，播放停止"，且不跳歌。改：`onMediaItemTransition` 里清零，或在线/离线各一份计数 |
+
+**播放线查过、确认没问题（不用重复排查）**
+
+1. 焦点被拒补试不会把"播放中被打断"误判成"点播被拒"：`PlaybackService.kt:594-617` 依赖 `wasPlayingBeforeFocusChange` 的旧值，已核对 Media3 1.9.3 的 `onPlayWhenReadyChanged` 派发顺序成立。
+2. 不会误删好文件：`healAction` 只有 `fileValid == false` 且 `fails >= 2` 才 `DELETE_AND_STREAM`（`CachePolicy.kt:76`）；`delete(OfflineMeta.of(song, 0L))` 重建的 probe Song 得到同一个 `offlineBaseName`，删不到别的文件。
+3. `customCacheKey` 与 `local:` 前缀不冲突：local 项是 `file://`，走 `DefaultDataSource`，完全绕过 CacheDataSource。
+4. 资源无泄漏路径：`MediaMetadataRetriever`/`Cursor`/`InputStream` 都有 `finally`/`use`；`serviceIoScope` 在 `onDestroy` cancel；`MediaCache.clear()` 用 `removeResource` 而非 `release`（在读音轨不被物理删除）。
+
+**需确认（不下结论）**：`suppressSwitchStart`（`PlaybackService.kt:489/795/821`）假设 `replaceMediaItem` 会触发 `onMediaItemTransition`；若 1.9.3 走 `updateMediaSourcesWithMediaItems` 快路径则不产生 transition，标志会泄漏到下一次真实切轨——只影响 `lastSwitchElapsedMs` 度量，无用户可见后果。要证实需一条真机 `VibePrefetch fast-switch` 日志对照。
+
+---
+
+## 5. 结构性债务
+
+### 5.1 `MainActivity.kt` 3517 纯 LOC —— 拆分方案已有，执行停摆
+
+实测（本次重新统计，非引用文档）：
+
+| 指标 | 数值 |
+|---|---|
+| 纯 LOC（排除空行/注释） | **3517** |
+| `by remember` 状态 | **104** |
+| 类内局部 `fun` | **71** |
+| `LaunchedEffect` | **19** |
+| 最深缩进 | **15 级** |
+
+`docs/REFACTOR-mainactivity.md` 的方案是对的（先状态提升再切文件，机械切分不可行），进度是 **C1/C4 已执行，C2/C5/C6 停着**。C4 已把自更新整段搬进 `UpdateCoordinator.kt`（-158 行），证明这条路能走通。
+
+**建议**：把 C5（播放组，最大一刀）单独排一轮，按文档的停手判据执行（单测红 >2 次 / 单 diff >800 行 / 需改 >5 个 screen 调用点 / 出现行为变化 → 回滚该片）。
+
+### 5.2 「单文件 ≤250 纯 LOC」零机器守卫
+
+18 个文件超标，最重的 6 个：`MainActivity` 3517 / `VibeApi` 1569 / `PlayerScreen` 891 / `PlaybackService` 748 / `DiscoverUi` 612 / `UiAtoms` 608。
+
+CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」「禁 `!!`」「禁空 catch」三条规范全靠人记 —— 与全局 AGENTS.md 里"靠人记住的约定必须变成机器断言"直接冲突。
+
+**建议**：加一个 30 行的 Gradle 任务（纯 LOC 统计 + 白名单），绑到 `pull_request`；不引第三方插件也能做。
+
+### 5.3 吞错的分布（不是"到处都是"，是可枚举的）
+
+`catch (_: Exception)` 共 286 处，但**真空 catch 只有 3 处**（`MainActivity.kt:472`、`PlayDiag.kt:68/75`）。其余都有 `SilentFail.note(...)`，符合"catch 必须有可观察信号"的规范。
+
+真正的问题是**该给用户看的路径也只 `SilentFail`**，高风险项集中在：
+
+- `PlaybackService.kt:743/802/828`（`onPlayerError` 三条自动恢复路径失败 → 播放彻底停住、UI 无提示）
+- `MainActivity.kt:1058`（`swapToStreamAndPlay` —— 本地文件损坏 heal 的唯一出口）、`:2529`
+- `VibeApi.kt:1786`（收藏失败静默，UI 仍乐观翻红心）
+
+**建议**：给这批加一个"用户可见信号"通道（复用 `showError` 或播放页的状态条），不要与"日志型 SilentFail"混用同一个 API。
+
+---
+
+## 6. 文档与 CI 漂移
+
+### 6.1 数字漂移（五处，会让下一个 agent 按错的门禁干活）
+
+| 文件 | 写的 | 实际 |
+|---|---|---|
+| `README.md:18`、`:67` | 956 用例 | **970** |
+| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **970**；**2.0.19-ai**（97） |
+| `PLAN.md:198` | AI 版当前 `v2.0.17-ai` | **2.0.19-ai** |
+| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3517 纯 LOC**（`wc -l` 口径不同）/ **104** / **970** |
+| `.github/workflows/release.yml:2` | 注释「当前 v2.0.17-ai」 | 2.0.19-ai |
+
+`AGENTS.md` 标注"由人手编写并审校、禁止 agent 自动改写"，所以这条**只报不改**，等用户确认。
+
+### 6.2 CI 门禁的真实覆盖面
+
+| workflow | 触发 | 跑什么 | 不跑什么 |
+|---|---|---|---|
+| `release.yml` | **仅 tag `v*`** | cover fallback gate、`testDebugUnitTest`、`lintRelease`（baseline + abortOnError）、`assembleRelease`、签名/版本/单调/sha256 断言、Gitee 镜像 + 匿名自证 | release 变体单测、覆盖率、静态规范 |
+| `deps-guard.yml` | `libs.versions.toml` / `app/build.gradle.kts` / `verify-deps.sh` / 自身 | media3 两个 artifact 的 `minCompileSdk ≤ compileSdk` | 其余依赖的 `minCompileSdk` / `minAGP` |
+| `android-smoke.yml` | 仅 workflow / `gradle/**` / 各 `*.gradle.kts` / `gradle.properties` | `assembleDebug` + `aapt2 dump badging` | 测试、lint |
+
+**CI-1（P1）：`app/src/**` 不在任何一个 workflow 的 `paths` 里 → 日常改 Kotlin 代码零 CI。** 问题只会在打 tag 那一刻暴露，而工作流取自 tag 指向的提交，**tag 打错了改不动**（2026-10-27 已踩过）。
+
+其余盲区：
+- `assembleRelease`（R8 + `isShrinkResources`）只在发版时跑，`proguard-rules.pro` 的充分性没有机器断言。
+- 只跑 `testDebugUnitTest`，`testReleaseUnitTest` 从未执行 → "只在 release 崩"（反射/R8）测不出来。
+- 无覆盖率门禁（无 jacoco/kover）。
+- 无 `androidTest` 目录，设备级行为（通知栏、播放服务、安装器）零自动化。
+
+**建议（按性价比排序）**：① 加 `pull_request` 触发跑 `testDebugUnitTest + assembleDebug`（带 Gradle 缓存，约 3-5 分钟）；② 加纯 LOC 守卫任务；③ 发版前手动跑一次 `assembleRelease` 已足够（R8 问题本来就只能这样发现）。
+
+---
+
+## 7. 建议修复批次
+
+不追求一次修完。按"风险 × 改动量"分四批：
+
+**第 1 批（凭据与崩溃，改动小、收益最高，建议立刻做）**
+- SEC-1 登出清 cookieJar + 拒绝"已登出"状态用 jar cookie
+- SEC-2 登出清 `SearchStore` + `searchHistory`
+- SEC-3 `isSameSignature` 加 API 26/27 分支 + `catch (Throwable)` + 删 lint baseline 两条
+- UI-2 四处 `LazyColumn` key 统一（抽 `songRowKey` + 单测）
+- UPD-1 `checkOnLaunch` 时间戳后置
+
+预计 diff：`VibeApi.kt` ~15 行、`AuthStore.kt` ~5、`MainActivity.kt` ~15、`UpdateCheck.kt` ~20、`UpdateCoordinator.kt` ~8、`SearchScreen.kt`/`DiscoverUi.kt` 各 ~4。新增测试 4-6 例。
+
+**第 2 批（用户可见的"数据消失"与"页面不好用"）**
+- UI-1 四屏 error 态
+- UI-3 歌词页 remember + 手势保护
+- UI-4 `view` 去 key
+- UI-5 `rememberSaveable` + 播放页滚动
+- UI-6 返回键/收藏键 contentDescription
+- PB-1 离线 local 错误交回单属主前进（需真机回归：离线连播、坏文件跳歌）
+- PB-2 `fails` 越线后真删+重下，或改文案说真话
+
+**第 3 批（契约健壮性 + 自更新 + 播放边缘）**
+- API-1~4、UPD-2~4
+- PB-3~PB-9（弱网重试意愿门、离线门改"连续前缀"、自愈身份复核、单曲循环跳歌、shuffle 下标、controllerGen、consecFails 分账）
+
+**第 4 批（工程门禁与债务）**
+- CI-1 加 PR 触发
+- 纯 LOC 守卫
+- `MainActivity` C5 拆分（单独一轮，不与其他批并行）
+- CODE-1~8 的孪生副本收敛
+
+**不建议现在做**：工具链升级（media3 1.10+ / compose BOM / core-ktx 全部被 compileSdk 35 硬挡，需整体升 36 + AGP 8.9.1，属用户决策）；i18n 抽取（≥742 处中文字面量，无产品需求）。
+
+---
+
+## 8. 未覆盖 / 需真机
+
+**本次审查无法判断的（不猜）**
+
+1. 歌词页性能：100ms ticker + 每 tick 全量 `filterNot`/`indexOfLast`，在 vivo Y 系低端机 + 200 行以上歌词时是否掉帧 —— 需 Perfetto / `dumpsys gfxinfo`。
+2. 横屏播放页是"被裁"还是"被压"（§UI-5 的 440dp 是推演）。
+3. 系统字号 1.3/2.0 下 `LyricOffsetRow`（4 个按钮无 weight）、`PlaylistsUi` 多选行、`UpdateChannelRow` 是否挤爆。
+4. 后端 token 过期返回 HTTP 401 还是 200+`code:401`（决定 API-3 是"潜在"还是"现实"）。
+5. 后端 `/api/auth/logout` 是否吊销 refresh（决定 SEC-1 的严重度上限）。
+
+**需要真机才能验的（与发版前一致）**
+
+- 实际出声 / 后台锁屏播放 / vivo 通知栏按键
+- 微信「用其他应用打开」的 `content://` 修复（2.0.19 新增）
+- 安装器在 API 26/27 设备上的行为（SEC-3 修完后回归）
+- 离线连播 + 坏文件自动跳歌（PB-1/PB-2 修完后回归，需飞行模式 + 一个截断的下载文件）
+- 随机模式下离线跳歌落点（PB-7）
+
+---
+
+*本报告未改动任何仓库文件。是否入库（`docs/CODE-REVIEW-2026-10-28.md`）与是否按第 1 批开修，等确认。*
