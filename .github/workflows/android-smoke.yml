@@ -1,0 +1,56 @@
+# 编译冒烟：验证「工具链外围」还能不能构建
+#
+# 为什么需要它：release.yml 只在打 tag 时跑，所以 action 大版本升级 / runner 镜像切换
+# 之后，没有任何廉价办法确认链路没坏 —— 要么盲发一版，要么等下一次真发版翻车。
+# 本 workflow 用**与 release.yml 完全相同的 action 版本与 runner**，只做到
+# assembleDebug，几分钟出结论，可手动触发也可在相关文件变更时自动跑。
+#
+# 它不替代发版：不签名、不发 Release、不碰 Gitee。
+
+name: android-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/android-smoke.yml'
+      - '.github/workflows/release.yml'
+      - 'gradle/**'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
+      - 'app/build.gradle.kts'
+      - 'gradle.properties'
+
+jobs:
+  assemble-debug:
+    runs-on: ubuntu-24.04 # 与 release.yml 一致（ubuntu-latest 自 2026-10-19 起迁 26.04）
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # 与 release.yml 同参：Google 已下架废弃的 tools 包，只留 platform-tools
+          packages: platform-tools
+
+      - name: Grant gradlew
+        run: chmod +x gradlew
+
+      - name: assembleDebug
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK metadata
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK" || { echo "::error::assembleDebug 没产出 APK"; exit 1; }
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)
+          echo "aapt2: $AAPT2"
+          "$AAPT2" dump badging "$APK" | head -2
