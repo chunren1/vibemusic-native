@@ -61,6 +61,37 @@ class SearchHistorySyncTest {
         assertEquals(listOf("a", "b"), out)
     }
 
+    // ---- 云端合并必须用同一套前缀折叠，否则 pull 会把脏历史拉回来 ----
+
+    @Test
+    fun merge_foldsPrefixComingFromRemote() {
+        // 本地已干净，服务器上残留「第三」→ 合并时折叠掉，避免下次 pull 复活
+        val out = mergeSearchHistories(
+            local = listOf("第三人称"),
+            remote = listOf("第三")
+        )
+        assertEquals(listOf("第三人称"), out)
+    }
+
+    @Test
+    fun merge_foldsChainFromRemote() {
+        val out = mergeSearchHistories(
+            local = listOf("第三人称"),
+            remote = listOf("第三", "第")
+        )
+        assertEquals(listOf("第三人称"), out)
+    }
+
+    @Test
+    fun merge_keepsReverseOrderPairs() {
+        // 反向（先长后短）不折叠：是两次不同意图
+        val out = mergeSearchHistories(
+            local = listOf("第三"),
+            remote = listOf("第三人称")
+        )
+        assertEquals(listOf("第三", "第三人称"), out)
+    }
+
     @Test
     fun buildBody_trimsDedupsCaps() {
         val body = JSONObject(VibeApi.buildSearchHistoryBody(listOf(" b ", "a", "b", "")))

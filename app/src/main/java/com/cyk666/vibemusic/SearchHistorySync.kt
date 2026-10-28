@@ -10,7 +10,10 @@ const val SEARCH_HISTORY_PUSH_DEBOUNCE_MS = 800L
 
 /**
  * Pure union: local-first (local is freshest), remote fills gaps,
- * dedup by trimmed keyword, most-recent-first, capped.
+ * dedup by trimmed keyword, 折叠前缀, most-recent-first, capped.
+ *
+ * ⚠ 云端合并必须用和本地写入**同一套**折叠规则：否则服务器上残留的「第三」
+ * 会在下一次 pullAndMerge 里被原样拉回本地，本地修得再干净也白改。
  */
 fun mergeSearchHistories(
     local: List<String>,
@@ -28,7 +31,7 @@ fun mergeSearchHistories(
     }
     addAll(local)
     addAll(remote)
-    return out
+    return foldPrefixHistory(out).take(cap)
 }
 
 /**

@@ -28,7 +28,38 @@ val SEARCH_HOTWORDS: List<String> = listOf(
 )
 
 /**
- * Pure helper: prepend trimmed [query] latest-first, dedup, cap at [cap].
+ * Pure: 前缀折叠（输入为「最新在前」的列表）。
+ *
+ * 规则**单向**：只有当「较新的条目」以「较旧的条目」为前缀时，才丢掉较旧的那条。
+ * 即"后来搜得更具体"才折叠，反过来不动。
+ *
+ * ```
+ * 第三      → 第三人称     : 丢「第三」（输入法打到一半就搜，历史里全是递进前缀）
+ * 第三人称  → 第三         : 两条都留（是两次不同的意图，不能因为"包含"就删）
+ * 晴天      → 晴天 live    : 丢「晴天」（同一次意图的细化；已知取舍，见下）
+ * ```
+ *
+ * ⚠ 已知取舍：`晴天` / `晴天 live` 这种"同一个词加限定词"也会被折叠。选择接受它，
+ * 因为反向规则（双向包含）会把「周杰伦」和「周杰伦 稻香」都吃掉，误伤更大。
+ * 折叠只影响"谁留在历史里"，不影响搜索能力——被折掉的词仍可从联想/热词一键再搜。
+ *
+ * 2026-10-27 用户反馈：输入「第三」停顿即自动搜索并写历史，再搜「第三人称」就出现
+ * 两条。根因是自动搜索也记历史（已改为只记显式搜索），此函数负责清掉已经脏掉的历史。
+ */
+fun foldPrefixHistory(list: List<String>): List<String> {
+    val kept = ArrayList<String>(list.size)
+    for (item in list) {                 // 最新在前
+        val t = item.trim()
+        if (t.isEmpty() || kept.contains(t)) continue
+        // kept 里的都更新；只要有一条更新的以 t 为前缀，t 就是"半成品"
+        if (kept.any { it != t && it.startsWith(t) }) continue
+        kept.add(t)
+    }
+    return kept
+}
+
+/**
+ * Pure helper: prepend trimmed [query] latest-first, dedup, 折叠前缀, cap at [cap].
  * Blank queries leave [existing] untouched.
  */
 fun mergeSearchHistory(
@@ -38,13 +69,10 @@ fun mergeSearchHistory(
 ): List<String> {
     val q = query.trim()
     if (q.isEmpty()) return existing
-    val out = ArrayList<String>(cap + 1)
-    out.add(q)
-    for (h in existing) {
-        if (h != q && !out.contains(h)) out.add(h)
-        if (out.size >= cap) break
-    }
-    return out
+    val merged = ArrayList<String>(cap + 1)
+    merged.add(q)
+    for (h in existing) merged.add(h)
+    return foldPrefixHistory(merged).take(cap)
 }
 
 /** Search history (max 10, dedup latest-first) + persisted sort choice. New "search" file. */

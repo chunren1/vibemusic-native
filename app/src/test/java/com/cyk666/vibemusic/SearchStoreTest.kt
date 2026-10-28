@@ -35,6 +35,51 @@ class SearchStoreTest {
         assertTrue(out.none { it == "q10" })
     }
 
+    // ---- 前缀折叠（2026-10-27 用户反馈：输入「第三」→ 再搜「第三人称」出现两条） ----
+
+    @Test
+    fun mergeHistory_foldsOlderPrefixWhenRefining(): Unit {
+        assertEquals(
+            listOf("第三人称"),
+            mergeSearchHistory(listOf("第三"), "第三人称")
+        )
+    }
+
+    @Test
+    fun mergeHistory_foldsOnlyWhenLongerIsNewer(): Unit {
+        // 反向：先搜「第三人称」再搜「第三」——两次不同意图，不能因为"包含"就删
+        assertEquals(
+            listOf("第三", "第三人称"),
+            mergeSearchHistory(listOf("第三人称"), "第三")
+        )
+    }
+
+    @Test
+    fun mergeHistory_foldsRefinedVariant(): Unit {
+        // 已知取舍：同一次意图的细化会折叠（接受，见 foldPrefixHistory 注释）
+        assertEquals(
+            listOf("晴天 live"),
+            mergeSearchHistory(listOf("晴天"), "晴天 live")
+        )
+    }
+
+    @Test
+    fun mergeHistory_keepsUnrelatedSiblings(): Unit {
+        assertEquals(
+            listOf("晴天", "下雨天", "周杰伦"),
+            mergeSearchHistory(listOf("下雨天", "周杰伦"), "晴天")
+        )
+    }
+
+    @Test
+    fun foldPrefix_singlePassKeepsNewestOfChain(): Unit {
+        // 递进输入留下的三条「第」「第三」「第三人称」→ 只留最完整那条
+        assertEquals(
+            listOf("第三人称"),
+            foldPrefixHistory(listOf("第三人称", "第三", "第"))
+        )
+    }
+
     @Test
     fun store_roundTripAndRemove(): Unit = runBlocking {
         SearchStore.clearHistory(context())

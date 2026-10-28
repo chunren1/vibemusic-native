@@ -598,7 +598,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun runSearch(keyword: String, platform: String? = null) {
+            /**
+             * 写搜索历史（显式搜索 / 从搜索结果点歌时才调用）。
+             * 2026-10-27：自动联想搜索（debounce）**不写历史** —— 以前「输入第三停顿
+             * 500ms」也算一次搜索，于是历史里堆出「第三」「第三人称」两条。
+             */
+            fun recordSearchKeyword(kw: String) {
+                val k = kw.trim()
+                if (k.isEmpty()) return
+                scope.launch {
+                    try {
+                        searchHistory = SearchStore.addHistory(context, k)
+                        SearchHistorySync.schedulePush(scope, searchHistory)
+                    } catch (_: Exception) {
+                        SilentFail.note("MainActivity.recordSearchKeyword")
+                    }
+                }
+            }
+
+            fun runSearch(
+                keyword: String,
+                platform: String? = null,
+                recordHistory: Boolean = true
+            ) {
                 val kw = keyword.trim()
                 if (kw.isEmpty()) {
                     showError("请输入搜索关键词")
@@ -619,14 +641,7 @@ class MainActivity : ComponentActivity() {
                     loading = false
                     liveQuery = kw
                     artistFilter = null
-                    scope.launch {
-                        try {
-                            searchHistory = SearchStore.addHistory(context, kw)
-                            SearchHistorySync.schedulePush(scope, searchHistory)
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:625")
-                        }
-                    }
+                    if (recordHistory) recordSearchKeyword(kw)
                     return
                 }
                 loading = true
@@ -644,12 +659,7 @@ class MainActivity : ComponentActivity() {
                         searchSuggested = r.suggestedKeyword
                         liveQuery = kw
                         artistFilter = null
-                        try {
-                            searchHistory = SearchStore.addHistory(context, kw)
-                            SearchHistorySync.schedulePush(scope, searchHistory)
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:649")
-                        }
+                        if (recordHistory) recordSearchKeyword(kw)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -670,13 +680,15 @@ class MainActivity : ComponentActivity() {
             // 联想 debounce: auto-search 500ms after the last keystroke, reusing
             // the same Job-cancel + generation-counter guards as manual search.
             // Blank input never fires; the IME Search action fires immediately.
+            // ⚠ 自动搜索**不写历史**（recordHistory = false）：只有按搜索键 / 点联想 /
+            // 点历史 / 点热词 / 从结果里点歌才算"一次搜索"。
             fun scheduleSearchDebounce(text: String) {
                 debounceJob?.cancel()
                 if (text.isBlank()) return
                 val snapshot = text
                 debounceJob = scope.launch {
                     delay(500)
-                    runSearch(snapshot)
+                    runSearch(snapshot, recordHistory = false)
                     debounceJob = null
                 }
             }
@@ -862,6 +874,9 @@ class MainActivity : ComponentActivity() {
                         showError("无网络且未缓存")
                         return@launch
                     }
+                    // 「搜到了并点开听」= 最强意图信号。自动搜索不写历史，但这条要记，
+                    // 否则"打完字直接点歌"的搜索会从历史里消失（2026-10-27 方案 A 配套）。
+                    recordSearchKeyword(searchSnapshot.liveQuery)
                     val items = withContext(Dispatchers.IO) {
                         placed.queue.map { it.toPlayMediaItem(context, avail) }
                     }
@@ -2770,7 +2785,8 @@ class MainActivity : ComponentActivity() {
                         SilentFail.note("MainActivity.onCreate:2865")
                     }
                 }
-                if (shouldAutoSearchOnLaunch(query)) runSearch(query)
+                // 恢复态重跑上一次查询：不是用户搜索，不写历史（否则每次冷启动都往云端推一遍）
+                if (shouldAutoSearchOnLaunch(query)) runSearch(query, recordHistory = false)
                 loadSearchGuess()
                 // Self-update: once per cold start + 24h throttle; silent unless newer.
                 updater.checkOnLaunch()
