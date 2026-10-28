@@ -11,6 +11,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -521,12 +522,14 @@ class PlaybackService : MediaLibraryService() {
         // path handles it (see MainActivity.onPlayerError).
         val upstream = httpUpstream
         val cacheSourceFactory = MediaCache.cachedDataSourceFactory(this, upstream)
-        // Scheme routing: file:// download items read straight from disk via
-        // FileDataSource; http(s) keeps flowing cache→upstream byte-identical
-        // to before. Without this, file:// misses the cache and falls through
-        // to the HTTP-only upstream, which errors on the scheme — every local
-        // file failed to play and self-heal deleted the good bytes.
-        val schemeFactory = DataSource.Factory { SchemeDataSource(cacheSourceFactory) }
+        // Scheme routing: file:// download items read straight from disk and
+        // content:// items (微信「用其他应用打开」) through the ContentResolver;
+        // http(s) keeps flowing cache→upstream byte-identical to before.
+        // Without this, both local schemes miss the cache and fall through to
+        // the HTTP-only upstream, which errors on the scheme.
+        val schemeFactory = DataSource.Factory {
+            SchemeDataSource(cacheSourceFactory, DefaultDataSource.Factory(this))
+        }
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(schemeFactory)
             // 快失败：坏歌/取不到链接时尽快把错误交给 onPlayerError 跳下一首（见上方常量注释）。

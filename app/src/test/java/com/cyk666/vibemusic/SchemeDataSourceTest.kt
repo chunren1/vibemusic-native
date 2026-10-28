@@ -67,10 +67,21 @@ private fun readAll(ds: DataSource): ByteArray {
 class SchemeDataSourceTest {
 
     @Test
-    fun routeScheme_fileIsFileRegardlessOfCase() {
-        assertEquals(Route.FILE, routeScheme("file"))
-        assertEquals(Route.FILE, routeScheme("FILE"))
-        assertEquals(Route.FILE, routeScheme("File"))
+    fun routeScheme_fileIsLocalRegardlessOfCase() {
+        assertEquals(Route.LOCAL, routeScheme("file"))
+        assertEquals(Route.LOCAL, routeScheme("FILE"))
+        assertEquals(Route.LOCAL, routeScheme("File"))
+    }
+
+    /**
+     * 2026-10-28 回归：content:// 曾经被归到 STREAM，于是微信「用其他应用打开」
+     * 传来的音频落进 CacheDataSource 的 HTTP-only upstream，100% 播放失败。
+     */
+    @Test
+    fun routeScheme_contentIsLocal() {
+        assertEquals(Route.LOCAL, routeScheme("content"))
+        assertEquals(Route.LOCAL, routeScheme("CONTENT"))
+        assertEquals(Route.LOCAL, routeScheme("Content"))
     }
 
     @Test
@@ -78,11 +89,24 @@ class SchemeDataSourceTest {
         assertEquals(Route.STREAM, routeScheme("http"))
         assertEquals(Route.STREAM, routeScheme("https"))
         assertEquals(Route.STREAM, routeScheme("HTTP"))
-        assertEquals(Route.STREAM, routeScheme("content"))
         assertEquals(Route.STREAM, routeScheme("ftp"))
         assertEquals(Route.STREAM, routeScheme(null))
         assertEquals(Route.STREAM, routeScheme(""))
         assertEquals(Route.STREAM, routeScheme("   "))
+    }
+
+    @Test
+    fun open_contentUriConsultsLocalDelegateOnly() {
+        val cache = SpyDataSource()
+        val local = SpyDataSource("file-bytes".toByteArray())
+        val wrapper = SchemeDataSource(SpyFactory(cache), SpyFactory(local))
+        val uri = Uri.parse("content://com.tencent.mm.external.fileprovider/audio/晴天.mp3")
+        wrapper.open(DataSpec(uri))
+        assertEquals(1, local.openCount)
+        assertEquals(uri, local.opened?.uri)
+        assertEquals(0, cache.openCount)
+        assertArrayEquals("file-bytes".toByteArray(), readAll(wrapper))
+        wrapper.close()
     }
 
     @Test

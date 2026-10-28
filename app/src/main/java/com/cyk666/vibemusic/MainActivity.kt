@@ -158,7 +158,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleLocalAudioIntent(intent)
+        // 只在「首次创建」时取 intent：进程被杀后从最近任务回来，系统会拿**原来那个**
+        // VIEW intent 重新创建 Activity，于是微信那条一次性 content:// 授权早就失效，
+        // 又被当成新请求重播一次 → 每次进 App 都弹「这个音频文件播放失败」。
+        // onNewIntent 覆盖真正的「又来一个新分享」。
+        if (savedInstanceState == null) handleLocalAudioIntent(intent)
         // Edge-to-edge with a single Obsidian background behind the status
         // bar: transparent bars + dark icons so no translucent band shows.
         enableEdgeToEdge(
@@ -1334,6 +1338,8 @@ class MainActivity : ComponentActivity() {
 
             fun maybeCountPlay(song: Song?) {
                 if (song == null || song.sourceId.isBlank()) return
+                // 外部导入文件没有曲库身份：不算播放次数、不自动缓存。
+                if (LocalAudioIntent.isExternalSong(song)) return
                 val key = playKey(song)
                 if (key == lastCountedKey) return
                 lastCountedKey = key
@@ -1725,6 +1731,8 @@ class MainActivity : ComponentActivity() {
 
             fun maybeReportPlay(song: Song?) {
                 if (song == null || song.sourceId.isBlank()) return
+                // 外部导入文件不是曲库歌曲：上报会把 content:// 路径写进「最近播放」。
+                if (LocalAudioIntent.isExternalSong(song)) return
                 if (currentUser == null) return
                 val key = playKey(song)
                 if (!VibeApi.shouldReportPlay(true, key, lastReportedKey)) return
@@ -2387,7 +2395,11 @@ class MainActivity : ComponentActivity() {
                             pendingRestoreAfterSeek = false
                             queue.getOrNull(currentIndex)?.let { restorePosition(it) }
                         }
-                        if (queue.isNotEmpty()) {
+                        // 外部音频（content:// 一次性授权）不落盘：下次启动已无读权限，
+                        // 存下来只会让「恢复上次队列」点播必失败。跳过保存时，磁盘上
+                        // 保留的仍是用户原来的歌单，重启后还能回到那个歌单。
+                        val externalNow = LocalAudioIntent.isExternal(c.currentMediaItem?.mediaId)
+                        if (queue.isNotEmpty() && !externalNow) {
                             val snapshot = queue
                             val snapshotIndex = currentIndex
                             scope.launch {
@@ -3144,6 +3156,16 @@ class MainActivity : ComponentActivity() {
                     }
                     try {
                         c.setMediaItems(items, 0, 0L)
+                        // UI 必须跟着 controller 走。以前这里只换 ExoPlayer 的时间线，
+                        // Activity 的 queue/currentIndex 还是上一个歌单：播放页于是显示
+                        // 歌单第 1 首的封面/标题，而实际在播的是这个文件 —— 用户看到的是
+                        // 「这首歌 0:00/0:00 + 文件播放失败」，完全对不上号。
+                        val songs = items.map { songFromMediaItem(it) }
+                        queue = songs
+                        timelineSongs = songs
+                        currentIndex = 0
+                        positionMs = 0L
+                        durationMs = 0L
                         c.prepare()
                         c.play()
                     } catch (e: Exception) {

@@ -29,9 +29,25 @@ object LocalAudioIntent {
     /** `local:file:<uri>`：`file` 是 platform 段，`songFromMediaItem` 会原样解析出来。 */
     const val MEDIA_ID_PREFIX = "local:file:"
 
+    /** `songFromMediaItem` 从 [MEDIA_ID_PREFIX] 里解析出的 platform 段。 */
+    const val PLATFORM_FILE = "file"
+
     /** 外部音频没有可回退的流地址，Activity 的错误提示要单独一条。 */
     fun isExternal(mediaId: String?): Boolean =
         mediaId.orEmpty().startsWith(MEDIA_ID_PREFIX)
+
+    /**
+     * Pure: [song] 是「外部导入文件」而不是曲库歌曲吗？
+     *
+     * 外部文件没有曲库身份：上报上去会污染「最近播放」，队列持久化下来的
+     * content:// URI 在进程重启后已无权限（微信 FileProvider 不给 persistable
+     * 授权），下次启动点播必失败。所以计数 / 上报 / 队列保存三处都要跳过它。
+     */
+    fun isExternalSong(song: Song?): Boolean {
+        if (song == null || song.platform != PLATFORM_FILE) return false
+        val sid = song.sourceId
+        return sid.startsWith("content:") || sid.startsWith("file:")
+    }
 
     /**
      * 一次性交接：Activity 把解析出的 URI 放这里，Compose 拿到 controller 后取走。

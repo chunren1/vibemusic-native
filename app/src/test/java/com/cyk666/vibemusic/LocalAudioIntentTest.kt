@@ -103,6 +103,52 @@ class LocalAudioIntentTest {
         assertFalse(LocalAudioIntent.isExternal(null))
     }
 
+    // ---- 外部文件不是曲库歌曲：计数 / 上报 / 队列落盘三处都靠这个判定跳过 ----
+
+    @Test
+    fun isExternalSongTrueForParsedIntentItem() {
+        val item = LocalAudioIntent.buildMediaItem(context, wechatFile)
+        assertNotNull(item)
+        val song = songFromMediaItem(item!!)
+        assertEquals(LocalAudioIntent.PLATFORM_FILE, song.platform)
+        assertTrue(LocalAudioIntent.isExternalSong(song))
+    }
+
+    @Test
+    fun isExternalSongFalseForOfflineDownload() {
+        // 离线下载是 local:netease:<id>，platform 是 netease，不是外部文件
+        val song = songFromMediaItem(
+            androidx.media3.common.MediaItem.Builder()
+                .setUri("file:///data/user/0/com.cyk666.vibemusic/files/a.mp3")
+                .setMediaId("local:netease:1895330088")
+                .build()
+        )
+        assertEquals("netease", song.platform)
+        assertFalse(LocalAudioIntent.isExternalSong(song))
+    }
+
+    @Test
+    fun isExternalSongFalseForLibrarySong() {
+        val song = Song(
+            sourceId = "1895330088",
+            name = "晴天",
+            artist = "周杰伦",
+            album = "",
+            coverUrl = "",
+            durationSec = 269,
+            platform = "netease"
+        )
+        assertFalse(LocalAudioIntent.isExternalSong(song))
+        assertFalse(LocalAudioIntent.isExternalSong(null))
+    }
+
+    @Test
+    fun isExternalSongFalseWhenPlatformSaysFileButIdIsNotAUri() {
+        // 防御：只有 platform=file **且** sourceId 真是本地 URI 才算外部文件
+        val bogus = Song("12345", "x", "", "", "", 0, LocalAudioIntent.PLATFORM_FILE)
+        assertFalse(LocalAudioIntent.isExternalSong(bogus))
+    }
+
     @Test
     fun fallbackTitleStripsExtension() {
         assertEquals(
