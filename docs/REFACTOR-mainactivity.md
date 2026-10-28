@@ -1,15 +1,17 @@
 # MainActivity 拆分方案（C 项）
 
-> 立档：2026-10-21 · 状态：**C1、C4 已执行；C2/C3/C5/C6 待办** · 验收门：`./gradlew testDebugUnitTest` 956 用例全绿 + `assembleDebug` 通过
+> 立档：2026-10-21 · 状态：**C1、C4、C5-lite 已执行；C5（播放组）已重新设计、C2/C6 待办** · 验收门：`./gradlew testDebugUnitTest` **1037** 用例全绿 + `assembleDebug` 通过 + `scripts/check-file-size.sh` 通过
 
 ## 1. 现状（实测，非印象）
 
 | 指标 | 数值 | 取得方式 |
 |---|---|---|
-| `MainActivity.kt` | **3940 行** | `wc -l` |
-| `onCreate` 跨度 | **3736 行**（含单个 `setContent {}`） | 顶层声明扫描：类内只有这一个函数 |
+> 下表是 2026-10-21 的**立档实测**（保留作对照）；括号内为 2026-10-28 现值。
+
+| `MainActivity.kt` | **3940 行**（3976 行 / **3460 纯 LOC**） | `wc -l` / `scripts/check-file-size.sh` |
+| `onCreate` 跨度 | **3736 行**（含单个 `setContent {}`）（≈3600 行） | 顶层声明扫描：类内只有这一个函数 |
 | `@Composable` 声明 | **0 个**（UI 组件已全在 `PlayerScreen.kt` / `SearchScreen.kt` 等） | `grep -c` |
-| `remember` 状态 | **108 个** | 正则统计 |
+| `remember` 状态 | **108 个**（107 个） | 正则统计 |
 | 状态跨区分布（按 400 行分桶） | 跨 1 桶 **1 个**、2 桶 19、3 桶 42、4 桶 21、5 桶 17、≥6 桶 8 | 同上 |
 
 **结论：这不是"文件太长"，而是"一个函数持有整个应用的状态"。**
@@ -38,7 +40,8 @@ handlers/
 | **C2** | 找出 `onCreate` 内可提取的纯决策，抽成顶层纯函数 + 单测 | 低 | 新增用例全绿，且不改变任何调用点行为 |
 | ~~C3~~ | ~~建通用 `MainState` 骨架~~ → **跳过**（见 §7：直接让 coordinator 自持状态，切得更小） | — | — |
 | **C4** | 自更新整段（状态+检查+下载+安装回调）搬到 `UpdateCoordinator` | 中 | ✅ 已执行（当时 943 全绿 + assembleRelease 绿；当前门禁 956） |
-| **C5** | 播放组（`queue`/`controller`/`currentIndex`/`playMode`）——最大的一刀，必须单独一轮，不与其他片并行 | 高 | 同上 + 真机回归（播放/通知/切歌/续播） |
+| **C5** | 播放组（`queue`/`controller`/`currentIndex`/`playMode`）——最大的一刀，必须单独一轮，不与其他片并行。**2026-10-28 重新设计为 C5-lite（见 §8）：只搬不碰播放状态的部分，状态本体留待有真机的轮次** | 高 | 同上 + 真机回归（播放/通知/切歌/续播） |
+| **C5-lite** | 系统交互组（保活状态读取 / 通知设置 Intent / 电池优化入口 / 分享面板）→ `SystemSettings.kt` | 低 | ✅ 已执行（2026-10-28） |
 | **C6** | 搜索组、Auth 组、Offline 组依次；最后删空壳 | 中 | 同上 |
 
 ## 4. 停手判据（硬规则）
@@ -85,3 +88,44 @@ vivo 媒体键问题仍**冻结**，不因本次拆分解冻。
 
 **遗留风险**：`UpdateCoordinator` 持有 `Context`，必须以 Activity 为生命周期（当前由 `remember`
 保证）。若后续搬进 ViewModel，需换成 `applicationContext` 或注入，不许把 Activity 塞进长生命周期对象。
+
+## 8. C5 重新设计记录（2026-10-28）
+
+**结论：按原文执行的 C5（把 `queue`/`controller`/`currentIndex`/`playMode` 连同 40+ 个
+本地函数搬进一个自持状态的 coordinator）命中本文件 §4 的停手判据，已放弃；改为
+C5-lite 分批搬"不碰播放状态"的部分。**
+
+### 命中的停手判据（逐条给证据）
+
+1. **§4.2 单片 diff > 800 行**：`queue` 在 `MainActivity` 内被引用 **62 处**、
+   `currentIndex` 40 处、`controller` 36 处、`screen` 100 处（§1 实测）。状态一旦移出
+   composable，这些读取点全部要改成 `session.xxx`；仅机械改写就远超 800 行。
+2. **§4.3 需同时改 > 5 个 screen 的调用点**：`PlayerScreen` / `QueueUi` /
+   `PlaylistDetailUi` / `SearchScreen` / `MineScreen` / `DiscoverUi` 都直接读这些状态。
+3. **§4.4 不许有行为变化 + 本文件要求真机回归**：当前环境没有设备，`PB-3/5/7/8` 这类
+   只能真机验的行为（弱网重试、自愈落地、shuffle 落点、controller 重绑）无法回归。
+   盲搬 600+ 行播放代码、只靠单测证明等价，风险不对称。
+
+### 实际做了什么（C5-lite）
+
+- 新增 `SystemSettings.kt`：`readKeepAliveState` / `notificationSettingsIntent` /
+  `batteryOptIntents` / `startFirstAvailable` / `openNotificationSettings` / `shareText`。
+  这些是纯系统调用 + Intent 拼装，**不碰任何播放状态**，此前住在 composable 里完全不可测。
+- `MainActivity` 三个本地函数改为一行转发（`refreshKeepAlive` / `openNotificationSettings` /
+  `openBatterySettings`），`sharePlaylistText` 改走 `shareText`（仍带原始报错，未降级文案）。
+- 新增 `SystemSettingsTest`（7 例）：通知页 Intent 指向本应用、电池入口顺序（先
+  REQUEST_EXEMPTION 再设置列表）、已豁免时无入口、第一个成功即停、全部失败返回 false
+  不抛、保活状态默认值、分享 chooser 的 action/type/EXTRA_TEXT/标题。
+- `MainActivity.kt` 3530 → **3460 纯 LOC**（−70）。
+
+### 下一轮 C5 的正确切法（待真机）
+
+不要一次搬四个状态。按**读多写少**排序，每片单独提交、单独真机回归：
+
+1. `playMode`（只被 `cyclePlayMode` 写、UI 读）→ 先搬，最小验证面；
+2. `currentIndex`（写点集中在 `queueSeekTo` / `onMediaItemTransition`）；
+3. `queue` + `timelineSongs`（写点最多，含 `persistQueue` / `syncQueueFromController`）；
+4. `controller`（最后搬，且搬完要重跑 PB-8 的 `c !== controller` 守卫断言）。
+
+每片都必须过：1037+ 单测、`lintRelease`、`assembleDebug`、`check-file-size.sh`，
+外加真机的播放/通知/切歌/续播四项回归。

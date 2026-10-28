@@ -8,8 +8,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -109,7 +107,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -427,64 +424,16 @@ class MainActivity : ComponentActivity() {
             var keepAliveIgnoring by remember { mutableStateOf(true) }
             var notificationsEnabled by remember { mutableStateOf(true) }
             fun refreshKeepAlive() {
-                keepAliveIgnoring = try {
-                    val pm = context.getSystemService(PowerManager::class.java)
-                    pm?.isIgnoringBatteryOptimizations(context.packageName) == true
-                } catch (_: Exception) {
-                    false
-                }
-                notificationsEnabled = try {
-                    NotificationManagerCompat.from(context).areNotificationsEnabled()
-                } catch (_: Exception) {
-                    true
-                }
+                // C5-lite：系统状态读取搬到 SystemSettings.kt（纯系统调用，可单测）。
+                val state = readKeepAliveState(context)
+                keepAliveIgnoring = state.batteryExempt
+                notificationsEnabled = state.notificationsEnabled
             }
             fun openNotificationSettings() {
-                val pkg = context.packageName
-                val intent = try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                            putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
-                        }
-                    } else {
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.parse("package:$pkg")
-                        }
-                    }
-                } catch (_: Exception) {
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        try {
-                            data = Uri.parse("package:$pkg")
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:438")
-                        }
-                    }
-                }
-                try {
-                    context.startActivity(intent)
-                } catch (_: Exception) {
-                    SilentFail.note("MainActivity.onCreate:445")
-                }
+                launchNotificationSettings(context)
             }
             fun openBatterySettings() {
-                val fallbacks = batteryOptActions(keepAliveIgnoring).map { action ->
-                    when (action) {
-                        BatteryOptAction.REQUEST_EXEMPTION -> Intent(
-                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        BatteryOptAction.OPEN_SETTINGS_LIST ->
-                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    }
-                }
-                for (intent in fallbacks) {
-                    try {
-                        context.startActivity(intent)
-                        return
-                    } catch (_: Exception) {
-                        // 该 ROM 没有这个设置页 → 按顺序退到下一个入口
-                    }
-                }
+                startFirstAvailable(context, batteryOptIntents(context, keepAliveIgnoring))
             }
             LaunchedEffect("keep-alive") { refreshKeepAlive() }
 
@@ -2083,15 +2032,8 @@ class MainActivity : ComponentActivity() {
             }
 
             fun sharePlaylistText(text: String) {
-                try {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "分享歌单"))
-                } catch (e: Exception) {
-                    showError(diagnosableError("分享失败", e))
-                }
+                // C5-lite：分享面板拼装搬到 SystemSettings.kt；失败文案保持"分享失败"。
+                shareText(context, text)?.let { showError(diagnosableError("分享失败", it)) }
             }
 
 
@@ -2193,7 +2135,7 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 if (password.length < 8) {
-                    showError("注册失败: 密码至少8位")
+                    showError("注册失败：密码至少8位")
                     return
                 }
                 loginBusy = true
@@ -2987,10 +2929,7 @@ class MainActivity : ComponentActivity() {
                             else -> {
                                 // Network or server issue: keep token, stay guest for now.
                                 currentUser = null
-                                showError(
-                                    "登录态恢复失败: " +
-                                        "${settledError.message ?: settledError.javaClass.simpleName}"
-                                )
+                                showError(diagnosableError("登录态恢复失败", settledError))
                                 recordAuthDiag(mapAuthFailureToCode(settledError))
                             }
                         }
@@ -3585,10 +3524,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
-                                            showError(
-                                                "切歌失败: " +
-                                                    "${e.message ?: e.javaClass.simpleName}"
-                                            )
+                                            showError(diagnosableError("切歌失败", e))
                                         }
                                         }
                                     }
@@ -3620,10 +3556,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             if (materialized) c.play()
                                         } catch (e: Exception) {
-                                            showError(
-                                                "切歌失败: " +
-                                                    "${e.message ?: e.javaClass.simpleName}"
-                                            )
+                                            showError(diagnosableError("切歌失败", e))
                                         }
                                         }
                                     }
@@ -3644,9 +3577,7 @@ class MainActivity : ComponentActivity() {
                                                 persistPosition(force = true, positionOverride = targetMs)
                                             }
                                         } catch (e: Exception) {
-                                            showError(
-                                                "进度跳转失败: ${e.message ?: e.javaClass.simpleName}"
-                                            )
+                                            showError(diagnosableError("进度跳转失败", e))
                                         }
                                     }
                                 },

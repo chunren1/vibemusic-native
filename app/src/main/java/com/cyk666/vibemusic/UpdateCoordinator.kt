@@ -29,6 +29,15 @@ import java.io.File
 class UpdateCoordinator(
     private val context: Context,
     private val scope: CoroutineScope,
+    /**
+     * 网络取 release 的**测试接缝**（CODE-9）。生产路径默认 [fetchLatestForChannel]，
+     * 单测注入 stub 才能断言"失败不烧 24h 窗口""窗口内不再请求"这两条 ——
+     * 它们正是 2026-10-27/28 两次"永远提示已是最新"事故的根因，靠真人点不出来。
+     *
+     * 放在 [onError] 之前：`onError` 必须留在最后一位，否则现有
+     * `UpdateCoordinator(context, scope) { … }` 的尾随 lambda 会绑到接缝上。
+     */
+    private val fetchLatest: suspend (UpdateChannel) -> GithubRelease = ::fetchLatestForChannel,
     private val onError: (String) -> Unit
 ) {
 
@@ -96,7 +105,7 @@ class UpdateCoordinator(
                 }
                 channel = storedChannel
                 val rel = try {
-                    fetchLatestForChannel(storedChannel)
+                    fetchLatest(storedChannel)
                 } catch (_: Exception) {
                     // 拉取失败**不**记时间戳：否则断网启动一次就把 24h 窗口烧掉，
                     // 用户接下来一天都收不到更新（手动检查不受影响，但没人会去点）。
@@ -130,7 +139,7 @@ class UpdateCoordinator(
             try {
                 val now = System.currentTimeMillis()
                 val rel = try {
-                    fetchLatestForChannel(channel)
+                    fetchLatest(channel)
                 } catch (e: Exception) {
                     onError(friendlyNetworkMessage(e))
                     return@launch
@@ -190,7 +199,7 @@ class UpdateCoordinator(
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     busy = false
-                    onError("更新失败: ${friendlyNetworkMessage(e)}")
+                    onError(diagnosableError("更新失败", e))
                 }
             }
         }
@@ -241,7 +250,7 @@ class UpdateCoordinator(
             context.startActivity(intent)
             release = null
         } catch (e: Exception) {
-            onError("安装失败: ${friendlyNetworkMessage(e)}")
+            onError(diagnosableError("安装失败", e))
         }
     }
 

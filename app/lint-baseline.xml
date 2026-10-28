@@ -13,17 +13,6 @@
     </issue>
 
     <issue
-        id="BatteryLife"
-        message="Use of `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` violates the Play Store Content Policy regarding acceptable use cases, as described in https://developer.android.com/training/monitoring-device-state/doze-standby.html"
-        errorLine1="                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,"
-        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/MainActivity.kt"
-            line="473"
-            column="38"/>
-    </issue>
-
-    <issue
         id="AndroidGradlePluginVersion"
         message="A newer version of com.android.application than 8.5.2 is available: 9.4.1"
         errorLine1="agp = &quot;8.5.2&quot;"
@@ -862,7 +851,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="497"
+            line="490"
             column="10"/>
     </issue>
 
@@ -873,7 +862,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="498"
+            line="491"
             column="10"/>
     </issue>
 
@@ -884,7 +873,7 @@
         errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="499"
+            line="492"
             column="10"/>
     </issue>
 
@@ -895,7 +884,7 @@
         errorLine2="            ~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="534"
+            line="527"
             column="13"/>
     </issue>
 
@@ -906,7 +895,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="534"
+            line="527"
             column="34"/>
     </issue>
 
@@ -917,7 +906,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="535"
+            line="528"
             column="30"/>
     </issue>
 
@@ -928,7 +917,7 @@
         errorLine2="                                               ^">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="564"
+            line="557"
             column="48"/>
     </issue>
 
@@ -939,7 +928,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="571"
+            line="564"
             column="14"/>
     </issue>
 
@@ -950,7 +939,7 @@
         errorLine2="             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="574"
+            line="567"
             column="14"/>
     </issue>
 
@@ -961,7 +950,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="707"
+            line="700"
             column="26"/>
     </issue>
 
@@ -972,7 +961,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="963"
+            line="956"
             column="26"/>
     </issue>
 
@@ -983,7 +972,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="966"
+            line="959"
             column="33"/>
     </issue>
 
@@ -994,7 +983,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlaybackService.kt"
-            line="984"
+            line="977"
             column="42"/>
     </issue>
 
@@ -1260,17 +1249,6 @@
             file="src/main/AndroidManifest.xml"
             line="81"
             column="10"/>
-    </issue>
-
-    <issue
-        id="ObsoleteSdkInt"
-        message="Unnecessary; SDK_INT is always >= 26"
-        errorLine1="                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/cyk666/vibemusic/MainActivity.kt"
-            line="445"
-            column="25"/>
     </issue>
 
     <issue

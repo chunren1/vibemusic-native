@@ -18,6 +18,36 @@ class SongTest {
         platform = "netease"
     )
 
+    // ---- JSON 缓存往返（CODE-9：songFromJsonObject 此前零直测） ----
+
+    @Test
+    fun songsJson_roundTripPreservesEveryFieldIncludingVip() {
+        val vip = chinese.copy(vip = true)
+        val list = listOf(chinese, vip)
+        assertEquals(list, songsFromJson(songsToJson(list)))
+    }
+
+    @Test
+    fun songFromJsonObject_blankPlatformFallsBackToNetease() {
+        // 老缓存/老队列里可能没有 platform 字段：读回来必须仍是 netease，
+        // 否则 streamUrl 会拼出 platform= 空值、后端 400。
+        val o = org.json.JSONObject().put("sourceId", "1").put("name", "n")
+        val song = songFromJsonObject(o)
+        assertEquals("netease", song.platform)
+        assertEquals(0, song.durationSec)
+        assertEquals(false, song.vip)
+    }
+
+    @Test
+    fun songsFromJson_malformedIsNull() {
+        // 调用方按"缓存未命中"处理：必须是 null，不能抛、也不能静默返回空表
+        // （空表会让 UI 显示"没有歌曲"而不是重拉）。
+        assertEquals(null, songsFromJson("nope"))
+        // 顶层是对象而不是数组 / 数组里不是对象 —— 都属于"缓存坏了"
+        assertEquals(null, songsFromJson("{\"a\":1}"))
+        assertEquals(null, songsFromJson("[1,2]"))
+    }
+
     @Test
     fun streamUrl_encodesChineseAndKeepsIdsVerbatim() {
         assertEquals(

@@ -25,7 +25,7 @@ fun shouldReconnectController(controllerNull: Boolean, probeFailed: Boolean): Bo
  * (see PlaybackService onTaskRemoved); this message is the documented guidance.
  */
 fun controllerFailureMessage(reason: String): String =
-    "播放器连接失败: $reason。后台常被杀会致通知栏播放键失灵，请到「我的→设置→后台保活」一键开启"
+    "播放器连接失败：$reason。后台常被杀会致通知栏播放键失灵，请到「我的→设置→后台保活」一键开启"
 
 /**
  * Cold-start transport guard (pure): after process death the Activity restores

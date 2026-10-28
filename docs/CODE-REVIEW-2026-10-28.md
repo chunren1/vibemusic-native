@@ -426,7 +426,7 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 | CODE-6 ✅ | 后端域名硬编码两处、格式不同 —— **漏改 `Song.kt` 会"登录正常但所有播放流 404"** | `VibeApi.kt:266` `BASE_URL`、`Song.kt:23` `.authority("vibe.cyk666.top")` |
 | CODE-7 ✅ | 6 处用墙钟 `System.currentTimeMillis()` 算间隔，与 `PlaybackService` 的 `elapsedRealtime` 两套并存（用户改系统时间会让节流失真） | `MainActivity.kt:975/1082/1325/1384/2991/3027`、`PlayerScreen.kt:415`；对照 `PlaybackService.kt:578/601/620/628/660/1068/1082` |
 | CODE-8 ⏸ 不改 | 中文字符串字面量直写（实测 ≥742 处，粗略正则单行统计；`strings.xml` 只有 4 行）。无 i18n 计划则可接受，但孪生文案使"改一处漏一处"必现 | `grep -oP '"…CJK…"'` 统计 |
-| CODE-9 | 测试缺口 top5（含纯逻辑、零对应测试）：`betaNumber`/`pickApkFromAsset`（2026-10-27 三起事故现场）、`songFromJsonObject` round-trip、`Discover.kt` 整套解析、`sanitizeFilePart`、`UpdateCoordinator` 整个 class | 全仓符号↔测试映射 |
+| CODE-9 ✅（4/5 原为误报） | 测试缺口 top5：`betaNumber`/`pickApkFromAsset`、`songFromJsonObject` round-trip、`Discover.kt` 整套解析、`sanitizeFilePart`、`UpdateCoordinator` 整个 class | 全仓符号↔测试映射。**复核后**：前四项已被 `UpdateCheckTest`（beta 6 例）/ `UpdateIntegrityTest`（host 拒绝 2 例）/ `HotspotStoreTest`（JSON 往返）/ `DiscoverTest` / `OfflineStoreTest`（文件名清洗）**行为级覆盖**；真缺口只有 `UpdateCoordinator` |
 | CODE-10 | 依赖可零成本升级 4 项（其余被 compileSdk 35 / AGP 8.5.2 硬挡） | media3 1.9.3→**1.9.4**（1.9.4 `minCompileSdk=35`；1.10.0+ 才是 36）、activity-compose 1.9.3→**1.10.1**、robolectric 4.14.1→**4.17**、bugly 4.1.9→**4.1.9.3** |
 
 **✅ 已修（2026-10-28，第 4 批）**
@@ -440,6 +440,13 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 - **CODE-7**：只换**两端都在内存**的间隔 —— `lastSavedMs`（位置保存节流）与 `lastGestureMs`（播放页手势去抖）改 `SystemClock.elapsedRealtime()`。`*LastLoaded` 家族与 `saveBytes` 时间戳**必须留墙钟**：`HotspotStore` 磁盘 ts 会播种 `*LastLoaded`，并与 `shouldBackgroundRefresh(…, System.currentTimeMillis())` 比较，换成单调时钟会让每次进页都判 stale 重拉。
 - **CODE-8 ⏸ 不改**：无 i18n 计划（`strings.xml` 只有 4 行，产品也未提多语言）。抽取成本 ≥742 处且会把中文文案推到资源文件、破坏"改文案即读得懂 diff"的现状；孪生文案这条**已由 CODE-2 的常量 + `diagnosableError` 单点收口**解决掉真正的风险（改一处漏一处），剩下的只是"字面量在 Kotlin 里"这一形式问题。若将来要做多语言，应先加 `strings.xml` + lint `HardcodedText` 门，再批量迁。
 - 测试：新增 `ApiHostTest`（9 例：host 一致 / baseUrl 尾斜杠 / 曲库身份 4 例 / `shouldRecordOnce` 2 例 / `shouldReportPlay` 叠加门）+ `SearchStoreTest` +5（`dedupeSearchHistory` 4 例 + 折叠与清洗共用 1 例）。
+
+**✅ CODE-9 已修（2026-10-28，第 5 批）**
+
+- **先复核再补测**：CODE-9 的 top5 里有 4 项是"符号↔测试名映射"造成的误报 —— `betaNumber` 由 `isNewerVersion` 的 6 个 beta 用例覆盖、`pickApkFromAsset` 由 `UpdateIntegrityTest` 的 host 拒绝用例覆盖、`songFromJsonObject` 由 `HotspotStoreTest` 的往返断言覆盖、`Discover.kt` 有整个 `DiscoverTest`、`sanitizeFilePart` 由 `OfflineStoreTest.filename_*` 覆盖。
+- 真缺口 `UpdateCoordinator`：给构造函数加 `fetchLatest` 测试接缝（默认 `::fetchLatestForChannel`，放在 `onError` **之前**，避免现有尾随 lambda 绑错参数），新增 `UpdateCoordinatorTest`（10 例）钉住三条事故行为 —— 拉取失败不推进 24h 窗口、窗口内零请求、测试通道走 beta 端点；另覆盖手动检查的成功/失败、`dismiss`、`selectChannel` 持久化。
+- `SongTest` +3：JSON 往返保 `vip`、缺 `platform` 回落 `netease`、坏 JSON 返回 null（而不是空表 —— 空表会让 UI 显示"没有歌曲"而不是重拉）。
+- 断言必须**轮询等待**协调器里 `scope.launch` 完成（`awaitTrue { … }`），不能用固定 `delay`：本机快、CI 慢，固定 sleep 会假红。
 - 验收：`testDebugUnitTest` **1037 例全绿**（1023 → +14）；`lintRelease` 0 error（仍只有 2 条 Information）；`assembleDebug` 通过（24,135,819 B）；`scripts/check-file-size.sh` 通过。
 
 ### 4.5 播放相关（PB）
@@ -478,13 +485,13 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 ## 5. 结构性债务
 
-### 5.1 `MainActivity.kt` 3551 纯 LOC —— 拆分方案已有，执行停摆
+### 5.1 `MainActivity.kt` 3460 纯 LOC —— 拆分方案已有，C5 已重新设计（`REFACTOR` §8）
 
 实测（本次重新统计，非引用文档）：
 
 | 指标 | 数值 |
 |---|---|
-| 纯 LOC（排除空行/注释） | **3551**（第 3 批又 +34：PB-5/PB-8 身份复核） |
+| 纯 LOC（排除空行/注释） | **3460**（第 4/5 批 −91：CODE 收敛 + C5-lite 搬出系统交互组） |
 | `by remember` 状态 | **107** |
 | 类内局部 `fun` | **71** |
 | `LaunchedEffect` | **19** |
@@ -496,7 +503,7 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 ### 5.2 「单文件 ≤250 纯 LOC」零机器守卫 —— ✅ 已落地（2026-10-28）
 
-18 个文件超标（当前最重 6 个：`MainActivity` 3530 / `VibeApi` 1603 / `PlayerScreen` 933 / `PlaybackService` 791 / `DiscoverUi` 612 / `UiAtoms` 609）。
+18 个文件超标（当前最重 6 个：`MainActivity` 3460 / `VibeApi` 1603 / `PlayerScreen` 933 / `PlaybackService` 791 / `DiscoverUi` 612 / `UiAtoms` 609）。
 
 CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」「禁 `!!`」「禁空 catch」三条规范全靠人记 —— 与全局 AGENTS.md 里"靠人记住的约定必须变成机器断言"直接冲突。
 
@@ -527,17 +534,17 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ## 6. 文档与 CI 漂移
 
-### 6.1 数字漂移（五处，会让下一个 agent 按错的门禁干活）
+### 6.1 数字漂移（五处，会让下一个 agent 按错的门禁干活）—— 四处已修
 
-| 文件 | 写的 | 实际 |
-|---|---|---|
-| `README.md:18`、`:67` | 956 用例 | **1037**（第 4 批后） |
-| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **1037**；**2.0.19-ai**（97） |
-| `PLAN.md:198` | AI 版当前 `v2.0.17-ai` | **2.0.19-ai** |
-| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3530 纯 LOC**（`wc -l` 3976，口径不同）/ **107** / **1037** |
-| `.github/workflows/release.yml:2` | 注释「当前 v2.0.17-ai」 | 2.0.19-ai |
+| 文件 | 写的 | 实际 | 状态 |
+|---|---|---|---|
+| `README.md:18`、`:67` | 956 用例 | **1037** | ✅ 已改 |
+| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **1037**；**2.0.19-ai**（97） | ⏸ **只报不改**（文件头明写"禁止 agent 自动改写，改动走用户确认"） |
+| `PLAN.md:198`（另 `:150`/`:186` 的"当前门禁 956"） | AI 版当前 `v2.0.17-ai` | **2.0.19-ai** / **1037** | ✅ 已改 |
+| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3460 纯 LOC**（`wc -l` 3976，口径不同）/ **107** / **1037** | ✅ 已改（并补 §8 C5 重新设计记录） |
+| `.github/workflows/release.yml:2` | 注释「当前 v2.0.17-ai」 | 2.0.19-ai | ✅ 已改 |
 
-`AGENTS.md` 标注"由人手编写并审校、禁止 agent 自动改写"，所以这条**只报不改**，等用户确认。
+> `AGENTS.md` 那两处仍待用户点头；agent 不会自己动它。
 
 ### 6.2 CI 门禁的真实覆盖面
 
@@ -605,6 +612,13 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 - `MainActivity` C5 拆分**未做**：本轮明确不碰 MainActivity 结构，按 `docs/REFACTOR-mainactivity.md` 停手判据单独一轮执行
 - 验收：`testDebugUnitTest` **1037 例全绿**（1023 → +14：`ApiHostTest` 9 + `SearchStoreTest` 5）；`lintRelease` 0 error（仅 2 条 Information）；`assembleDebug` 通过（24,135,819 B）；`scripts/check-file-size.sh` 通过（59 个文件 / 18 条白名单）
 
+**第 5 批（C5 重新设计 + 测试缺口 + 文档漂移）—— ✅ 已修（2026-10-28）**
+- C5 按原设计命中 `docs/REFACTOR-mainactivity.md` §4 停手判据（diff > 800 行 / 需改 > 5 个 screen / 无真机可回归），**改为 C5-lite**：系统交互组搬到 `SystemSettings.kt`（`readKeepAliveState` / `notificationSettingsIntent` / `batteryOptIntents` / `startFirstAvailable` / `launchNotificationSettings` / `shareText`），`MainActivity` 3530 → **3460 纯 LOC**；新增 `SystemSettingsTest` 7 例
+- CODE-9：`UpdateCoordinator` 加 `fetchLatest` 接缝 + `UpdateCoordinatorTest` 10 例；`SongTest` +3
+- CODE-2 收尾：`UpdateCoordinator` 的 `"更新失败: "` / `"安装失败: "`、`MainActivity` 的 `"注册失败: "` / `"登录态恢复失败: "` / `"切歌失败: "`×2 / `"进度跳转失败: "`、`PlayPureLogic` 的 `"播放器连接失败: "` 全部改全角（前四处顺带改走 `diagnosableError`）
+- 文档漂移：README / PLAN（含两处"当前门禁"）/ REFACTOR / `release.yml` 注释已改；**`AGENTS.md` 仍未改**（文件头禁止 agent 自动改写）
+- 验收：`testDebugUnitTest` **1057 例全绿**（1037 → +20：`UpdateCoordinatorTest` 10 + `SystemSettingsTest` 7 + `SongTest` 3）；`lintRelease` 0 error；`assembleDebug` 通过；`check-file-size.sh` 通过
+
 **不建议现在做**：工具链升级（media3 1.10+ / compose BOM / core-ktx 全部被 compileSdk 35 硬挡，需整体升 36 + AGP 8.9.1，属用户决策）；i18n 抽取（≥742 处中文字面量，无产品需求）。
 
 ---
@@ -630,4 +644,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）、第 4 批（纯 LOC 守卫 + CODE-1~7）已修并验收，单测基线 **1037 例**。剩余：`MainActivity` C5 拆分（单独一轮）、CODE-8（⏸ 不改）、CODE-9 测试缺口、CODE-10 依赖升级（被 compileSdk 35 挡住，需用户决策）、工具链升级与 i18n（均待用户决策）。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）、第 4 批（纯 LOC 守卫 + CODE-1~7）、第 5 批（C5-lite + CODE-9 + 文档漂移）已修并验收，单测基线 **1057 例**。剩余：`MainActivity` 播放组 C5（已按停手判据重新设计，需真机轮次，见 `docs/REFACTOR-mainactivity.md` §8）、CODE-8（⏸ 不改）、CODE-10 依赖升级（需用户批准，工具链冻结）、`AGENTS.md` 数字（禁止 agent 改写）、工具链升级与 i18n（待用户决策）。*
