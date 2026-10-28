@@ -28,6 +28,26 @@ val SEARCH_HOTWORDS: List<String> = listOf(
 )
 
 /**
+ * Pure: 历史条目的统一清洗 —— trim、丢空、去重（保留首次出现）、截断到 [cap]。
+ *
+ * 全仓四处（本地插入 / 云端两表合并 / 反序列化 / 上报 body）都必须走它：
+ * 原来是四份各写各的去重，`distinct()` / `out.contains` / `kept.contains` 三种写法
+ * 混用，改一处漏三处（CODE-REVIEW-2026-10-28 CODE-5）。
+ *
+ * [cap] 传 `Int.MAX_VALUE` 表示不截断（[foldPrefixHistory] 要先折叠再截）。
+ */
+fun dedupeSearchHistory(list: List<String>, cap: Int = SEARCH_HISTORY_MAX): List<String> {
+    val out = ArrayList<String>(minOf(list.size, cap))
+    for (item in list) {
+        if (out.size >= cap) break
+        val t = item.trim()
+        if (t.isEmpty() || out.contains(t)) continue
+        out.add(t)
+    }
+    return out
+}
+
+/**
  * Pure: 前缀折叠（输入为「最新在前」的列表）。
  *
  * 规则**单向**：只有当「较新的条目」以「较旧的条目」为前缀时，才丢掉较旧的那条。
@@ -48,11 +68,10 @@ val SEARCH_HOTWORDS: List<String> = listOf(
  */
 fun foldPrefixHistory(list: List<String>): List<String> {
     val kept = ArrayList<String>(list.size)
-    for (item in list) {                 // 最新在前
-        val t = item.trim()
-        if (t.isEmpty() || kept.contains(t)) continue
+    // 先统一清洗（trim/去重/丢空），再逐条判断前缀 —— 两件事拆开，规则只有一份。
+    for (t in dedupeSearchHistory(list, Int.MAX_VALUE)) {   // 最新在前
         // kept 里的都更新；只要有一条更新的以 t 为前缀，t 就是"半成品"
-        if (kept.any { it != t && it.startsWith(t) }) continue
+        if (kept.any { it.startsWith(t) }) continue
         kept.add(t)
     }
     return kept
@@ -90,12 +109,11 @@ object SearchStore {
         if (raw.isBlank()) return emptyList()
         return try {
             val arr = JSONArray(raw)
-            val out = ArrayList<String>(arr.length())
-            for (i in 0 until arr.length()) {
-                val s = arr.optString(i, "").trim()
-                if (s.isNotEmpty() && !out.contains(s)) out.add(s)
-            }
-            out.take(SEARCH_HISTORY_MAX)
+            val raw2 = ArrayList<String>(arr.length())
+            for (i in 0 until arr.length()) raw2.add(arr.optString(i, ""))
+            // 读侧**不做**前缀折叠（折叠是写侧的事，读侧改了历史却不落盘反而更乱），
+            // 只共用 trim/去重/截断这一份规则。
+            dedupeSearchHistory(raw2)
         } catch (_: Exception) {
             emptyList()
         }

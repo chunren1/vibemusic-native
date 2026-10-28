@@ -267,6 +267,20 @@ object OfflineStore {
         return removed
     }
 
+    /**
+     * 下载一首歌并落盘（**IO 线程调用**）。true = 已保存；false = 内容非法/写盘失败。
+     * 网络异常原样抛出 —— 三个调用点的失败文案不同（手动下载要提示、常听自动离线
+     * 只记诊断），所以错误处理留在调用方。
+     *
+     * 三处（手动下载 `downloadSong` / 自愈重下 `redownloadSong` / 常听自动离线
+     * `maybeCountPlay`）原来各写一份 `fetchStreamBytes + saveBytes + now`，
+     * 改一处漏两处（CODE-REVIEW-2026-10-28 CODE-3）。
+     */
+    suspend fun downloadToStore(context: Context, song: Song): Boolean {
+        val bytes = VibeApi.fetchStreamBytes(song.streamUrl())
+        return saveBytes(context, song, bytes, System.currentTimeMillis())
+    }
+
     fun saveBytes(context: Context, song: Song, bytes: ByteArray, nowMs: Long): Boolean {
         if (bytes.isEmpty()) return false
         if (!isValidDownload(bytes)) return false

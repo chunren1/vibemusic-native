@@ -19,20 +19,11 @@ fun mergeSearchHistories(
     local: List<String>,
     remote: List<String>,
     cap: Int = SEARCH_HISTORY_MAX
-): List<String> {
-    val out = ArrayList<String>(cap)
-    fun addAll(list: List<String>) {
-        for (w in list) {
-            if (out.size >= cap) return
-            val t = w.trim()
-            if (t.isEmpty() || out.contains(t)) continue
-            out.add(t)
-        }
-    }
-    addAll(local)
-    addAll(remote)
-    return foldPrefixHistory(out).take(cap)
-}
+): List<String> =
+    // 清洗与折叠都只有一份实现（dedupeSearchHistory / foldPrefixHistory，CODE-5）：
+    // 原来是手写 addAll 去重 + 折叠两套规则并存。先合并再折叠再截断，比"先截断
+    // 再折叠"更满 —— 折叠腾出的位置会被 remote 的条目补上。
+    foldPrefixHistory(local + remote).take(cap)
 
 /**
  * Offline-first search-history cloud sync. Every entry point swallows all

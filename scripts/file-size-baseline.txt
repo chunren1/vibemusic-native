@@ -1,0 +1,21 @@
+# 纯 LOC 白名单（scripts/check-file-size.sh 维护，勿手改）。
+# 格式：<纯 LOC> <相对 app/src/main/java 的路径>
+# 规则：文件不得超过记录值；拆小了请跑 scripts/check-file-size.sh --update。
+3530 com/cyk666/vibemusic/MainActivity.kt
+1603 com/cyk666/vibemusic/VibeApi.kt
+933 com/cyk666/vibemusic/PlayerScreen.kt
+791 com/cyk666/vibemusic/PlaybackService.kt
+612 com/cyk666/vibemusic/DiscoverUi.kt
+609 com/cyk666/vibemusic/UiAtoms.kt
+598 com/cyk666/vibemusic/SettingsScreen.kt
+532 com/cyk666/vibemusic/SearchScreen.kt
+527 com/cyk666/vibemusic/UpdateCheck.kt
+479 com/cyk666/vibemusic/MineScreen.kt
+469 com/cyk666/vibemusic/PlaylistDetailUi.kt
+420 com/cyk666/vibemusic/PlaybackStateStore.kt
+325 com/cyk666/vibemusic/PlaylistsUi.kt
+316 com/cyk666/vibemusic/BeautyPhase10.kt
+313 com/cyk666/vibemusic/OfflineStore.kt
+307 com/cyk666/vibemusic/Karaoke.kt
+266 com/cyk666/vibemusic/PlayerFx.kt
+265 com/cyk666/vibemusic/QueueUi.kt

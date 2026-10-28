@@ -24,6 +24,7 @@ on:
       - 'app/proguard-rules.pro'
       - 'app/lint-baseline.xml'
       - 'app/src/**'
+      - 'scripts/**'
       - 'gradle.properties'
   pull_request:
     paths:
@@ -36,6 +37,7 @@ on:
       - 'app/proguard-rules.pro'
       - 'app/lint-baseline.xml'
       - 'app/src/**'
+      - 'scripts/**'
       - 'gradle.properties'
 
 # 同一分支连推两次时取消上一轮（冒烟结论只对最新提交有意义）
@@ -66,7 +68,13 @@ jobs:
       - name: Grant gradlew
         run: chmod +x gradlew
 
-      # ★ 验收门：970+ 例单测必须全绿（与 release.yml 同一个任务，同一份真值）
+      # 单文件体积守卫（CODE-REVIEW-2026-10-28 §5.2）：纯 LOC ≤250，
+      # 已超标的 18 个文件进白名单并记录当前值（棘轮：只降不升）。
+      # 放最前面：纯 shell + python，2 秒出结论，不用等 Gradle 起 JVM。
+      - name: File size guard
+        run: scripts/check-file-size.sh
+
+      # ★ 验收门：全量单测必须全绿（与 release.yml 同一个任务，同一份真值）
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 

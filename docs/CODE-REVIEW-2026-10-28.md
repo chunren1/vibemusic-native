@@ -418,16 +418,29 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 | ID | 结论 | 证据 |
 |---|---|---|
-| CODE-1 | `currentMediaItem!!` 在队列空时 NPE，被外层 `catch (Exception)` 吞掉 → 播放计数/上报静默丢失 | `MainActivity.kt:2434` + `:2437` 的 catch |
-| CODE-2 | 播放/下载失败文案各有 2-3 份孪生字面量（且半角冒号与全仓全角不一致） | `MainActivity.kt:826 / :932 / :1043`（`"播放失败: "`）、`:1092/:1343`、`:1097/:1350` |
-| CODE-3 | 下载流程两份独立实现（`redownloadSong` vs `downloadSong`） | `MainActivity.kt:1075-1100` vs `:1300-1355` |
-| CODE-4 | 播放上报判定散在 3 个函数（`shouldReportPlay` / `maybeReportPlay` / `maybeCountPlay`），各自判 `sourceId` / `isExternalSong` / `playKey` | `VibeApi.kt:1496`、`MainActivity.kt:1750`、`:1357` |
-| CODE-5 | 搜索历史去重写了 3 遍（单条插入 / 两表合并 / decode），折叠规则共用但去重不共用 | `SearchStore.kt:65`、`SearchHistorySync.kt:18`、`SearchStore.kt:88` |
-| CODE-6 | 后端域名硬编码两处、格式不同 —— **漏改 `Song.kt` 会"登录正常但所有播放流 404"** | `VibeApi.kt:266` `BASE_URL`、`Song.kt:23` `.authority("vibe.cyk666.top")` |
-| CODE-7 | 6 处用墙钟 `System.currentTimeMillis()` 算间隔，与 `PlaybackService` 的 `elapsedRealtime` 两套并存（用户改系统时间会让节流失真） | `MainActivity.kt:975/1082/1325/1384/2991/3027`、`PlayerScreen.kt:415`；对照 `PlaybackService.kt:578/601/620/628/660/1068/1082` |
-| CODE-8 | 中文字符串字面量直写（实测 ≥742 处，粗略正则单行统计；`strings.xml` 只有 4 行）。无 i18n 计划则可接受，但孪生文案使"改一处漏一处"必现 | `grep -oP '"…CJK…"'` 统计 |
+| CODE-1 ✅ | `currentMediaItem!!` 在队列空时 NPE，被外层 `catch (Exception)` 吞掉 → 播放计数/上报静默丢失 | `MainActivity.kt:2434` + `:2437` 的 catch |
+| CODE-2 ✅ | 播放/下载失败文案各有 2-3 份孪生字面量（且半角冒号与全仓全角不一致） | `MainActivity.kt:826 / :932 / :1043`（`"播放失败: "`）、`:1092/:1343`、`:1097/:1350` |
+| CODE-3 ✅ | 下载流程两份独立实现（`redownloadSong` vs `downloadSong`） | `MainActivity.kt:1075-1100` vs `:1300-1355` |
+| CODE-4 ✅ | 播放上报判定散在 3 个函数（`shouldReportPlay` / `maybeReportPlay` / `maybeCountPlay`），各自判 `sourceId` / `isExternalSong` / `playKey` | `VibeApi.kt:1496`、`MainActivity.kt:1750`、`:1357` |
+| CODE-5 ✅ | 搜索历史去重写了 3 遍（单条插入 / 两表合并 / decode），折叠规则共用但去重不共用 | `SearchStore.kt:65`、`SearchHistorySync.kt:18`、`SearchStore.kt:88` |
+| CODE-6 ✅ | 后端域名硬编码两处、格式不同 —— **漏改 `Song.kt` 会"登录正常但所有播放流 404"** | `VibeApi.kt:266` `BASE_URL`、`Song.kt:23` `.authority("vibe.cyk666.top")` |
+| CODE-7 ✅ | 6 处用墙钟 `System.currentTimeMillis()` 算间隔，与 `PlaybackService` 的 `elapsedRealtime` 两套并存（用户改系统时间会让节流失真） | `MainActivity.kt:975/1082/1325/1384/2991/3027`、`PlayerScreen.kt:415`；对照 `PlaybackService.kt:578/601/620/628/660/1068/1082` |
+| CODE-8 ⏸ 不改 | 中文字符串字面量直写（实测 ≥742 处，粗略正则单行统计；`strings.xml` 只有 4 行）。无 i18n 计划则可接受，但孪生文案使"改一处漏一处"必现 | `grep -oP '"…CJK…"'` 统计 |
 | CODE-9 | 测试缺口 top5（含纯逻辑、零对应测试）：`betaNumber`/`pickApkFromAsset`（2026-10-27 三起事故现场）、`songFromJsonObject` round-trip、`Discover.kt` 整套解析、`sanitizeFilePart`、`UpdateCoordinator` 整个 class | 全仓符号↔测试映射 |
 | CODE-10 | 依赖可零成本升级 4 项（其余被 compileSdk 35 / AGP 8.5.2 硬挡） | media3 1.9.3→**1.9.4**（1.9.4 `minCompileSdk=35`；1.10.0+ 才是 36）、activity-compose 1.9.3→**1.10.1**、robolectric 4.14.1→**4.17**、bugly 4.1.9→**4.1.9.3** |
+
+**✅ 已修（2026-10-28，第 4 批）**
+
+- **CODE-1**：`MainActivity` 的 `c.currentMediaItem!!` 改 `?.let { songFromMediaItem(it) }` —— 队列空（服务端被系统重建、时间线还没物化）时不再 NPE 后被外层 `catch` 吞掉、静默丢掉播放计数与上报。
+- **CODE-2**：新增 `ErrorCopy.kt`（`DOWNLOAD_FAILED_PREFIX` / `DOWNLOAD_SAVE_FAILED_MESSAGE`）；`diagnosableError` 冒号统一为**全角「：」**，并把 `MainActivity` 里 **33 处** `showError("<前缀>: ${friendlyNetworkMessage(e)}")` / `showError("<前缀>: ${e.message ?: …}")` 全部改走 `diagnosableError("<前缀>", e)`（顺带获得"附原始报错"的诊断能力）。`DiagnosableErrorTest` 6 处断言同步。
+- **CODE-3**：新增 `OfflineStore.downloadToStore(context, song): Boolean`（suspend，IO 线程），三处下载（`downloadSong` / `redownloadSong` / `maybeCountPlay` 的常听自动离线）共用；网络异常原样抛出、错误文案留在调用方（三处文案本就不同）。
+- **CODE-4**：新增 `Song.kt` 顶层纯函数 `librarySongOrNull(song)`（曲库身份：非空 + `sourceId` 非空白 + 非外部导入）与 `VibeApi.shouldRecordOnce(key, lastKey)`（"同一首只记一次"）；`maybeCountPlay` / `maybeReportPlay` 都建在这两条之上，`shouldReportPlay` = `loggedIn && shouldRecordOnce(...)`。
+- **CODE-5**：新增 `dedupeSearchHistory(list, cap)`（trim / 丢空 / 去重保首次 / 截断），`foldPrefixHistory` / `SearchStore.decode` / `mergeSearchHistories` / `VibeApi.buildSearchHistoryBody` 四处共用。**读侧不做前缀折叠**（折叠是写侧的事，读侧改了历史却不落盘反而更乱）。`mergeSearchHistories` 由"先各自去重再折叠再截断"改成 `foldPrefixHistory(local + remote).take(cap)` —— 折叠腾出的位置会被 remote 补上。
+- **CODE-6**：新增 `ApiConfig.kt` 的 `const val API_HOST`，`VibeApi.BASE_URL = "https://$API_HOST/"`、`Song.streamUrl()` 用 `.authority(API_HOST)`。`ApiHostTest` 断言两边 host 相同（漏改一处就是"登录/列表正常、所有播放流 404"，因为流地址不走 Retrofit 的 baseUrl）。
+- **CODE-7**：只换**两端都在内存**的间隔 —— `lastSavedMs`（位置保存节流）与 `lastGestureMs`（播放页手势去抖）改 `SystemClock.elapsedRealtime()`。`*LastLoaded` 家族与 `saveBytes` 时间戳**必须留墙钟**：`HotspotStore` 磁盘 ts 会播种 `*LastLoaded`，并与 `shouldBackgroundRefresh(…, System.currentTimeMillis())` 比较，换成单调时钟会让每次进页都判 stale 重拉。
+- **CODE-8 ⏸ 不改**：无 i18n 计划（`strings.xml` 只有 4 行，产品也未提多语言）。抽取成本 ≥742 处且会把中文文案推到资源文件、破坏"改文案即读得懂 diff"的现状；孪生文案这条**已由 CODE-2 的常量 + `diagnosableError` 单点收口**解决掉真正的风险（改一处漏一处），剩下的只是"字面量在 Kotlin 里"这一形式问题。若将来要做多语言，应先加 `strings.xml` + lint `HardcodedText` 门，再批量迁。
+- 测试：新增 `ApiHostTest`（9 例：host 一致 / baseUrl 尾斜杠 / 曲库身份 4 例 / `shouldRecordOnce` 2 例 / `shouldReportPlay` 叠加门）+ `SearchStoreTest` +5（`dedupeSearchHistory` 4 例 + 折叠与清洗共用 1 例）。
+- 验收：`testDebugUnitTest` **1037 例全绿**（1023 → +14）；`lintRelease` 0 error（仍只有 2 条 Information）；`assembleDebug` 通过（24,135,819 B）；`scripts/check-file-size.sh` 通过。
 
 ### 4.5 播放相关（PB）
 
@@ -481,13 +494,22 @@ PB-3 起为播放线的 P2（弱网重试撤销暂停、预热字节骗过离线
 
 **建议**：把 C5（播放组，最大一刀）单独排一轮，按文档的停手判据执行（单测红 >2 次 / 单 diff >800 行 / 需改 >5 个 screen 调用点 / 出现行为变化 → 回滚该片）。
 
-### 5.2 「单文件 ≤250 纯 LOC」零机器守卫
+### 5.2 「单文件 ≤250 纯 LOC」零机器守卫 —— ✅ 已落地（2026-10-28）
 
-18 个文件超标，最重的 6 个：`MainActivity` 3517 / `VibeApi` 1569 / `PlayerScreen` 891 / `PlaybackService` 748 / `DiscoverUi` 612 / `UiAtoms` 608。
+18 个文件超标（当前最重 6 个：`MainActivity` 3530 / `VibeApi` 1603 / `PlayerScreen` 933 / `PlaybackService` 791 / `DiscoverUi` 612 / `UiAtoms` 609）。
 
 CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」「禁 `!!`」「禁空 catch」三条规范全靠人记 —— 与全局 AGENTS.md 里"靠人记住的约定必须变成机器断言"直接冲突。
 
-**建议**：加一个 30 行的 Gradle 任务（纯 LOC 统计 + 白名单），绑到 `pull_request`；不引第三方插件也能做。
+**已落地**：`scripts/check-file-size.sh`（bash + 内联 python，不引第三方插件）+ `scripts/file-size-baseline.txt`（18 条白名单），绑进 `.github/workflows/android-smoke.yml` 的 `File size guard` 步骤（放在 Gradle 之前，2 秒出结论），并把 `scripts/**` 加进该 workflow 的 `push` / `pull_request` 两处 `paths`。
+
+规则是**棘轮**（只降不升），三条都会失败：
+1. 不在白名单里的文件 > 250 纯 LOC（不许新增超标文件）；
+2. 白名单里的文件 > 记录值（想加行必须显式改白名单，让"加债"出现在 diff 里）；
+3. 白名单里的文件 < 记录值（拆小了要 `--update` 降记录值，否则棘轮会被悄悄放松）。
+
+纯 LOC 口径 = 排除空行、`//` 行、`/* … */` 块（与 `docs/REFACTOR-mainactivity.md` 一致）。`--update` 重写白名单。
+
+> 没做成 Gradle 任务：这个守卫只需读源码文本，走 Gradle 要起 JVM + 配置整个 Android 插件（本机 30s+），而 CI 里它排在单测之前、越快越好。bash 版本在任何有 python3 的 runner 上都能跑，且本地随时可跑。
 
 ### 5.3 吞错的分布（不是"到处都是"，是可枚举的）
 
@@ -509,10 +531,10 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 | 文件 | 写的 | 实际 |
 |---|---|---|
-| `README.md:18`、`:67` | 956 用例 | **1023**（第 3 批后） |
-| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **1023**；**2.0.19-ai**（97） |
+| `README.md:18`、`:67` | 956 用例 | **1037**（第 4 批后） |
+| `AGENTS.md:14`、`:19` | 964 用例；`当前线上 2.0.18-ai`（96） | **1037**；**2.0.19-ai**（97） |
 | `PLAN.md:198` | AI 版当前 `v2.0.17-ai` | **2.0.19-ai** |
-| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3551 纯 LOC**（`wc -l` 口径不同）/ **107** / **1023** |
+| `docs/REFACTOR-mainactivity.md:3/9/12` | 3940 行 / 108 `remember` / 956 例 | **3530 纯 LOC**（`wc -l` 3976，口径不同）/ **107** / **1037** |
 | `.github/workflows/release.yml:2` | 注释「当前 v2.0.17-ai」 | 2.0.19-ai |
 
 `AGENTS.md` 标注"由人手编写并审校、禁止 agent 自动改写"，所以这条**只报不改**，等用户确认。
@@ -575,11 +597,13 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 - `lint-baseline.xml` 按 `build.gradle.kts` 注释跑了 `updateLintBaseline` 重生成（163+/157-）：新增 4 条 `UnsafeOptInUsageError`（MediaCache 新代码）+ 重新分组既有条目。**`@OptIn(UnstableApi::class)` 在本工具链（AGP 8.5.2）下对 `UnsafeOptInUsageError` 不生效**（`PlaybackService` 类级标注后条目仍在 baseline 里），所以只能靠 baseline；而 baseline 按**行号**匹配，本文件一插行就失配成 error —— 这就是为什么改完 MediaCache 必须先跑 `updateLintBaseline` 再跑 `lintRelease`
 - 需真机回归：随机模式下离线跳歌落点（PB-7）、弱网重试期间按暂停不被拉起（PB-3）、息屏久回前台立刻点歌（PB-8）
 
-**第 4 批（工程门禁与债务）**
+**第 4 批（工程门禁与债务）—— ✅ 已修（2026-10-28；C5 拆分仍待单独一轮）**
 - ~~CI-1 加 PR 触发~~（已在第 2 批完成）
-- 纯 LOC 守卫
-- `MainActivity` C5 拆分（单独一轮，不与其他批并行）
-- CODE-1~8 的孪生副本收敛
+- 纯 LOC 守卫：`scripts/check-file-size.sh` + `scripts/file-size-baseline.txt`（18 条棘轮）+ `android-smoke.yml` 的 `File size guard` 步骤与 `scripts/**` paths
+- CODE-1~7 的孪生副本收敛：`currentMediaItem!!` 去除 / `ErrorCopy.kt` + 33 处文案统一走 `diagnosableError`（全角冒号）/ `OfflineStore.downloadToStore` 三处共用 / `librarySongOrNull` + `shouldRecordOnce` / `dedupeSearchHistory` 四处共用 / `ApiConfig.API_HOST` 域名唯一来源 / 内存间隔改 `elapsedRealtime`
+- CODE-8 ⏸ 不改（无 i18n 计划；真正的风险"改一处漏一处"已由 CODE-2 收口）
+- `MainActivity` C5 拆分**未做**：本轮明确不碰 MainActivity 结构，按 `docs/REFACTOR-mainactivity.md` 停手判据单独一轮执行
+- 验收：`testDebugUnitTest` **1037 例全绿**（1023 → +14：`ApiHostTest` 9 + `SearchStoreTest` 5）；`lintRelease` 0 error（仅 2 条 Information）；`assembleDebug` 通过（24,135,819 B）；`scripts/check-file-size.sh` 通过（59 个文件 / 18 条白名单）
 
 **不建议现在做**：工具链升级（media3 1.10+ / compose BOM / core-ktx 全部被 compileSdk 35 硬挡，需整体升 36 + AGP 8.9.1，属用户决策）；i18n 抽取（≥742 处中文字面量，无产品需求）。
 
@@ -606,4 +630,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）已修并验收，单测基线 **1023 例**；第 4 批（纯 LOC 守卫 / `MainActivity` C5 拆分 / CODE-1~8 收敛）待开工，工具链升级与 i18n 待用户决策。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）、第 4 批（纯 LOC 守卫 + CODE-1~7）已修并验收，单测基线 **1037 例**。剩余：`MainActivity` C5 拆分（单独一轮）、CODE-8（⏸ 不改）、CODE-9 测试缺口、CODE-10 依赖升级（被 compileSdk 35 挡住，需用户决策）、工具链升级与 i18n（均待用户决策）。*

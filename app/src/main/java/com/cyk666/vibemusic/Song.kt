@@ -20,7 +20,9 @@ data class Song(
 ) {
     fun streamUrl(): String = Uri.Builder()
         .scheme("https")
-        .authority("vibe.cyk666.top")
+        // 域名唯一来源见 ApiConfig.kt（CODE-6）：写死两处会漏改 ——
+        // 登录正常但所有播放流 404 的经典事故。
+        .authority(API_HOST)
         .appendPath("api")
         .appendPath("songs")
         .appendPath("stream")
@@ -44,6 +46,20 @@ data class Song(
                 .build()
         )
         .build()
+}
+
+/**
+ * Pure: 这首能不能进"播放上报 / 播放计数"（CODE-4）。
+ *
+ * 两个调用点（`maybeReportPlay` / `maybeCountPlay`）原本各写一遍
+ * `sourceId.isBlank() || isExternalSong(song)`，规则一样、顺序不同。
+ * 外部导入文件（`content:` / `file:`）没有曲库身份：上报会把本地路径写进
+ * 「最近播放」，计数也没有意义 —— 所以整条链路直接排除。
+ */
+fun librarySongOrNull(song: Song?): Song? {
+    if (song == null || song.sourceId.isBlank()) return null
+    if (LocalAudioIntent.isExternalSong(song)) return null
+    return song
 }
 
 fun formatDuration(totalSec: Int): String {

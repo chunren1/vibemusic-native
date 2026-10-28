@@ -258,12 +258,19 @@ fun friendlyNetworkMessage(t: Throwable): String {
 fun diagnosableError(prefix: String, t: Throwable): String {
     val friendly = friendlyNetworkMessage(t)
     val raw = t.message.orEmpty().trim()
-    return if (raw.isBlank() || raw == friendly) "$prefix: $friendly"
-    else "$prefix: $friendly（$raw）"
+    // 冒号统一**全角**（CODE-2）：原来 33 处 `"<前缀>: ..."` 与若干 `"：..."` 混用，
+    // 同一屏能出现两种冒号。中文语境用全角，与其余文案一致。
+    return if (raw.isBlank() || raw == friendly) "$prefix：$friendly"
+    else "$prefix：$friendly（$raw）"
 }
 
 object VibeApi {
-    const val BASE_URL = "https://vibe.cyk666.top/"
+    /**
+     * 由 [API_HOST] 拼出（CODE-6）：域名只许在 `ApiConfig.kt` 里出现一次。
+     * `const val` 可以引用 `const val`，所以这里仍是编译期常量，Retrofit 的
+     * `baseUrl(BASE_URL)` 与字符串拼接都照旧。
+     */
+    const val BASE_URL = "https://$API_HOST/"
 
     /**
      * Shared jar: login (okHttp) stores Set-Cookie, refresh (refreshHttp)
@@ -1569,11 +1576,21 @@ object VibeApi {
     }
 
     /**
-     * Pure report rule: logged-in + non-blank start key + key differs from the
-     * last reported key (seek-restart of the same song must not double-report).
+     * Pure: "同一首只记一次"的唯一判据（CODE-4）。
+     *
+     * 播放上报（服务端）与播放计数（本地）本来就是同一条规则 —— 同一个 key
+     * 在本次会话里已经记过就不再记，seek 重开同一首不算第二次。原来两处各写
+     * 一遍（`key == lastKey` / `songStartKey != lastReportedKey`），改一处漏一处。
+     */
+    fun shouldRecordOnce(key: String, lastKey: String?): Boolean =
+        key.isNotBlank() && key != lastKey
+
+    /**
+     * Pure report rule: logged-in + [shouldRecordOnce] against the last
+     * reported key (seek-restart of the same song must not double-report).
      */
     fun shouldReportPlay(loggedIn: Boolean, songStartKey: String, lastReportedKey: String?): Boolean =
-        loggedIn && songStartKey.isNotBlank() && songStartKey != lastReportedKey
+        loggedIn && shouldRecordOnce(songStartKey, lastReportedKey)
 
     data class AvatarUploadResult(val url: String, val user: LoggedInUser?)
 
@@ -1948,8 +1965,8 @@ object VibeApi {
     /** Pure builder: POST upsert body (full latest-first keyword list). */
     fun buildSearchHistoryBody(history: List<String>): String {
         val arr = JSONArray()
-        history.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-            .take(SEARCH_HISTORY_MAX).forEach { arr.put(it) }
+        // 与本地写入/云端合并共用同一份清洗规则（CODE-5）。
+        dedupeSearchHistory(history).forEach { arr.put(it) }
         return JSONObject().put("keywords", arr).toString()
     }
 

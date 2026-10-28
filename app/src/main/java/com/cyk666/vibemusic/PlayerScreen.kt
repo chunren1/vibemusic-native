@@ -479,7 +479,8 @@ fun PlayerScreen(
 
     fun fireGesture(g: PlayerGesture) {
         if (g == PlayerGesture.NONE) return
-        val now = System.currentTimeMillis()
+        // CODE-7：手势去抖的两端都是内存值，用 elapsedRealtime（改系统时间不影响）。
+        val now = android.os.SystemClock.elapsedRealtime()
         if (!shouldFireGesture(now, lastGestureMs)) return
         lastGestureMs = now
         when (g) {

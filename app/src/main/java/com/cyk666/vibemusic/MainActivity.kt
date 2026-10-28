@@ -704,7 +704,7 @@ class MainActivity : ComponentActivity() {
                         // branch owns the error UI, otherwise a first-search
                         // failure renders a blank screen with no retry.
                         searched = true
-                        showError("搜索失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("搜索失败", e))
                     } finally {
                         if (!isStaleSearchResult(gen, searchGen)) loading = false
                     }
@@ -840,7 +840,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } catch (e: Exception) {
-                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("播放失败", e))
                     }
                 }
             }
@@ -946,7 +946,7 @@ class MainActivity : ComponentActivity() {
                         restorePosition(song, gen)
                         persistQueue()
                     } catch (e: Exception) {
-                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("播放失败", e))
                     }
                 }
             }
@@ -973,7 +973,7 @@ class MainActivity : ComponentActivity() {
                         else playSingleFromSearch(alt)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        showError("换源失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("换源失败", e))
                     } finally {
                         lyricSwitching = false
                     }
@@ -989,7 +989,9 @@ class MainActivity : ComponentActivity() {
                     positionMs
                 }
                 if (pos <= 0L) return
-                val now = System.currentTimeMillis()
+                // CODE-7：两端都是内存值（lastSavedMs 不落盘、不跨进程），
+                // 用 elapsedRealtime —— 用户改系统时间不会让节流失真。
+                val now = android.os.SystemClock.elapsedRealtime()
                 if (!force && !shouldSavePositionTick(now, lastSavedMs)) return
                 lastSavedMs = now
                 val key = playKey(song)
@@ -1059,7 +1061,7 @@ class MainActivity : ComponentActivity() {
                         if (c.playbackState == Player.STATE_IDLE) c.prepare()
                         if (c.isPlaying) c.pause() else c.play()
                     } catch (e: Exception) {
-                        showError("播放失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("播放失败", e))
                     }
                 }
             }
@@ -1114,13 +1116,8 @@ class MainActivity : ComponentActivity() {
                     }
                     if (already) return@launch
                     try {
-                        val bytes = VibeApi.fetchStreamBytes(song.streamUrl())
-                        val ok = OfflineStore.saveBytes(
-                            context,
-                            song,
-                            bytes,
-                            System.currentTimeMillis()
-                        )
+                        // CODE-3：下载核心只有一份（OfflineStore.downloadToStore）。
+                        val ok = OfflineStore.downloadToStore(context, song)
                         withContext(Dispatchers.Main) {
                             if (ok) {
                                 downloadedTick += 1
@@ -1129,12 +1126,12 @@ class MainActivity : ComponentActivity() {
                                 }
                                 showError("已重新下载「${song.name}」")
                             } else {
-                                showError("下载失败：保存失败")
+                                showError(DOWNLOAD_SAVE_FAILED_MESSAGE)
                             }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            showError("下载失败：${friendlyNetworkMessage(e)}")
+                            showError(diagnosableError(DOWNLOAD_FAILED_PREFIX, e))
                         }
                     }
                 }
@@ -1159,7 +1156,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    showError("切换模式失败: ${e.message ?: e.javaClass.simpleName}")
+                    showError(diagnosableError("切换模式失败", e))
                 }
             }
 
@@ -1224,7 +1221,7 @@ class MainActivity : ComponentActivity() {
                         currentIndex = safeIndex
                         selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it, gen) }
                     } catch (e: Exception) {
-                        showError("切歌失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("切歌失败", e))
                     }
                 }
             }
@@ -1268,7 +1265,7 @@ class MainActivity : ComponentActivity() {
                     }
                     persistQueue()
                 } catch (e: Exception) {
-                    showError("删除失败: ${e.message ?: e.javaClass.simpleName}")
+                    showError(diagnosableError("删除失败", e))
                     syncQueueFromController()
                 }
                 }
@@ -1308,7 +1305,7 @@ class MainActivity : ComponentActivity() {
                         persistQueue()
                         showError("已清空，仅保留当前播放")
                     } catch (e: Exception) {
-                        showError("清空失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("清空失败", e))
                         syncQueueFromController()
                     }
                 }
@@ -1357,13 +1354,8 @@ class MainActivity : ComponentActivity() {
                             }
                             return@launch
                         }
-                        val bytes = VibeApi.fetchStreamBytes(song.streamUrl())
-                        val ok = OfflineStore.saveBytes(
-                            context,
-                            song,
-                            bytes,
-                            System.currentTimeMillis()
-                        )
+                        // CODE-3：下载核心只有一份（OfflineStore.downloadToStore）。
+                        val ok = OfflineStore.downloadToStore(context, song)
                         withContext(Dispatchers.Main) {
                             downloadingIds = downloadingIds - key
                             if (ok) {
@@ -1380,14 +1372,14 @@ class MainActivity : ComponentActivity() {
                                     else "已下载，可离线播放"
                                 )
                             } else if (!silent) {
-                                showError("下载失败：保存失败")
+                                showError(DOWNLOAD_SAVE_FAILED_MESSAGE)
                             }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             downloadingIds = downloadingIds - key
                             if (!silent) {
-                                showError("下载失败：${friendlyNetworkMessage(e)}")
+                                showError(diagnosableError(DOWNLOAD_FAILED_PREFIX, e))
                             }
                         }
                     }
@@ -1395,11 +1387,12 @@ class MainActivity : ComponentActivity() {
             }
 
             fun maybeCountPlay(song: Song?) {
-                if (song == null || song.sourceId.isBlank()) return
-                // 外部导入文件没有曲库身份：不算播放次数、不自动缓存。
-                if (LocalAudioIntent.isExternalSong(song)) return
-                val key = playKey(song)
-                if (key == lastCountedKey) return
+                // CODE-4：曲库身份 + "同一首只记一次"都走共享判据
+                // （librarySongOrNull / VibeApi.shouldRecordOnce），
+                // 不再和 maybeReportPlay 各写一遍同样的三条 if。
+                val counted = librarySongOrNull(song) ?: return
+                val key = playKey(counted)
+                if (!VibeApi.shouldRecordOnce(key, lastCountedKey)) return
                 lastCountedKey = key
                 scope.launch(Dispatchers.IO) {
                     val count = try {
@@ -1410,23 +1403,17 @@ class MainActivity : ComponentActivity() {
                     if (!shouldAutoSave(count)) return@launch
                     if (!isNetworkAvailable(context)) return@launch
                     val already = try {
-                        OfflineStore.isDownloaded(context, song)
+                        OfflineStore.isDownloaded(context, counted)
                     } catch (_: Exception) {
                         false
                     }
                     if (already) return@launch
                     try {
-                        val bytes = VibeApi.fetchStreamBytes(song.streamUrl())
-                        val ok = OfflineStore.saveBytes(
-                            context,
-                            song,
-                            bytes,
-                            System.currentTimeMillis()
-                        )
-                        if (ok) {
+                        // CODE-3：下载核心只有一份（OfflineStore.downloadToStore）。
+                        if (OfflineStore.downloadToStore(context, counted)) {
                             withContext(Dispatchers.Main) {
                                 downloadedTick += 1
-                                showError("常听歌曲已自动离线「${song.name}」")
+                                showError("常听歌曲已自动离线「${counted.name}」")
                             }
                         }
                     } catch (_: Exception) {
@@ -1598,7 +1585,7 @@ class MainActivity : ComponentActivity() {
             fun noteDiscoverInitialFailure(e: Exception) {
                 if (!discoverInitialErrorShown) {
                     discoverInitialErrorShown = true
-                    showError("发现页加载失败: ${friendlyNetworkMessage(e)}")
+                    showError(diagnosableError("发现页加载失败", e))
                 }
             }
 
@@ -1753,7 +1740,7 @@ class MainActivity : ComponentActivity() {
                         // 记进状态：断网时列表为空 + 有 error → 显示「加载失败/重试」，
                         // 而不是「还没有播放记录」（UI-1）。
                         historyError = friendlyNetworkMessage(e)
-                        showError("历史加载失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("历史加载失败", e))
                     } finally {
                         historyLoading = false
                     }
@@ -1812,16 +1799,16 @@ class MainActivity : ComponentActivity() {
             }
 
             fun maybeReportPlay(song: Song?) {
-                if (song == null || song.sourceId.isBlank()) return
-                // 外部导入文件不是曲库歌曲：上报会把 content:// 路径写进「最近播放」。
-                if (LocalAudioIntent.isExternalSong(song)) return
+                // CODE-4：曲库身份判据与计数共用（外部导入文件不是曲库歌曲：
+                // 上报会把 content:// 路径写进「最近播放」）。
+                val reported = librarySongOrNull(song) ?: return
                 if (currentUser == null) return
-                val key = playKey(song)
+                val key = playKey(reported)
                 if (!VibeApi.shouldReportPlay(true, key, lastReportedKey)) return
                 lastReportedKey = key
                 scope.launch(Dispatchers.IO) {
                     try {
-                        VibeApi.reportPlay(song)
+                        VibeApi.reportPlay(reported)
                     } catch (_: Exception) {
                         SilentFail.note("MainActivity.onCreate:1719")
                     }
@@ -1882,7 +1869,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("重命名失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("重命名失败", e))
                     }
                 }
             }
@@ -1902,7 +1889,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("更新简介失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("更新简介失败", e))
                     }
                 }
             }
@@ -1928,7 +1915,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("删除失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("删除失败", e))
                     }
                 }
             }
@@ -1955,7 +1942,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("批量删除失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("批量删除失败", e))
                     }
                 }
             }
@@ -1984,7 +1971,7 @@ class MainActivity : ComponentActivity() {
                         handleAuthLost(e.message)
                         loadPlaylists()
                     } catch (e: Exception) {
-                        showError("移动失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("移动失败", e))
                         loadPlaylists()
                     }
                 }
@@ -2008,7 +1995,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("删除歌曲失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("删除歌曲失败", e))
                     }
                 }
             }
@@ -2028,7 +2015,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("导入失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("导入失败", e))
                     }
                 }
             }
@@ -2090,7 +2077,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("导入失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("导入失败", e))
                     }
                 }
             }
@@ -2103,7 +2090,7 @@ class MainActivity : ComponentActivity() {
                     }
                     context.startActivity(Intent.createChooser(intent, "分享歌单"))
                 } catch (e: Exception) {
-                    showError("分享失败: ${friendlyNetworkMessage(e)}")
+                    showError(diagnosableError("分享失败", e))
                 }
             }
 
@@ -2129,7 +2116,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("加入歌单失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("加入歌单失败", e))
                     } finally {
                         addBusy = false
                     }
@@ -2158,7 +2145,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("新建并加入失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("新建并加入失败", e))
                     } finally {
                         addBusy = false
                     }
@@ -2192,7 +2179,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
-                        showError("登录失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("登录失败", e))
                     } finally {
                         loginBusy = false
                     }
@@ -2235,7 +2222,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         showError(e.message ?: "密码错/登录过期，请重登")
                     } catch (e: Exception) {
-                        showError("注册失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("注册失败", e))
                     } finally {
                         loginBusy = false
                     }
@@ -2260,7 +2247,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("改密失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("改密失败", e))
                     }
                 }
             }
@@ -2291,7 +2278,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("改资料失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("改资料失败", e))
                     }
                 }
             }
@@ -2327,7 +2314,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            showError("上传失败: ${friendlyNetworkMessage(e)}")
+                            showError(diagnosableError("上传失败", e))
                         }
                     }
                 }
@@ -2349,7 +2336,7 @@ class MainActivity : ComponentActivity() {
                     } catch (e: AuthException) {
                         handleAuthLost(e.message)
                     } catch (e: Exception) {
-                        showError("删除历史失败: ${friendlyNetworkMessage(e)}")
+                        showError(diagnosableError("删除历史失败", e))
                     }
                 }
             }
@@ -2368,7 +2355,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         AuthStore.clear(context)
                     } catch (e: Exception) {
-                        showError("退出失败: ${e.message ?: e.javaClass.simpleName}")
+                        showError(diagnosableError("退出失败", e))
                         return@launch
                     }
                     // 搜索历史是"这个人查过什么"，不能留给下一个账号：
@@ -2425,7 +2412,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            showError("读取图片失败: ${friendlyNetworkMessage(e)}")
+                            showError(diagnosableError("读取图片失败", e))
                         }
                     }
                 }
@@ -2506,8 +2493,11 @@ class MainActivity : ComponentActivity() {
                         }
                         if (c.playbackState == Player.STATE_READY || c.isPlaying) {
                             try {
+                                // CODE-1：这里原来是 `c.currentMediaItem!!` —— 队列空
+                                // （服务端被系统重建、时间线还没物化）时 NPE 被外层
+                                // catch 吞掉，播放计数与上报静默丢失。取不到就跳过。
                                 val started = queue.getOrNull(currentIndex)
-                                    ?: songFromMediaItem(c.currentMediaItem!!)
+                                    ?: c.currentMediaItem?.let { songFromMediaItem(it) }
                                 maybeCountPlay(started)
                                 maybeReportPlay(started)
                             } catch (_: Exception) {
@@ -3011,7 +3001,7 @@ class MainActivity : ComponentActivity() {
                         SilentFail.note("MainActivity.onCreate:3019")
                     }
                 } catch (e: Exception) {
-                    showError("登录态恢复失败: ${e.message ?: e.javaClass.simpleName}")
+                    showError(diagnosableError("登录态恢复失败", e))
                     recordAuthDiag("RESTORE_EXCEPTION:" + e.javaClass.simpleName)
                 } finally {
                     authChecked = true
@@ -3913,7 +3903,7 @@ class MainActivity : ComponentActivity() {
                                         photoPicker.launch("image/*")
                                     } catch (e: Exception) {
                                         uploadTarget = null
-                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
+                                        showError(diagnosableError("打开相册失败", e))
                                     }
                                 },
                                 onPickBg = {
@@ -3922,7 +3912,7 @@ class MainActivity : ComponentActivity() {
                                         photoPicker.launch("image/*")
                                     } catch (e: Exception) {
                                         uploadTarget = null
-                                        showError("打开相册失败: ${e.message ?: e.javaClass.simpleName}")
+                                        showError(diagnosableError("打开相册失败", e))
                                     }
                                 },
                                 authDiagCode = authDiagCode,

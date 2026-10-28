@@ -112,6 +112,43 @@ class SearchStoreTest {
         assertTrue(loaded.none { it == "q1" })
     }
 
+    // ---- CODE-5：清洗规则只有一份（dedupeSearchHistory） ----
+
+    @Test
+    fun dedupe_trimsDropsBlankAndKeepsFirstOrder() {
+        assertEquals(
+            listOf("b", "a", "c"),
+            dedupeSearchHistory(listOf(" b ", "", "a", "b", "  ", "c"))
+        )
+    }
+
+    @Test
+    fun dedupe_respectsCap() {
+        assertEquals(
+            listOf("1", "2"),
+            dedupeSearchHistory(listOf("1", "2", "3"), cap = 2)
+        )
+    }
+
+    @Test
+    fun dedupe_noCapKeepsEverything() {
+        val many = (1..40).map { "q$it" }
+        assertEquals(40, dedupeSearchHistory(many, Int.MAX_VALUE).size)
+    }
+
+    @Test
+    fun dedupe_emptyStaysEmpty() {
+        assertTrue(dedupeSearchHistory(emptyList()).isEmpty())
+        assertTrue(dedupeSearchHistory(listOf("", "   ")).isEmpty())
+    }
+
+    @Test
+    fun fold_usesSameCleaningSoTrimmedDuplicatesFold() {
+        // 折叠与清洗共用一份规则：带空格的重复项必须先被去重，否则
+        // "第三" 与 " 第三 " 会被当成两条不同历史。
+        assertEquals(listOf("第三人称"), foldPrefixHistory(listOf(" 第三人称 ", "第三", "第三人称")))
+    }
+
     @Test
     fun store_sortRoundTrip(): Unit = runBlocking {
         SearchStore.saveSort(context(), SearchSort.DURATION_DESC)
