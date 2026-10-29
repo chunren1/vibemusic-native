@@ -143,8 +143,20 @@ C5-lite 分批搬"不碰播放状态"的部分。**
   状态本身只占一行声明，LOC 全在 `onCreate` 那 3751 行的函数体里。搬状态得到的是
   **封装与可测性**（模式改动只能走两个入口），不是体积。
 
+**第 2 步：抽出 `ApiActionRunner`（2026-10-29，commit `13a4451`）**
+
+- 真正的重复不在状态，而在**错误处理**：`scope.launch { try { … } catch(NetworkAuth) …
+  catch(Auth) … catch(Exception) … }` 这个 10 行壳子抄了 19 遍（≈170 行）。改成
+  `api.launch("X失败") { … }`，三类结局与旧代码逐条对齐（含 `clearTokens` 真值、
+  `diagnosableError` 文案、`finally` 复位）。
+- 转换 17 处；**两处刻意不转**：`movePlaylistAction`（三个分支都要 reload，无对应钩子）、
+  `doUploadImage`（`Dispatchers.IO` + 每回调 `withContext(Main)`）。
+- `MainActivity` 3457 → **3328 纯 LOC（−129）**，是第 1 片的 43 倍。`ApiActionRunnerTest` 8 例。
+- 结论：**抽"重复形状"比搬"状态"划算得多**。后续按行为簇抽离时，动作体已经只剩
+  `api.launch(label) { … }`，钩子数量大幅下降。
+
 **因此第 2~4 片要重新权衡**：`currentIndex`(40 处) / `queue`(62 处) / `controller`(36 处)
-机械改写 ≈ 500+ 行 diff，LOC 净减少仍是个位数，而回归只能靠真机。若目标是"把 3460 行
-降下来"，收益更高的是**按行为簇抽离**（登录注册 190 行 / 歌单增删改 310 行 /
+机械改写 ≈ 500+ 行 diff，LOC 净减少仍是个位数，而回归只能靠真机。若目标是"把体积继续
+降下来（现已 3328）"，收益更高的是**按行为簇抽离**（登录注册 190 行 / 歌单增删改 310 行 /
 列表加载 320 行 / 发现页加载 100 行），它们各自内聚、与播放状态耦合浅；
 按状态切片则继续按上面的顺序走，每片单独真机回归。
