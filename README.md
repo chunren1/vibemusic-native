@@ -10,7 +10,7 @@
 
 Kotlin 2.0.20 + Compose Material3 + Media3 1.9.3 + Retrofit 2.11.0 / OkHttp 4.12.0 /
 Coil 2.6.0 + DataStore 1.1.1，JSON 走 org.json（Moshi 已移除）；AGP 8.5.2 / Gradle 8.10.2 / JDK 21 实测可编；
-compileSdk 35 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4.14.1。
+compileSdk 36 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4.14.1。
 
 ## 常用命令
 
@@ -18,8 +18,8 @@ compileSdk 35 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4
 ./gradlew testDebugUnitTest --no-daemon   # 验收门：1037 用例全绿才许交付（2026-10-28 实测）
 ./gradlew assembleDebug --no-daemon       # 调试包
 VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
-~/Android/Sdk/build-tools/35.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
-~/Android/Sdk/build-tools/35.0.0/apksigner verify app/build/outputs/apk/release/app-release.apk
+~/Android/Sdk/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
+~/Android/Sdk/build-tools/36.0.0/apksigner verify app/build/outputs/apk/release/app-release.apk
 ./gradlew --stop                           # 收尾清 daemon（机器内存小）
 ```
 

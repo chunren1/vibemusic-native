@@ -651,17 +651,17 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = song != null)
+                    FavHeart(faved = isFav, onClick = onToggleFav, enabled = true)
                     IconButton(
                         onClick = onAddCurrentToPlaylist,
-                        enabled = song != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp)
                     ) {
                         AppIcon(AppIconKind.ADD, InkOnDark)
                     }
                     IconButton(
                         onClick = onDownloadCurrent,
-                        enabled = song != null && !downloadingCurrent,
+                        enabled = !downloadingCurrent,
                         modifier = Modifier.size(48.dp)
                     ) {
                         if (downloadingCurrent) {
@@ -690,7 +690,7 @@ fun PlayerScreen(
                 PlayerSeekSection(
                     positionMs = positionMs,
                     durationMs = durationMs,
-                    enabled = song != null,
+                    enabled = true,
                     onSeek = onSeek
                 )
                 Spacer(Modifier.height(8.dp))
@@ -701,7 +701,7 @@ fun PlayerScreen(
                 ) {
                     IconButton(
                         onClick = onCycleMode,
-                        enabled = song != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp).semantics {
                             contentDescription = "播放模式：" +
                                 playMode.label + "，点击切换"
@@ -711,17 +711,17 @@ fun PlayerScreen(
                     }
                     IconButton(
                         onClick = onPrev,
-                        enabled = song != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp)
                     ) {
-                        AppIcon(AppIconKind.PREV, if (song != null) InkOnDark else GrayMuted)
+                        AppIcon(AppIconKind.PREV, InkOnDark)
                     }
                     Box(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(if (song != null) NeonViolet else GrayMuted.copy(alpha = 0.4f))
-                            .clickable(enabled = song != null, onClick = onPlayPause),
+                            .background(NeonViolet)
+                            .clickable(onClick = onPlayPause),
                         contentAlignment = Alignment.Center
                     ) {
                         AppIcon(
@@ -732,14 +732,14 @@ fun PlayerScreen(
                     }
                     IconButton(
                         onClick = onNext,
-                        enabled = song != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp)
                     ) {
-                        AppIcon(AppIconKind.NEXT, if (song != null) InkOnDark else GrayMuted)
+                        AppIcon(AppIconKind.NEXT, InkOnDark)
                     }
                     IconButton(
                         onClick = onOpenQueue,
-                        enabled = song != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp)
                     ) {
                         AppIcon(AppIconKind.QUEUE, InkOnDark)

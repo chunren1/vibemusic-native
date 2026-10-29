@@ -1,8 +1,8 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.core.net.toUri
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -212,7 +212,7 @@ class UpdateCoordinator(
                 try {
                     context.startActivity(
                         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                            data = Uri.parse("package:${context.packageName}")
+                            data = "package:${context.packageName}".toUri()
                         }
                     )
                 } catch (e: Exception) {

@@ -1,9 +1,9 @@
 package com.cyk666.vibemusic
 
 import android.annotation.SuppressLint
+import androidx.core.net.toUri
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
@@ -62,7 +62,7 @@ fun notificationSettingsIntent(context: Context): Intent {
     } catch (_: Exception) {
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             try {
-                data = Uri.parse("package:$pkg")
+                data = "package:$pkg".toUri()
             } catch (_: Exception) {
                 SilentFail.note("SystemSettings.notificationSettingsIntent:70")
             }
@@ -84,7 +84,7 @@ fun batteryOptIntents(context: Context, batteryExempt: Boolean): List<Intent> =
         when (action) {
             BatteryOptAction.REQUEST_EXEMPTION -> Intent(
                 Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.parse("package:${context.packageName}")
+                "package:${context.packageName}".toUri()
             )
             BatteryOptAction.OPEN_SETTINGS_LIST ->
                 Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)

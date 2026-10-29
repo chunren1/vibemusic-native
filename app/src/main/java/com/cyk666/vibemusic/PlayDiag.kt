@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.core.content.edit
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,13 +59,14 @@ object PlayDiag {
                 DiagEntry(now, seq, code),
                 RING_MAX
             )
-            val edit = sp.edit()
-                .putLong(KEY_SEQ, seq)
-                .putString(KEY_RING, ring)
-            if (primary) {
-                edit.putString(KEY_CODE, code).putLong(KEY_TS, now)
+            sp.edit {
+                putLong(KEY_SEQ, seq)
+                putString(KEY_RING, ring)
+                if (primary) {
+                    putString(KEY_CODE, code)
+                    putLong(KEY_TS, now)
+                }
             }
-            edit.apply()
         } catch (_: Exception) {
         }
         // Bugly 已初始化时同步一份"面包屑"，崩溃报告里直接可见死前状态；

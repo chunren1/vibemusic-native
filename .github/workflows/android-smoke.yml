@@ -63,7 +63,7 @@ jobs:
         uses: android-actions/setup-android@v4
         with:
           # 与 release.yml 同参：Google 已下架废弃的 tools 包，只留 platform-tools
-          packages: platform-tools
+          packages: platform-tools,platforms;android-36,build-tools;36.0.0
 
       - name: Grant gradlew
         run: chmod +x gradlew

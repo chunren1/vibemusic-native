@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.core.net.toUri
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -385,7 +386,7 @@ object OfflineStore {
                     .setTitle(name)
                     .setArtist(artist)
                     .setAlbumTitle(album.ifBlank { null })
-                    .setArtworkUri(absImgUrl(coverUrl).ifBlank { null }?.let { Uri.parse(it) })
+                    .setArtworkUri(absImgUrl(coverUrl).ifBlank { null }?.toUri())
                     .setExtras(android.os.Bundle().apply { putString("platform", plat) })
                     .build()
             )

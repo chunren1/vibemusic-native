@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.content.Context
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.database.ExoDatabaseProvider
 import androidx.media3.datasource.DataSource
@@ -149,7 +150,7 @@ object MediaCache {
             val url = song.streamUrl()
             if (get(app).getCachedBytes(url, 0L, maxBytes).coerceAtLeast(0L) >= maxBytes) return 0L
             val source = cachedDataSourceFactory(app, upstream).createDataSource()
-            val spec = DataSpec(android.net.Uri.parse(url))
+            val spec = DataSpec(url.toUri())
             var total = 0L
             val buf = ByteArray(32 * 1024)
             try {

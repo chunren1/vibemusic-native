@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.cyk666.vibemusic"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.cyk666.vibemusic"
@@ -62,6 +62,9 @@ android {
         // 版本升级在本仓库由 AGENTS.md（工具链冻结）+ `scripts/verify-deps.sh`
         // （断言 minCompileSdk ≤ compileSdk）管，不靠 lint 提示；关掉换取确定性的 lint 输出。
         disable += "GradleDependency"
+        // 同理会腐化：message 里写着"比 8.13 新的版本是 8.14.6"，升一次 Gradle 就失效，
+        // 上游发新版也会失效。工具链版本由 AGENTS.md + scripts/verify-deps.sh 管。
+        disable += "AndroidGradlePluginVersion"
     }
 
     compileOptions {

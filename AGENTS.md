@@ -7,14 +7,14 @@
 VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.20-ai`（versionCode 98，2026-10-29 发布），发版由 CI tag 触发。
 
 ## 技术栈（冻结，改动需用户批准）
-- Kotlin 2.0.20 · AGP 8.5.2 · Gradle 8.10.2 · JDK 21（`jvmTarget 17`）
-- compileSdk 35 / minSdk 26 / targetSdk 35
+- Kotlin 2.1.21 · AGP 8.11.1 · Gradle 8.13 · JDK 21（`jvmTarget 17`）
+- compileSdk 36 / minSdk 26 / targetSdk **35**（targetSdk 36 会强制 edge-to-edge 等行为变更，另行决策）
 - Compose BOM 2024.10.00 + Material3 + material-icons-extended；Media3 1.9.4；Retrofit 2.11.0 / OkHttp 4.12.0；Coil 2.6.0；DataStore 1.1.1；Bugly 4.1.9
 - JSON 走 **`org.json`（不用 Moshi）**
 - 测试：JUnit 4.13.2 + Robolectric 4.14.1（91 个测试文件 / 1057 用例）
 - 版本单一来源：`gradle/libs.versions.toml`
 
-## 常用命令（工具链 `~/Android/Sdk/build-tools/35.0.0/`）
+## 常用命令（工具链 `~/Android/Sdk/build-tools/36.0.0/`）
 ```bash
 ./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：1057 用例必须全绿
 ./gradlew assembleDebug --no-daemon        # debug 构建

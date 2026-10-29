@@ -405,7 +405,7 @@ fun audioFocusConfig(): AudioFocusConfig = AudioFocusConfig(
  * 裸 MediaSessionService 只有蓝牙/系统控制直连，没有这层恢复展示。库本身只暴露
  * 一个轻量空根（[onGetLibraryRoot]），不提供真实内容树。
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
 
     companion object {
@@ -953,6 +953,7 @@ class PlaybackService : MediaLibraryService() {
                 return super.onConnect(session, controller)
             }
 
+            @androidx.annotation.OptIn(UnstableApi::class)
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo

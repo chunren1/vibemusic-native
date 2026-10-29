@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import org.json.JSONArray
@@ -41,7 +42,7 @@ data class Song(
                 .setTitle(name)
                 .setArtist(artist)
                 .setAlbumTitle(album.ifBlank { null })
-                .setArtworkUri(absImgUrl(coverUrl).ifBlank { null }?.let { Uri.parse(it) })
+                .setArtworkUri(absImgUrl(coverUrl).ifBlank { null }?.toUri())
                 .setExtras(android.os.Bundle().apply { putString("platform", platform) })
                 .build()
         )

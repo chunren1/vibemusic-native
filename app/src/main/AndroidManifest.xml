@@ -65,7 +65,9 @@
             <!-- 部分微信版本把音频标成 application/octet-stream（mime 不可靠），按扩展名兜底。
                  pathSuffix 需要 Android 12(API 31)+，更低版本只靠上面 audio/* 那条。
                  ⚠ 这条能否命中依赖微信实际发的 mime/文件名，**只能真机实测**，别当已验证。 -->
-            <intent-filter tools:ignore="UnusedAttribute,IntentFilterUniqueDataAttributes">
+            <!-- lint AppLinkUrlError：content:// 的 authority 由发送方决定（微信/文件管理器），
+                 清单里写不出 host；这条 filter 靠 mimeType + pathSuffix 命中，属正常用法。 -->
+            <intent-filter tools:ignore="UnusedAttribute,IntentFilterUniqueDataAttributes,AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" android:mimeType="application/octet-stream" android:pathSuffix=".mp3" />
