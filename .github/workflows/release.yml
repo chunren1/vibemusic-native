@@ -1,5 +1,5 @@
 # CI: tag v* → 云端编译签名 → GitHub Release 发包
-# 触发：git tag vX.Y.Z-ai && git push origin vX.Y.Z-ai（当前 v2.0.19-ai）
+# 触发：git tag vX.Y.Z-ai && git push origin vX.Y.Z-ai（当前 v2.0.20-ai）
 # Secrets（仓库 Settings → Secrets and variables → Actions → New repository secret，需预置；
 #         缺 KEYSTORE_FILE / KEYSTORE_PASSWORD 任一 → 发版直接失败，不静默跳过）：
 #   KEYSTORE_FILE          base64 后的 release keystore

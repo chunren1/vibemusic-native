@@ -195,7 +195,7 @@ Media3 `MediaSessionService` + 通知栏。
 2. 报错贴 `adb logcat` 全栈文本；静默失败（无声无错）先加日志定位，不许猜。
 3. `gradle-wrapper.properties` / AGP / Kotlin / minSdk 冻结；加依赖必须说理由+锁版本+用户同意。
 4. 验收门没过，不进下一阶段；3 次失败停手 revert + 请示。
-5. 自研版目录一律不碰；两边对照测试时注明版本（AI 版 `vX.Y.Z-ai`，当前 `v2.0.19-ai`）。
+5. 自研版目录一律不碰；两边对照测试时注明版本（AI 版 `vX.Y.Z-ai`，当前 `v2.0.20-ai`）。
 6. 每次交付前必须 `./gradlew testDebugUnitTest` 全绿 + assemble + aapt/apksigner 校验，三者缺一即不许交付（传包走 CI → GitHub Release，LanShare 已退役）；测试挂了先修测试或代码，禁删失败测试冒充通过。
 
 ## 7. 需要用户帮忙的点（提前列好）
