@@ -45,12 +45,10 @@ jobs:
         uses: android-actions/setup-android@v4 # Node24 + 默认 cmdline-tools 20.0（需 JDK17+，本处满足）
         with:
           # Google 已下架废弃的 tools 包（2026-09-15 实锤 Failed to find package 'tools' 致整步 exit 1），只留 platform-tools
-          # 必须换行分隔：setup-android@v4 不做逗号拆分，写成一行会把整串当成一个包名
-          # （2026-10-29 实锤：Warning: Failed to find package 'platform-tools,platforms;android-36,build-tools;36.0.0' → exit 1）
-          packages: |
-            platform-tools
-            platforms;android-36
-            build-tools;36.0.0
+          # 必须**空格**分隔（单行）：setup-android@v4 源码是 getInput("packages").split(" ")，
+          # 逗号/换行都不会被拆开，整串会被当成一个包名 →
+          # 2026-10-29 两次实锤：Failed to find package 'platform-tools,...'（逗号）、'platform-tools\n...'（换行）
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
       - name: Restore keystore
         run: echo "$KEYSTORE_FILE" | base64 -d > /tmp/release.jks
