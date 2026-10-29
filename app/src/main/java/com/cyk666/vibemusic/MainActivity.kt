@@ -1658,18 +1658,20 @@ class MainActivity : ComponentActivity() {
                 lastReportedKey = null
             }
 
+            // 统一 API 动作的三段 catch 梯子（原本 19 处各抄一遍，见 ApiActionRunner）。
+            // 不加 remember：它只持有两个回调、无自身状态，重建成本为零；用 remember
+            // 反而会把首次组合的 showError / handleAuthLost 闭包固定住。
+            val api = ApiActionRunner(
+                scope = scope,
+                onAuthLost = { msg, clearTokens -> handleAuthLost(msg, clearTokens) },
+                onError = { showError(it) }
+            )
+
             fun loadFavIds() {
                 if (currentUser == null) return
-                scope.launch {
-                    try {
-                        favIds = VibeApi.favIds()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (_: Exception) {
-                        SilentFail.note("MainActivity.onCreate:1636")
-                    }
+                // 收藏 ID 只是角标依据：失败不打扰用户，只留诊断点（与旧行为一致）。
+                api.launch("收藏 ID 加载失败", onFailure = { SilentFail.note("MainActivity.onCreate:1636") }) {
+                    favIds = VibeApi.favIds()
                 }
             }
 
@@ -1677,22 +1679,18 @@ class MainActivity : ComponentActivity() {
                 if (currentUser == null) return
                 if (historyLoading) return
                 historyLoading = true
-                scope.launch {
-                    try {
-                        historyItems = VibeApi.history(20)
-                        historyError = null
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
+                api.launch(
+                    "历史加载失败",
+                    onFinally = { historyLoading = false },
+                    onFailure = {
                         // 记进状态：断网时列表为空 + 有 error → 显示「加载失败/重试」，
                         // 而不是「还没有播放记录」（UI-1）。
-                        historyError = friendlyNetworkMessage(e)
-                        showError(diagnosableError("历史加载失败", e))
-                    } finally {
-                        historyLoading = false
+                        historyError = friendlyNetworkMessage(it)
+                        showError(diagnosableError("历史加载失败", it))
                     }
+                ) {
+                    historyItems = VibeApi.history(20)
+                    historyError = null
                 }
             }
 
@@ -1704,24 +1702,14 @@ class MainActivity : ComponentActivity() {
                 if (song.sourceId.isBlank()) return
                 if (song.sourceId in favBusy) return
                 favBusy = favBusy + song.sourceId
-                scope.launch {
-                    try {
-                        val faved = VibeApi.toggleFavorite(song, VibeApi.newRequestId())
-                        favIds = if (faved) favIds + song.sourceId else favIds - song.sourceId
-                        favSongs = if (faved) {
-                            if (favSongs.any { it.sourceId == song.sourceId }) favSongs
-                            else favSongs + song
-                        } else {
-                            favSongs.filterNot { it.sourceId == song.sourceId }
-                        }
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("收藏失败", e))
-                    } finally {
-                        favBusy = favBusy - song.sourceId
+                api.launch("收藏失败", onFinally = { favBusy = favBusy - song.sourceId }) {
+                    val faved = VibeApi.toggleFavorite(song, VibeApi.newRequestId())
+                    favIds = if (faved) favIds + song.sourceId else favIds - song.sourceId
+                    favSongs = if (faved) {
+                        if (favSongs.any { it.sourceId == song.sourceId }) favSongs
+                        else favSongs + song
+                    } else {
+                        favSongs.filterNot { it.sourceId == song.sourceId }
                     }
                 }
             }
@@ -1730,20 +1718,16 @@ class MainActivity : ComponentActivity() {
                 if (currentUser == null) return
                 if (favLoading) return
                 favLoading = true
-                scope.launch {
-                    try {
-                        favSongs = VibeApi.favList(200)
-                        favError = null
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        favError = friendlyNetworkMessage(e)
-                        showError(diagnosableError("收藏加载失败", e))
-                    } finally {
-                        favLoading = false
+                api.launch(
+                    "收藏加载失败",
+                    onFinally = { favLoading = false },
+                    onFailure = {
+                        favError = friendlyNetworkMessage(it)
+                        showError(diagnosableError("收藏加载失败", it))
                     }
+                ) {
+                    favSongs = VibeApi.favList(200)
+                    favError = null
                 }
             }
 
@@ -1788,18 +1772,10 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
-                    try {
-                        val r = VibeApi.createPlaylist(name, description)
-                        showError(if (r.duplicate) "歌单已存在，已打开现有歌单" else "新建歌单成功")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("新建歌单失败", e))
-                    }
+                api.launch("新建歌单失败") {
+                    val r = VibeApi.createPlaylist(name, description)
+                    showError(if (r.duplicate) "歌单已存在，已打开现有歌单" else "新建歌单成功")
+                    loadPlaylists()
                 }
             }
 
@@ -1808,18 +1784,10 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
-                    try {
-                        VibeApi.updatePlaylist(pl.id, name = name)
-                        showError("重命名成功")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("重命名失败", e))
-                    }
+                api.launch("重命名失败") {
+                    VibeApi.updatePlaylist(pl.id, name = name)
+                    showError("重命名成功")
+                    loadPlaylists()
                 }
             }
 
@@ -1828,18 +1796,10 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
-                    try {
-                        VibeApi.updatePlaylist(pl.id, description = description)
-                        showError("简介更新成功")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("更新简介失败", e))
-                    }
+                api.launch("更新简介失败") {
+                    VibeApi.updatePlaylist(pl.id, description = description)
+                    showError("简介更新成功")
+                    loadPlaylists()
                 }
             }
 
@@ -1848,24 +1808,16 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
-                    try {
-                        VibeApi.deletePlaylist(pl.id)
-                        if (selectedPlaylist?.id == pl.id) {
-                            selectedPlaylist = null
-                            playlistSongs = emptyList()
-                            playlistSongsError = null
-                            if (screen is Screen.PlaylistDetail) screen = Screen.Mine
-                        }
-                        showError("已删除「${pl.name}」")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("删除失败", e))
+                api.launch("删除失败") {
+                    VibeApi.deletePlaylist(pl.id)
+                    if (selectedPlaylist?.id == pl.id) {
+                        selectedPlaylist = null
+                        playlistSongs = emptyList()
+                        playlistSongsError = null
+                        if (screen is Screen.PlaylistDetail) screen = Screen.Mine
                     }
+                    showError("已删除「${pl.name}」")
+                    loadPlaylists()
                 }
             }
 
@@ -1875,24 +1827,16 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 if (ids.isEmpty()) return
-                scope.launch {
-                    try {
-                        val n = VibeApi.deletePlaylists(ids)
-                        if (selectedPlaylist?.id in ids) {
-                            selectedPlaylist = null
-                            playlistSongs = emptyList()
-                            playlistSongsError = null
-                            if (screen is Screen.PlaylistDetail) screen = Screen.Mine
-                        }
-                        showError("已删除 $n 个歌单")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("批量删除失败", e))
+                api.launch("批量删除失败") {
+                    val n = VibeApi.deletePlaylists(ids)
+                    if (selectedPlaylist?.id in ids) {
+                        selectedPlaylist = null
+                        playlistSongs = emptyList()
+                        playlistSongsError = null
+                        if (screen is Screen.PlaylistDetail) screen = Screen.Mine
                     }
+                    showError("已删除 $n 个歌单")
+                    loadPlaylists()
                 }
             }
 
@@ -1933,19 +1877,11 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 if (pl == null) return
-                scope.launch {
-                    try {
-                        VibeApi.removeSongFromPlaylist(pl.id, song.sourceId)
-                        showError("已从歌单删除《${song.name}》")
-                        loadSongs(pl)
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("删除歌曲失败", e))
-                    }
+                api.launch("删除歌曲失败") {
+                    VibeApi.removeSongFromPlaylist(pl.id, song.sourceId)
+                    showError("已从歌单删除《${song.name}》")
+                    loadSongs(pl)
+                    loadPlaylists()
                 }
             }
 
@@ -1954,18 +1890,10 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
-                    try {
-                        val r = VibeApi.importPlaylist(source, id)
-                        showError("成功导入${r.imported}/${r.total}首「${r.name}」")
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("导入失败", e))
-                    }
+                api.launch("导入失败") {
+                    val r = VibeApi.importPlaylist(source, id)
+                    showError("成功导入${r.imported}/${r.total}首「${r.name}」")
+                    loadPlaylists()
                 }
             }
 
@@ -1995,38 +1923,30 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
+                api.launch("导入失败") {
+                    val before = playlists.map { it.id }.toSet()
+                    val r = VibeApi.importPlaylist("netease", recommendId)
+                    showError("成功导入${r.imported}/${r.total}首「${r.name}」")
                     try {
-                        val before = playlists.map { it.id }.toSet()
-                        val r = VibeApi.importPlaylist("netease", recommendId)
-                        showError("成功导入${r.imported}/${r.total}首「${r.name}」")
-                        try {
-                            playlists = VibeApi.myPlaylists()
-                            playlistsLastLoaded = System.currentTimeMillis()
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:1964")
-                        }
-                        val opened = selectOpenedRecommend(
-                            before,
-                            playlists,
-                            r.name,
-                            fallbackName
-                        )
-                        if (opened != null) {
-                            recommendImportId = null
-                            loadSongs(opened)
-                            screen = Screen.PlaylistDetail(opened)
-                        } else {
-                            recommendImportId = null
-                            loadPlaylists()
-                            screen = Screen.Mine
-                        }
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("导入失败", e))
+                        playlists = VibeApi.myPlaylists()
+                        playlistsLastLoaded = System.currentTimeMillis()
+                    } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:1964")
+                    }
+                    val opened = selectOpenedRecommend(
+                        before,
+                        playlists,
+                        r.name,
+                        fallbackName
+                    )
+                    if (opened != null) {
+                        recommendImportId = null
+                        loadSongs(opened)
+                        screen = Screen.PlaylistDetail(opened)
+                    } else {
+                        recommendImportId = null
+                        loadPlaylists()
+                        screen = Screen.Mine
                     }
                 }
             }
@@ -2044,24 +1964,14 @@ class MainActivity : ComponentActivity() {
                 }
                 if (addBusy) return
                 addBusy = true
-                scope.launch {
-                    try {
-                        val added = VibeApi.addSongToPlaylist(pl.id, song)
-                        showError(
-                            if (added) "已加入「${pl.name}」"
-                            else "《${song.name}》已在「${pl.name}」中"
-                        )
-                        pendingAddSong = null
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("加入歌单失败", e))
-                    } finally {
-                        addBusy = false
-                    }
+                api.launch("加入歌单失败", onFinally = { addBusy = false }) {
+                    val added = VibeApi.addSongToPlaylist(pl.id, song)
+                    showError(
+                        if (added) "已加入「${pl.name}」"
+                        else "《${song.name}》已在「${pl.name}」中"
+                    )
+                    pendingAddSong = null
+                    loadPlaylists()
                 }
             }
 
@@ -2072,25 +1982,15 @@ class MainActivity : ComponentActivity() {
                 }
                 if (addBusy) return
                 addBusy = true
-                scope.launch {
-                    try {
-                        val r = VibeApi.createPlaylist(name, "")
-                        val added = VibeApi.addSongToPlaylist(r.id, song)
-                        showError(
-                            if (added) "已新建「${r.name}」并加入"
-                            else "《${song.name}》已在「${r.name}」中"
-                        )
-                        pendingAddSong = null
-                        loadPlaylists()
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("新建并加入失败", e))
-                    } finally {
-                        addBusy = false
-                    }
+                api.launch("新建并加入失败", onFinally = { addBusy = false }) {
+                    val r = VibeApi.createPlaylist(name, "")
+                    val added = VibeApi.addSongToPlaylist(r.id, song)
+                    showError(
+                        if (added) "已新建「${r.name}」并加入"
+                        else "《${song.name}》已在「${r.name}」中"
+                    )
+                    pendingAddSong = null
+                    loadPlaylists()
                 }
             }
 
@@ -2180,17 +2080,9 @@ class MainActivity : ComponentActivity() {
                     showError("新密码至少8位")
                     return
                 }
-                scope.launch {
-                    try {
-                        VibeApi.changePassword(oldPassword, newPassword)
-                        showError("密码修改成功")
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("改密失败", e))
-                    }
+                api.launch("改密失败") {
+                    VibeApi.changePassword(oldPassword, newPassword)
+                    showError("密码修改成功")
                 }
             }
 
@@ -2199,29 +2091,21 @@ class MainActivity : ComponentActivity() {
                     screen = Screen.Login
                     return
                 }
-                scope.launch {
+                api.launch("改资料失败") {
+                    currentUser = VibeApi.updateProfile(nickname, gender, birthday)
                     try {
-                        currentUser = VibeApi.updateProfile(nickname, gender, birthday)
-                        try {
-                            val snap = AuthStore.load(context)
-                            AuthStore.save(
-                                context,
-                                snap.token,
-                                snap.username,
-                                currentUser?.nickname.orEmpty(),
-                                snap.refreshToken
-                            )
-                        } catch (_: Exception) {
-                            SilentFail.note("MainActivity.onCreate:2282")
-                        }
-                        showError("资料已更新")
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("改资料失败", e))
+                        val snap = AuthStore.load(context)
+                        AuthStore.save(
+                            context,
+                            snap.token,
+                            snap.username,
+                            currentUser?.nickname.orEmpty(),
+                            snap.refreshToken
+                        )
+                    } catch (_: Exception) {
+                        SilentFail.note("MainActivity.onCreate:2282")
                     }
+                    showError("资料已更新")
                 }
             }
 
@@ -2268,18 +2152,10 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 if (sourceIds.isEmpty()) return
-                scope.launch {
-                    try {
-                        VibeApi.removeHistory(sourceIds)
-                        historyItems = historyItems.filterNot { it.song.sourceId in sourceIds.toSet() }
-                        showError(if (clearAll) "已清空播放历史" else "已删除")
-                    } catch (e: NetworkAuthException) {
-                        handleAuthLost(e.message, clearTokens = false)
-                    } catch (e: AuthException) {
-                        handleAuthLost(e.message)
-                    } catch (e: Exception) {
-                        showError(diagnosableError("删除历史失败", e))
-                    }
+                api.launch("删除历史失败") {
+                    VibeApi.removeHistory(sourceIds)
+                    historyItems = historyItems.filterNot { it.song.sourceId in sourceIds.toSet() }
+                    showError(if (clearAll) "已清空播放历史" else "已删除")
                 }
             }
 
