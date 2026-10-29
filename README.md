@@ -8,14 +8,14 @@
 
 ## 技术栈（版本冻结，升级需批准）
 
-Kotlin 2.0.20 + Compose Material3 + Media3 1.9.3 + Retrofit 2.11.0 / OkHttp 4.12.0 /
-Coil 2.6.0 + DataStore 1.1.1，JSON 走 org.json（Moshi 已移除）；AGP 8.5.2 / Gradle 8.10.2 / JDK 21 实测可编；
+Kotlin 2.1.21 + Compose Material3 + Media3 1.9.4 + Retrofit 2.11.0 / OkHttp 4.12.0 /
+Coil 2.6.0 + DataStore 1.1.1，JSON 走 org.json（Moshi 已移除）；AGP 8.11.1 / Gradle 8.13 / JDK 21 实测可编；
 compileSdk 36 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4.14.1。
 
 ## 常用命令
 
 ```bash
-./gradlew testDebugUnitTest --no-daemon   # 验收门：1037 用例全绿才许交付（2026-10-28 实测）
+./gradlew testDebugUnitTest --no-daemon   # 验收门：1074 用例全绿才许交付（2026-10-29 实测）
 ./gradlew assembleDebug --no-daemon       # 调试包
 VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
 ~/Android/Sdk/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
@@ -64,7 +64,7 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 - 焦点补试阶梯 + 用户意愿门 `shouldFireRetryProbe`：未点按绝不自动续播，暂停即取消补试。
 - 卡死自愈交给 Media3 1.9.0 原生 `StuckPlayerException`（想播 + READY 10 秒无进度即抛错）→ 走既有 `onPlayerError` 重试/换源；自建看门狗已于 2026-10-26 删除。
 - 保活引导 `shouldShowKilledHint`：播放键失灵提示直指「我的→设置→后台保活」。
-- 可测性：上述门与纯函数都有单测钉住（1037 例），行为变更先改测试再改实现。
+- 可测性：上述门与纯函数都有单测钉住（1074 例），行为变更先改测试再改实现。
 
 ## 血泪教训（新需求先读）
 

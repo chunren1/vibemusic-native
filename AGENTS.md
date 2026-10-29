@@ -11,12 +11,12 @@ VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)*
 - compileSdk 36 / minSdk 26 / targetSdk **35**（targetSdk 36 会强制 edge-to-edge 等行为变更，另行决策）
 - Compose BOM 2024.10.00 + Material3 + material-icons-extended；Media3 1.9.4；Retrofit 2.11.0 / OkHttp 4.12.0；Coil 2.6.0；DataStore 1.1.1；Bugly 4.1.9
 - JSON 走 **`org.json`（不用 Moshi）**
-- 测试：JUnit 4.13.2 + Robolectric 4.14.1（91 个测试文件 / 1057 用例）
+- 测试：JUnit 4.13.2 + Robolectric 4.14.1（93 个测试文件 / 1074 用例）
 - 版本单一来源：`gradle/libs.versions.toml`
 
 ## 常用命令（工具链 `~/Android/Sdk/build-tools/36.0.0/`）
 ```bash
-./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：1057 用例必须全绿
+./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：1074 用例必须全绿
 ./gradlew assembleDebug --no-daemon        # debug 构建
 VIBEMUSIC_KEYSTORE_PASSWORD=<~/.dsh/.credentials.yaml> ./gradlew assembleRelease --no-daemon
 aapt dump badging app/build/outputs/apk/release/app-release.apk   # 校 versionName/versionCode
