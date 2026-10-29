@@ -56,6 +56,12 @@ android {
         baseline = file("lint-baseline.xml")
         abortOnError = true
         checkReleaseBuilds = true
+        // GradleDependency 只报"有新版本可用"，而且把**旧版本号写进 message**——
+        // baseline 按 message 匹配，所以每次依赖升级都会让整批条目失效、冒出成堆
+        // 新 warning（2026-10-29 升 media3 1.9.4 后实测 8 条）。上游发新版也会同样失效。
+        // 版本升级在本仓库由 AGENTS.md（工具链冻结）+ `scripts/verify-deps.sh`
+        // （断言 minCompileSdk ≤ compileSdk）管，不靠 lint 提示；关掉换取确定性的 lint 输出。
+        disable += "GradleDependency"
     }
 
     compileOptions {
