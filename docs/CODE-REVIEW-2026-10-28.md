@@ -642,9 +642,9 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 4. ~~后端 token 过期返回 HTTP 401 还是 200+`code:401`~~ —— **第 3 批已实测定性**：两种都有。`SecurityConfig` 的 entry point 走 HTTP 401；`GET /api/songs/…` 是 `permitAll`，`PlayHistoryController.java:39` 直接 `Result.error(401)`（无 `@ResponseStatus`）→ HTTP 200 + body `code:401` **真实可达**。API-3 因此是现实缺陷，已修。
 5. 后端 `/api/auth/logout` 是否吊销 refresh（决定 SEC-1 的严重度上限）。
 
-**需要真机才能验的（与发版前一致）**
+**需要真机才能验的**
 
-- 实际出声 / 后台锁屏播放 / vivo 通知栏按键
+- ✅ **已验（2.0.20-ai，2026-10-29，用户真机确认）**：实际出声 / 后台锁屏播放 / vivo 通知栏播放键 —— 本版播放线改动的核心盲区已关闭
 - 微信「用其他应用打开」的 `content://` 修复（2.0.19 新增）
 - 安装器在 API 26/27 设备上的行为（SEC-3 修完后回归）
 - 离线连播 + 坏文件自动跳歌（PB-1/PB-2 修完后回归，需飞行模式 + 一个截断的下载文件）
@@ -653,4 +653,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1 批（凭据与崩溃）、第 2 批（UI 六条 + CI-1 + PB-1/PB-2）、第 3 批（API-1~4 + UPD-2~4 + PB-3~9）、第 4 批（纯 LOC 守卫 + CODE-1~7）、第 5 批（C5-lite + CODE-9 + 文档漂移）已修并验收，单测基线 **1057 例**。剩余：`MainActivity` 播放组 C5（已按停手判据重新设计，需真机轮次，见 `docs/REFACTOR-mainactivity.md` §8）、CODE-8（⏸ 不改）、CODE-10 依赖升级（需用户批准，工具链冻结）、`AGENTS.md` 数字（禁止 agent 改写）、工具链升级与 i18n（待用户决策）。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1~6 批全部落地并随 **2.0.20-ai（98）** 发布（tag `v2.0.20-ai`，CI `40801760852` 全绿，双源 sha256 `d5c1a5de…`），单测基线 **1057 例**；真机三样（出声/后台锁屏/通知栏键）已验。剩余：`MainActivity` 播放组 C5（已按停手判据重新设计，需真机轮次，见 `docs/REFACTOR-mainactivity.md` §8）、工具链升级 compileSdk 36（解锁 media3 1.10+ / compose BOM / core-ktx，属用户决策）、CODE-8 i18n（⏸ 不改，无产品需求）。*
