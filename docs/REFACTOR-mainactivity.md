@@ -129,3 +129,22 @@ C5-lite 分批搬"不碰播放状态"的部分。**
 
 每片都必须过：1037+ 单测、`lintRelease`、`assembleDebug`、`check-file-size.sh`，
 外加真机的播放/通知/切歌/续播四项回归。
+
+### 执行记录
+
+**第 1 片 `playMode` 已落地（2026-10-29，commit `774b35f`）**
+
+- 新增 `PlayModeState`（`mutableStateOf` + `private set`，只暴露 `cycle` / `restore` /
+  `repeatsAll`）。`cycle(apply)` 把 controller 同步当回调注入，**顺序与旧实现逐字一致**
+  （先写 repeat/shuffle 成功，再改状态），`apply` 抛异常时模式不动。
+- `MainActivity` 10 处引用全部收口；`PlayModeStateTest` 9 例（含"controller 失败时模式
+  不动"这条关键不变量）。单测 1057 → **1066**。
+- **`MainActivity.kt` 3460 → 3457 纯 LOC（只减 3 行）** —— 这是本方向的重要信号：
+  状态本身只占一行声明，LOC 全在 `onCreate` 那 3751 行的函数体里。搬状态得到的是
+  **封装与可测性**（模式改动只能走两个入口），不是体积。
+
+**因此第 2~4 片要重新权衡**：`currentIndex`(40 处) / `queue`(62 处) / `controller`(36 处)
+机械改写 ≈ 500+ 行 diff，LOC 净减少仍是个位数，而回归只能靠真机。若目标是"把 3460 行
+降下来"，收益更高的是**按行为簇抽离**（登录注册 190 行 / 歌单增删改 310 行 /
+列表加载 320 行 / 发现页加载 100 行），它们各自内聚、与播放状态耦合浅；
+按状态切片则继续按上面的顺序走，每片单独真机回归。

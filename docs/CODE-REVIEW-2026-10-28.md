@@ -653,4 +653,4 @@ CI 里**没有 detekt / ktlint / 覆盖率插件**，所以「≤250 纯 LOC」�
 
 ---
 
-*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1~6 批全部落地并随 **2.0.20-ai（98）** 发布（tag `v2.0.20-ai`，CI `40801760852` 全绿，双源 sha256 `d5c1a5de…`），单测基线 **1057 例**；真机三样（出声/后台锁屏/通知栏键）已验。剩余：`MainActivity` 播放组 C5（已按停手判据重新设计，需真机轮次，见 `docs/REFACTOR-mainactivity.md` §8）、工具链升级 compileSdk 36（解锁 media3 1.10+ / compose BOM / core-ktx，属用户决策）、CODE-8 i18n（⏸ 不改，无产品需求）。*
+*本报告已入库（`docs/CODE-REVIEW-2026-10-28.md`）。第 1~6 批全部落地并随 **2.0.20-ai（98）** 发布（tag `v2.0.20-ai`，CI `40801760852` 全绿，双源 sha256 `d5c1a5de…`），单测基线 **1057 例**；真机三样（出声/后台锁屏/通知栏键）已验。**工具链已升到 compileSdk 36 / AGP 8.11.1 / Gradle 8.13 / Kotlin 2.1.21（`8c6b28a`，targetSdk 仍 35，单测 1057 例、`lintRelease` 0 error）**。剩余：`MainActivity` 播放组 C5 第 2~4 片（第 1 片 `playMode` 已搬，`774b35f`；⚠️ 只减 3 纯 LOC，剩余三片需重新权衡收益，见 `docs/REFACTOR-mainactivity.md` §8 执行记录）、CODE-8 i18n（⏸ 不改，无产品需求）。*
