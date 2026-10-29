@@ -265,7 +265,8 @@ class MainActivity : ComponentActivity() {
             var positionMs by remember { mutableLongStateOf(0L) }
             var durationMs by remember { mutableLongStateOf(0L) }
 
-            var playMode by remember { mutableStateOf(PlayMode.SEQUENTIAL) }
+            // C5 第 1 片：playMode 搬进 PlayModeState（对外只读，改动只走 cycle/restore）。
+            val playModeState = remember { PlayModeState() }
             // ---- on-device auto-cache (ExoPlayer CacheDataSource): replay/airplane
             // serves from cache; cacheTick forces badge/size refresh after a wipe.
             var cacheTick by remember { mutableIntStateOf(0) }
@@ -1087,15 +1088,14 @@ class MainActivity : ComponentActivity() {
             }
 
             fun cyclePlayMode() {
-                val next = playMode.next()
-                val c = controller
                 try {
-                    if (c != null) {
-                        val rs = next.toRepeatShuffle()
-                        c.repeatMode = rs.repeatMode
-                        c.shuffleModeEnabled = rs.shuffleOn
+                    // 顺序与旧实现一致：先同步 controller，成功后才改状态（失败则模式不变）。
+                    val next = playModeState.cycle { rs ->
+                        controller?.let { c ->
+                            c.repeatMode = rs.repeatMode
+                            c.shuffleModeEnabled = rs.shuffleOn
+                        }
                     }
-                    playMode = next
                     scope.launch {
                         try {
                             val rs = next.toRepeatShuffle()
@@ -2580,8 +2580,7 @@ class MainActivity : ComponentActivity() {
                                     val repeatAll = try {
                                         c.repeatMode == Player.REPEAT_MODE_ALL
                                     } catch (_: Exception) {
-                                        playMode == PlayMode.LIST_LOOP ||
-                                            playMode == PlayMode.SHUFFLE
+                                        playModeState.repeatsAll()
                                     }
                                     scope.launch {
                                         val target = withContext(Dispatchers.IO) {
@@ -2693,7 +2692,7 @@ class MainActivity : ComponentActivity() {
                                     } catch (_: Exception) {
                                         SilentFail.note("MainActivity.onCreate:2727")
                                     }
-                                    playMode = playModeFrom(rs.repeatMode, rs.shuffleOn)
+                                    playModeState.restore(rs)
                                 } catch (_: Exception) {
                                     SilentFail.note("MainActivity.onCreate:2731")
                                 }
@@ -3507,7 +3506,7 @@ class MainActivity : ComponentActivity() {
                                             try {
                                                 val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            when (nextBoundaryAction(playMode, c.hasNextMediaItem())) {
+                                            when (nextBoundaryAction(playModeState.mode, c.hasNextMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
                                                     pendingRestoreAfterSeek = true
                                                     c.seekToNextMediaItem()
@@ -3538,7 +3537,7 @@ class MainActivity : ComponentActivity() {
                                             try {
                                                 val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            when (prevBoundaryAction(playMode, c.hasPreviousMediaItem())) {
+                                            when (prevBoundaryAction(playModeState.mode, c.hasPreviousMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
                                                     pendingRestoreAfterSeek = true
                                                     c.seekToPreviousMediaItem()
@@ -3590,7 +3589,7 @@ class MainActivity : ComponentActivity() {
                                     queue.getOrNull(currentIndex)?.let(::openAddSheet)
                                 },
                                 onOpenQueue = { screen = Screen.Queue },
-                                playMode = playMode,
+                                playMode = playModeState.mode,
                                 onCycleMode = ::cyclePlayMode,
                                 onDownloadCurrent = {
                                     queue.getOrNull(currentIndex)?.let { downloadSong(it, false) }
@@ -3621,7 +3620,7 @@ class MainActivity : ComponentActivity() {
                                     positionMs,
                                     durationMs
                                 ),
-                                modeLabel = playMode.label,
+                                modeLabel = playModeState.mode.label,
                                 onPlayAt = ::queueSeekTo,
                                 onRemove = ::queueRemoveAt,
                                 onClear = ::queueClearKeepCurrent,

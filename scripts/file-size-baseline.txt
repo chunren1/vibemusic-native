@@ -1,7 +1,7 @@
 # 纯 LOC 白名单（scripts/check-file-size.sh 维护，勿手改）。
 # 格式：<纯 LOC> <相对 app/src/main/java 的路径>
 # 规则：文件不得超过记录值；拆小了请跑 scripts/check-file-size.sh --update。
-3460 com/cyk666/vibemusic/MainActivity.kt
+3457 com/cyk666/vibemusic/MainActivity.kt
 1603 com/cyk666/vibemusic/VibeApi.kt
 933 com/cyk666/vibemusic/PlayerScreen.kt
 792 com/cyk666/vibemusic/PlaybackService.kt
