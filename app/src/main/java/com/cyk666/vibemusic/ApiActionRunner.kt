@@ -1,5 +1,6 @@
 package com.cyk666.vibemusic
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -40,6 +41,10 @@ class ApiActionRunner(
         scope.launch {
             try {
                 block()
+            } catch (e: CancellationException) {
+                // 页面销毁/scope 取消不是业务失败：必须原样抛出，否则会弹错误提示，
+                // 并让父协程误以为任务正常结束（结构化并发被破坏）。
+                throw e
             } catch (e: NetworkAuthException) {
                 onAuthLost(e.message, false)
             } catch (e: AuthException) {

@@ -1,5 +1,6 @@
 package com.cyk666.vibemusic
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -110,6 +111,19 @@ class ApiActionRunnerTest {
         }
         assertEquals(1, rec.finallyCount)
         assertTrue(rec.error != null)
+    }
+
+    @Test
+    fun cancellationIsNotReportedAsFailure() {
+        val rec = Recorder()
+        rec.runner().launch("加载失败", onFinally = { rec.finallyCount++ }) {
+            // 页面销毁时 rememberCoroutineScope 会以 CancellationException 取消任务；
+            // 它不是业务失败，不能走 onError / onAuthLost。
+            throw CancellationException("cancelled")
+        }
+        assertNull("取消不应触发鉴权失败回调", rec.authLostMsg)
+        assertNull("取消不应弹业务错误", rec.error)
+        assertEquals("finally 仍应执行以复位 busy/loading", 1, rec.finallyCount)
     }
 
     @Test

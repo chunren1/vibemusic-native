@@ -15,7 +15,7 @@ compileSdk 36 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4
 ## 常用命令
 
 ```bash
-./gradlew testDebugUnitTest --no-daemon   # 验收门：1074 用例全绿才许交付（2026-10-29 实测）
+./gradlew testDebugUnitTest --no-daemon   # 验收门：1075 用例全绿才许交付（2026-10-30 实测）
 ./gradlew assembleDebug --no-daemon       # 调试包
 VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
 ~/Android/Sdk/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
@@ -64,7 +64,7 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 - 焦点补试阶梯 + 用户意愿门 `shouldFireRetryProbe`：未点按绝不自动续播，暂停即取消补试。
 - 卡死自愈交给 Media3 1.9.0 原生 `StuckPlayerException`（想播 + READY 10 秒无进度即抛错）→ 走既有 `onPlayerError` 重试/换源；自建看门狗已于 2026-10-26 删除。
 - 保活引导 `shouldShowKilledHint`：播放键失灵提示直指「我的→设置→后台保活」。
-- 可测性：上述门与纯函数都有单测钉住（1074 例），行为变更先改测试再改实现。
+- 可测性：上述门与纯函数都有单测钉住（1075 例），行为变更先改测试再改实现。
 
 ## 血泪教训（新需求先读）
 
