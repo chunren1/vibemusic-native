@@ -18,8 +18,8 @@ compileSdk 36 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4
 ./gradlew testDebugUnitTest --no-daemon   # 验收门：1075 用例全绿才许交付（2026-10-30 实测）
 ./gradlew assembleDebug --no-daemon       # 调试包
 VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
-~/Android/Sdk/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
-~/Android/Sdk/build-tools/36.0.0/apksigner verify app/build/outputs/apk/release/app-release.apk
+$ANDROID_HOME/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify app/build/outputs/apk/release/app-release.apk
 ./gradlew --stop                           # 收尾清 daemon（机器内存小）
 ```
 
