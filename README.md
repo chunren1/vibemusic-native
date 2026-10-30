@@ -1,7 +1,7 @@
 # VibeMusic Native（AI 版原生 App）
 
 原生 Android 客户端，后端 `https://vibe.cyk666.top`（访客直进，登录接自家账号）。
-包名 `com.cyk666.vibemusic`，展示名 `VibeMusic`。详细计划与验收门见 `PLAN.md`。
+包名 `com.cyk666.vibemusic`，展示名 `VibeMusic`。
 
 当前版本：`2.0.20-ai`（versionCode 98，正式通道）；上一个稳定版 `2.0.19-ai`。
 发版走 CI 打 tag 直发 GitHub Release（LanShare 传包已退役）；CI 发版前会先跑 `testDebugUnitTest` 作为发布门。
@@ -23,14 +23,14 @@ VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
 ./gradlew --stop                           # 收尾清 daemon（机器内存小）
 ```
 
-交付三件套（PLAN §5 第 6 条）：单测全绿 + 构建 + aapt/apksigner 校验，缺一不传包。
+交付三件套：单测全绿 + 构建 + aapt/apksigner 校验，缺一不传包。
 传包：CI 打 tag 直发 GitHub Release（stable/beta 双通道），包在 Release 取，不再走 LanShare。
 
 ## 签名
 
-keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`，RSA 2048，09-13 已轮换新 key）。
-密码只存 `~/.dsh/.credentials.yaml` 变量 `VIBEMUSIC_KEYSTORE_PASSWORD`，禁进仓库、禁明文记别处。
-构建读环境变量，缺失则 fail-fast 报错。旧 key 文件保留为 `.LOCKED` 纪念，不再用于签名。
+keystore：本机保存的发布密钥库（alias `vibemusic`，RSA 2048，密钥已于 2026-09-13 轮换）。
+密码经 CI Secret `KEYSTORE_PASSWORD` 注入，本地构建读同名环境变量；密码不入仓库、不记明文。
+构建读环境变量，缺失则 fail-fast 报错。旧密钥文件本地留档，不再用于签名。
 
 ## 架构（data → business → presentation，禁跨层）
 
@@ -50,7 +50,7 @@ keystore：`~/.dsh/keystores/vibemusic-native-release.jks`（alias `vibemusic`�
 - 搜索 UX：联想词点选即收起键盘；点歌只把该单曲塞进当前队列即播，不整单替换。
 - 双更新通道：稳定版/测试版开关，prerelease 走 beta 通道。
 
-### 近期能力（一句话索引，细节见 PLAN.md 与 git log）
+### 近期能力（一句话索引，细节见 git log 与 release notes）
 
 - 封面兜底 `coverModelOrDefault` + CI 门禁，裸调封面源是红线。
 - 播放进度 7 天过期（`POSITION_EXPIRE_MS`），过期丢进度不丢队列。
