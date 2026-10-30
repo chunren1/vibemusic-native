@@ -37,3 +37,7 @@ Thumbs.db
 .codex/
 .cursor/
 .opencode/
+
+# 内部文档：只在本地保留，不入公开仓
+PLAN.md
+docs/CODE-REVIEW-*.md
