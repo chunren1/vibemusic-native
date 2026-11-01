@@ -1658,7 +1658,7 @@ class MainActivity : ComponentActivity() {
                 lastReportedKey = null
             }
 
-            // 统一 API 动作的三段 catch 梯子（原本 19 处各抄一遍，见 ApiActionRunner）。
+            // 统一 API 动作的三段 catch 梯子（原本 17 处各抄一遍，见 ApiActionRunner）。
             // 不加 remember：它只持有两个回调、无自身状态，重建成本为零；用 remember
             // 反而会把首次组合的 showError / handleAuthLost 闭包固定住。
             val api = ApiActionRunner(

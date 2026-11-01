@@ -7,7 +7,7 @@ import kotlinx.coroutines.launch
 /**
  * C5 第 2 步：把「调后端 → 提示 → 重载」动作的三段 catch 梯子收成一处。
  *
- * 此前 `MainActivity` 里 19 处动作各自抄了一遍：
+ * 此前 `MainActivity` 里 17 处动作各自抄了一遍：
  * ```
  * scope.launch {
  *     try { ...body... }

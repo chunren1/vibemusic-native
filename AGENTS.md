@@ -25,7 +25,7 @@ apksigner verify app/build/outputs/apk/release/app-release.apk    # 校签名
 ```
 
 ## 目录与分层
-- 代码平铺于 `app/src/main/java/com/cyk666/vibemusic/`（60 个 `.kt`）；测试在 `app/src/test/java/.../`（91 个）
+- 代码平铺于 `app/src/main/java/com/cyk666/vibemusic/`（62 个 `.kt`）；测试在 `app/src/test/java/.../`（93 个）
 - 分层 `data → business → presentation`，**禁止跨层**（UI 不得直连网络/存储）
 - 单一属主：`PlaybackService.kt` = 唯一 ExoPlayer 持有者；`MainActivity.kt` = 单 Activity 4 屏；`VibeApi.kt` = 后端契约
 - 命名：文件/类 `PascalCase`，函数/变量 `camelCase`，常量 `UPPER_SNAKE`；`*Screen.kt`=界面，`*Store.kt`=DataStore，`*Ui`/`UiAtoms.kt`=设计系统，主题在 `UiTheme.kt`
