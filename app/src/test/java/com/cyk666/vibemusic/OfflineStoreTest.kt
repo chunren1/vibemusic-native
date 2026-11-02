@@ -26,6 +26,29 @@ class OfflineStoreTest {
     private fun context(): Context = RuntimeEnvironment.getApplication()
 
     @Test
+    fun orphanScanReclaimsUnreferencedAudioAndTmp() {
+        val dir = java.nio.file.Files.createTempDirectory("offline-orphan").toFile()
+        try {
+            // 这条 meta 由 [demo] 推导：音频名 = netease_1895330088.mp3
+            java.io.File(dir, "netease_1895330088.meta")
+                .writeText(OfflineMeta.of(demo, 100L).toJson())
+            val keptAudio = java.io.File(dir, "netease_1895330088.mp3").apply { writeBytes(ByteArray(8)) }
+            val orphanAudio = java.io.File(dir, "old_rule_1895330088.mp3").apply { writeBytes(ByteArray(8)) }
+            val staleTmp = java.io.File(dir, "qq_7.mp3.tmp").apply { writeBytes(ByteArray(8)) }
+            val now = 10_000_000L
+            listOf(keptAudio, orphanAudio, staleTmp)
+                .forEach { assertTrue(it.setLastModified(now - ORPHAN_GRACE_MS - 1)) }
+
+            val found = orphanDownloads(dir, now).map { it.name }.toSet()
+            assertEquals(setOf("old_rule_1895330088.mp3", "qq_7.mp3.tmp"), found)
+            // 被 meta 引用的那份音频必须留着
+            assertTrue(keptAudio.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun threshold_twoDoesNotAutoSave() {
         assertFalse(shouldAutoSave(0))
         assertFalse(shouldAutoSave(1))
@@ -38,9 +61,11 @@ class OfflineStoreTest {
     }
 
     @Test
-    fun threshold_aboveThreeDoesNotRetrigger() {
-        assertFalse(shouldAutoSave(4))
-        assertFalse(shouldAutoSave(100))
+    fun threshold_aboveThreeStillRetries() {
+        // 回归：原来 `count == 3` 只有一个窗口 —— 第 3 次播放时断网或内容校验失败，
+        // 计数就变成 4，此后再也不会尝试。改成 >= 后每次播放都会重试（isDownloaded 挡重复）。
+        assertTrue(shouldAutoSave(4))
+        assertTrue(shouldAutoSave(100))
     }
 
     @Test

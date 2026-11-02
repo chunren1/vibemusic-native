@@ -2917,7 +2917,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (removed > 0) {
                     downloadedTick += 1
-                    showError("清理${removed}个损坏的下载")
+                    showError("清理${removed}个无效下载文件")
                 }
             }
 

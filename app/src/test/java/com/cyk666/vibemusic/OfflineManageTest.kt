@@ -1,5 +1,7 @@
 package com.cyk666.vibemusic
 
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -117,10 +119,41 @@ class OfflineManageTest {
     }
 
     @Test
-    fun dedupeTieKeepsFirstSeen() {
+    fun dedupeTieIsDeterministic() {
+        // downloadedAt 并列（legacy meta 常为 0）时用文件名做次级键：与传进来的顺序无关，
+        // 否则「留哪条」取决于 listFiles 的目录哈希序，展示字段可能留到旧的那条。
         val a = entry("7", 500L, fileName = "a_7.meta")
         val b = entry("7", 500L, fileName = "b_7.meta")
         assertEquals(listOf("a_7.meta"), pickNewestDownloads(listOf(a, b)).map { it.metaFileName })
+        assertEquals(listOf("a_7.meta"), pickNewestDownloads(listOf(b, a)).map { it.metaFileName })
+    }
+
+    // ---- 孤儿对账（无 meta 的 mp3 / 被杀进程留下的 tmp） ----
+
+    @Test
+    fun orphanScanSparesFreshFiles() {
+        // 音频已 rename、meta 还没写的那一瞬间：文件很新，不能被当垃圾删掉
+        val dir = Files.createTempDirectory("offline-fresh").toFile()
+        try {
+            val fresh = File(dir, "netease_9.mp3").apply { writeBytes(ByteArray(8)) }
+            assertTrue(fresh.setLastModified(9_999_999L))
+            assertTrue(orphanDownloads(dir, 10_000_000L).isEmpty())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun atomicWriteLeavesNoTmpBehind() {
+        val dir = Files.createTempDirectory("offline-meta-write").toFile()
+        try {
+            val target = File(dir, "netease_1.meta")
+            writeTextAtomically(target, "{\"sourceId\":\"1\"}")
+            assertEquals("{\"sourceId\":\"1\"}", target.readText())
+            assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test

@@ -15,7 +15,14 @@ fun playKey(platform: String, sourceId: String): String =
 
 fun playKey(song: Song): String = playKey(song.platform, song.sourceId)
 
-fun shouldAutoSave(count: Int): Boolean = count == HIGH_FREQ_THRESHOLD
+/**
+ * 常听到第 3 次开始自动离线。
+ *
+ * `count == THRESHOLD` 只有一个窗口：第 3 次播放时断网、或内容校验失败（`saveBytes`
+ * 返回 false）后计数已经变成 4，此后再播多少次都不会再试（用户看到的是「常听却
+ * 一直不下载」）。改成 `>=` 后每次播放都会重试，`isDownloaded` 仍然挡住重复下载。
+ */
+fun shouldAutoSave(count: Int): Boolean = count >= HIGH_FREQ_THRESHOLD
 
 fun parsePlayCounts(json: String): Map<String, Int> {
     if (json.isBlank()) return emptyMap()
@@ -226,7 +233,10 @@ object OfflineStore {
      * Startup audit: re-validate every persisted download against the same
      * bar as [isAudioFileIntact] (exists + size floor + audio head) and
      * delete invalid file + meta (legacy poison from the pre-1.0.9 era still
-     * sits on devices). Returns the deleted count. Never touches MediaCache.
+     * sits on devices). Also reclaims orphans: `*.tmp` left by a killed
+     * download, and `.mp3` no `.meta` points at — neither is reachable from
+     * any screen, so without this they are undeletable bytes on disk.
+     * Returns the deleted file count. Never touches MediaCache.
      */
     fun auditInvalid(context: Context): Int {
         var removed = 0
@@ -243,6 +253,13 @@ object OfflineStore {
                     } catch (_: Exception) {
                         SilentFail.note("OfflineStore.auditInvalid:259")
                     }
+                }
+            }
+            for (f in orphanDownloads(dir(context), System.currentTimeMillis())) {
+                try {
+                    if (f.delete()) removed++
+                } catch (_: Exception) {
+                    SilentFail.note("OfflineStore.auditInvalid:orphan")
                 }
             }
         } catch (_: Exception) {
@@ -310,8 +327,10 @@ object OfflineStore {
                 return false
             }
             renamed = true
-            // Meta goes last, only once audio is verified on disk.
-            metaFile(context, song).writeText(OfflineMeta.of(song, nowMs).toJson())
+            // Meta goes last, only once audio is verified on disk. 原子写：直接
+            // writeText 是就地截断，进程在写一半时被杀会留下半截 JSON → 记录消失、
+            // 音频变孤儿。
+            writeTextAtomically(metaFile(context, song), OfflineMeta.of(song, nowMs).toJson())
             true
         } catch (_: Exception) {
             try {
@@ -341,18 +360,12 @@ object OfflineStore {
                 durationSec = meta.durationSec,
                 platform = meta.platform
             )
-            var ok = true
-            try {
-                if (audioFile(context, probe).exists() && !audioFile(context, probe).delete()) ok = false
-            } catch (_: Exception) {
-                ok = false
-            }
-            try {
-                if (metaFile(context, probe).exists() && !metaFile(context, probe).delete()) ok = false
-            } catch (_: Exception) {
-                ok = false
-            }
-            ok
+            // 音频删不掉就**保留 meta**并报失败：先删 meta 会让列表里这一行消失，
+            // 而 mp3 变成任何界面都删不掉的孤儿（只有卸载 App 能回收）。
+            val audio = audioFile(context, probe)
+            if (audio.exists() && !audio.delete()) return false
+            val metaTarget = metaFile(context, probe)
+            !metaTarget.exists() || metaTarget.delete()
         } catch (_: Exception) {
             false
         }
