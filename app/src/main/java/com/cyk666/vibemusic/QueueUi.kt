@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -198,10 +197,7 @@ fun QueueScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            TextButton(onClick = onBack) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, size = 20.dp)
-                Text("返回播放")
-            }
+            BackNavButton(label = "返回播放", onClick = onBack)
             Text(
                 text = "播放队列 (${rows.size})",
                 style = MaterialTheme.typography.titleMedium,

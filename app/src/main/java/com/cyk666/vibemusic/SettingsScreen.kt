@@ -411,10 +411,7 @@ fun SettingsScreen(
             .padding(16.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                Text("我的")
-            }
+            BackNavButton(label = "我的", onClick = onBack)
             Text(
                 text = "设置",
                 style = MaterialTheme.typography.titleMedium,

@@ -154,10 +154,7 @@ fun HistoryScreen(
     var sheetFor by remember { mutableStateOf<VibeApi.HistoryItem?>(null) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                Text("我的")
-            }
+            BackNavButton(label = "我的", onClick = onBack)
             Text(
                 text = "最近播放",
                 style = MaterialTheme.typography.titleMedium,

@@ -99,10 +99,7 @@ fun OfflineScreen(
             )
         } else {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) {
-                    AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, size = 20.dp)
-                    Text("我的")
-                }
+                BackNavButton(label = "我的", onClick = onBack)
                 Text(
                     text = "本地下载 (${items.size})",
                     style = MaterialTheme.typography.titleMedium,

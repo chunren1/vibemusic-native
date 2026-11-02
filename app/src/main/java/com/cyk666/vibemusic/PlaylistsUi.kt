@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -16,7 +15,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,13 +84,10 @@ fun PlaylistsScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(
-                onClick = { if (selecting) exitSelection() else onBack() },
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, size = 20.dp)
-                Text("我的")
-            }
+            BackNavButton(
+                label = "我的",
+                onClick = { if (selecting) exitSelection() else onBack() }
+            )
             Text(
                 text = "我的歌单 (${playlists.size})",
                 style = MaterialTheme.typography.titleMedium,

@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -73,7 +72,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -150,10 +148,7 @@ fun FavoritesScreen(
     var sheetFor by remember { mutableStateOf<Song?>(null) }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) {
-                AppIcon(AppIconKind.CHEVRON_LEFT, GrayMuted, size = 20.dp)
-                Text("我的")
-            }
+            BackNavButton(label = "我的", onClick = onBack)
             Text(
                 text = "我的收藏",
                 style = MaterialTheme.typography.titleMedium,
