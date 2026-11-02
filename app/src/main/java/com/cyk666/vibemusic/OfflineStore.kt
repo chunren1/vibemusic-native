@@ -217,25 +217,8 @@ object OfflineStore {
         }
     }
 
-    fun listDownloads(context: Context): List<OfflineMeta> {
-        return try {
-            val d = dir(context)
-            if (!d.isDirectory) return emptyList()
-            d.listFiles { f -> f.isFile && f.name.endsWith(".meta") }
-                .orEmpty()
-                .mapNotNull {
-                    try {
-                        OfflineMeta.fromJson(it.readText())
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                .filter { it.sourceId.isNotBlank() }
-                .sortedByDescending { it.downloadedAt }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    /** 扫盘 + 按 playKey 去重 + 清理重复 `.meta`（见 OfflineDownloads.kt）；这里只绑路径。 */
+    fun listDownloads(context: Context): List<OfflineMeta> = readDownloads(dir(context))
 
     fun count(context: Context): Int = listDownloads(context).size
 

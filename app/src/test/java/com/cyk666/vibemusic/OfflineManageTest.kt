@@ -7,16 +7,25 @@ import org.junit.Test
 
 class OfflineManageTest {
 
-    private fun meta(id: String, at: Long, artist: String = "歌手") = OfflineMeta(
-        sourceId = id,
-        name = "n$id",
-        artist = artist,
-        album = "",
-        coverUrl = "",
-        durationSec = 100,
-        platform = "netease",
-        downloadedAt = at
-    )
+    private fun meta(id: String, at: Long, artist: String = "歌手", platform: String = "netease") =
+        OfflineMeta(
+            sourceId = id,
+            name = "n$id",
+            artist = artist,
+            album = "",
+            coverUrl = "",
+            durationSec = 100,
+            platform = platform,
+            downloadedAt = at
+        )
+
+    /** 磁盘记录：meta 内容 + 它自己的 `.meta` 文件名（内容与文件名可以不一致）。 */
+    private fun entry(
+        id: String,
+        at: Long,
+        platform: String = "netease",
+        fileName: String = "${platform}_$id.meta"
+    ) = OfflineDownloadEntry(meta(id, at, platform = platform), fileName)
 
     // ---- 大小格式化 ----
 
@@ -43,25 +52,84 @@ class OfflineManageTest {
         assertEquals("下载 0.0 MB · 共 0 首", offlineSummary(0L, 0))
     }
 
-    // ---- 副标题（大小 · 日期 · 歌手） ----
+    // ---- 副标题（平台 · 大小 · 日期 · 歌手） ----
 
     @Test
-    fun subtitleJoinsSizeDateAndArtist() {
+    fun subtitleJoinsPlatformSizeDateAndArtist() {
         // 用 0 的时间戳避开时区依赖：日期段为空时直接省略
-        assertEquals("12.3 MB · 周杰伦", offlineRowSubtitle(12_897_485L, 0L, "周杰伦"))
+        assertEquals(
+            "网易云 · 12.3 MB · 周杰伦",
+            offlineRowSubtitle("netease", 12_897_485L, 0L, "周杰伦")
+        )
     }
 
     @Test
     fun subtitleOmitsMissingSegments() {
-        assertEquals("", offlineRowSubtitle(0L, 0L, ""))
-        assertEquals("林俊杰", offlineRowSubtitle(0L, 0L, "  林俊杰 "))
+        // 平台段永远在（空值按网易云），其余缺失段省略
+        assertEquals("网易云", offlineRowSubtitle("netease", 0L, 0L, ""))
+        assertEquals("QQ · 林俊杰", offlineRowSubtitle("qq", 0L, 0L, "  林俊杰 "))
     }
 
     @Test
     fun subtitleIncludesDateWhenPresent() {
-        val text = offlineRowSubtitle(0L, 1_761_772_800_000L, "陈奕迅")
-        assertTrue(text.startsWith("20"))
+        val text = offlineRowSubtitle("netease", 0L, 1_761_772_800_000L, "陈奕迅")
+        assertTrue(text.startsWith("网易云 · 20"))
         assertTrue(text.endsWith(" · 陈奕迅"))
+    }
+
+    @Test
+    fun platformLabelCoversAllFiveSources() {
+        assertEquals("网易云", offlinePlatformLabel("netease"))
+        assertEquals("QQ", offlinePlatformLabel("qq"))
+        assertEquals("咪咕", offlinePlatformLabel("migu"))
+        assertEquals("酷狗", offlinePlatformLabel("kugou"))
+        assertEquals("B站", offlinePlatformLabel("bilibili"))
+    }
+
+    @Test
+    fun platformLabelKeepsUnknownAndDefaultsBlank() {
+        // 未知平台原样显示（宁可露出 "joox" 也不吞掉来源）
+        assertEquals("joox", offlinePlatformLabel("joox"))
+        assertEquals("网易云", offlinePlatformLabel(""))
+        assertEquals("网易云", offlinePlatformLabel("   "))
+    }
+
+    // ---- 磁盘去重（同 key 只留最新；同名不同平台都留） ----
+
+    @Test
+    fun dedupeKeepsNewestMetaPerKey() {
+        val old = entry("42", 100L, fileName = "old_rule_42.meta")
+        val new = entry("42", 300L, fileName = "netease_42.meta")
+        val picked = pickNewestDownloads(listOf(old, new))
+        assertEquals(listOf("netease_42.meta"), picked.map { it.metaFileName })
+        // 被淘汰的那条 meta 要删掉，否则下次扫盘又「复活」成重复记录
+        assertEquals(listOf("old_rule_42.meta"), duplicateMetaFileNames(listOf(old, new)))
+    }
+
+    @Test
+    fun dedupeKeepsSameSongFromDifferentPlatforms() {
+        val netease = entry("42", 100L, platform = "netease")
+        val qq = entry("42", 300L, platform = "qq")
+        val entries = listOf(netease, qq)
+        // playKey 不同 → 两条都留（这正是「同名但来源不同」，靠副标题的标签区分）
+        assertEquals(2, pickNewestDownloads(entries).size)
+        assertTrue(duplicateMetaFileNames(entries).isEmpty())
+    }
+
+    @Test
+    fun dedupeTieKeepsFirstSeen() {
+        val a = entry("7", 500L, fileName = "a_7.meta")
+        val b = entry("7", 500L, fileName = "b_7.meta")
+        assertEquals(listOf("a_7.meta"), pickNewestDownloads(listOf(a, b)).map { it.metaFileName })
+    }
+
+    @Test
+    fun dedupeDegenerateInputs() {
+        assertTrue(pickNewestDownloads(emptyList()).isEmpty())
+        assertTrue(duplicateMetaFileNames(emptyList()).isEmpty())
+        val single = listOf(entry("1", 1L))
+        assertEquals(1, pickNewestDownloads(single).size)
+        assertTrue(duplicateMetaFileNames(single).isEmpty())
     }
 
     // ---- 汇总 ----
@@ -159,6 +227,15 @@ class OfflineManageTest {
         val picked = selectedItems(items, setOf("netease:c", "netease:a"))
         assertEquals(listOf("a", "c"), picked.map { it.sourceId })
         assertTrue(selectedItems(items, emptySet()).isEmpty())
+    }
+
+    @Test
+    fun zeroSelectionKeepsManageModeUntilListIsEmpty() {
+        // 回归（用户反馈「最少都要选择一首，不然就退出多选」）：管理态改成显式状态后，
+        // 选中集合清空**不**再触发退出；只有列表被删空（rowCount == 0）才退出。
+        assertFalse(shouldExitSelection(selecting = true, rowCount = 3))
+        assertTrue(shouldExitSelection(selecting = true, rowCount = 0))
+        assertFalse(shouldExitSelection(selecting = false, rowCount = 0))
     }
 
     @Test

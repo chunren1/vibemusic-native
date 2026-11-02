@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,10 @@ fun OfflineScreen(
     onGoSearch: () -> Unit = {}
 ) {
     var sort by remember { mutableStateOf(OfflineSort.RECENT) }
+    // 管理态是**显式**状态，不再由「选中集合非空」派生：派生写法下点掉最后一个
+    // 勾选就等于退出多选（用户反馈的「只能选一首」正是这个），而且点到 key 重复
+    // 的第二行会互相抵消。
+    var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var sheetFor by remember { mutableStateOf<OfflineMeta?>(null) }
     var confirmDelete by remember { mutableStateOf<OfflineMeta?>(null) }
@@ -68,12 +73,19 @@ fun OfflineScreen(
     // 选中集合可能残留上一轮已删除的 key：以「仍然存在的选中项」为准，
     // 否则工具栏会写「已选 3 项」却只删得掉 1 首。
     val chosen = remember(items, selected) { selectedItems(items, selected) }
-    val selecting = chosen.isNotEmpty()
     val allSelected = isAllSelected(selected, items)
     val rows = remember(items, sizes, sort) { buildOfflineRows(items, sizes, sort) }
+    // 退出管理态只有三条路：工具栏「取消」、系统返回键、列表被删空。
+    val exitSelection = {
+        selecting = false
+        selected = emptySet()
+    }
+    LaunchedEffect(items.size) {
+        if (shouldExitSelection(selecting, items.size)) exitSelection()
+    }
 
-    // 系统返回键：多选态先退出多选，普通态**完全不拦截**（交还系统默认返回）。
-    BackHandler(enabled = selecting) { selected = emptySet() }
+    // 系统返回键：管理态先退出管理；普通态**完全不拦截**（交还系统默认返回）。
+    BackHandler(enabled = selecting) { exitSelection() }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         if (selecting) {
@@ -81,7 +93,7 @@ fun OfflineScreen(
                 count = chosen.size,
                 allSelected = allSelected,
                 actionLabel = "删除",
-                onCancel = { selected = emptySet() },
+                onCancel = exitSelection,
                 onToggleAll = { selected = if (allSelected) emptySet() else offlineAllKeys(items) },
                 onAction = { confirmBatch = true }
             )
@@ -129,6 +141,7 @@ fun OfflineScreen(
                             model = buildSongRowModel(
                                 row.meta.toSong(),
                                 subtitleOverride = offlineRowSubtitle(
+                                    row.meta.platform,
                                     row.sizeBytes,
                                     row.meta.downloadedAt,
                                     row.meta.artist
@@ -149,10 +162,11 @@ fun OfflineScreen(
                                 }
                             },
                             onLongClick = {
-                                selected = if (selecting) {
-                                    toggleSelected(selected, key)
+                                if (selecting) {
+                                    selected = toggleSelected(selected, key)
                                 } else {
-                                    selected + key
+                                    selecting = true
+                                    selected = selected + key
                                 }
                             },
                             onOverflow = { sheetFor = row.meta }
@@ -207,7 +221,7 @@ fun OfflineScreen(
             confirmText = "删除",
             onConfirm = {
                 confirmBatch = false
-                selected = emptySet()
+                exitSelection()
                 onDeleteMany(targets)
             },
             onDismiss = { confirmBatch = false }
@@ -220,7 +234,7 @@ fun OfflineScreen(
             confirmText = "全部删除",
             onConfirm = {
                 confirmClearAll = false
-                selected = emptySet()
+                exitSelection()
                 onDeleteMany(items)
             },
             onDismiss = { confirmClearAll = false }
@@ -263,11 +277,29 @@ fun formatFileSize(bytes: Long): String {
     return "%.1f MB".format(kb / 1024.0)
 }
 
-/** 纯函数：副标题「大小 · 日期 · 歌手」，缺失的段省略；长歌手名交给单行 Ellipsis。 */
-fun offlineRowSubtitle(sizeBytes: Long, downloadedAt: Long, artist: String): String =
-    listOf(formatFileSize(sizeBytes), formatDownloadDate(downloadedAt), artist.trim())
-        .filter { it.isNotEmpty() }
-        .joinToString(" · ")
+/**
+ * 纯函数：平台短标签，用在下载行的副标题上 —— 同一首歌从两个平台各下一份时
+ * 行看起来完全一样（用户反馈的「为什么有重名」），标出来源才能分辨。
+ * 未知平台原样返回（宁可显示 "joox" 也不吞掉），空值按网易云（与
+ * [playKey] / [OfflineMeta.fromJson] 的默认口径一致）。
+ */
+fun offlinePlatformLabel(platform: String): String {
+    val key = platform.trim().ifBlank { "netease" }
+    return SEARCH_PLATFORMS.firstOrNull { it.first == key }?.second ?: key
+}
+
+/** 纯函数：副标题「平台 · 大小 · 日期 · 歌手」，缺失的段省略；长歌手名交给单行 Ellipsis。 */
+fun offlineRowSubtitle(
+    platform: String,
+    sizeBytes: Long,
+    downloadedAt: Long,
+    artist: String
+): String = listOf(
+    offlinePlatformLabel(platform),
+    formatFileSize(sizeBytes),
+    formatDownloadDate(downloadedAt),
+    artist.trim()
+).filter { it.isNotEmpty() }.joinToString(" · ")
 
 /** 纯函数：选中项的落盘总字节（缺失/异常值按 0 算，不抛）。 */
 fun sumOfflineBytes(sizes: Map<String, Long>): Long =
