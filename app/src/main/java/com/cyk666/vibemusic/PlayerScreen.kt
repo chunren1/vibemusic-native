@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -142,12 +143,6 @@ import java.util.concurrent.TimeUnit
  * 竖屏手机（≥600dp）与横屏平板都不会误触发。
  */
 private const val PLAYER_COMPACT_HEIGHT_DP = 480
-
-/**
- * UI-5：紧凑布局下封面的固定边长（正方形）。横屏时不能再用 weight 吃剩余空间 ——
- * verticalScroll 会给子项无限高约束，加权子项会被算成 0 高（封面直接消失）。
- */
-private val PLAYER_COMPACT_COVER_DP = 180.dp
 
 @Composable
 fun HeroControls(
@@ -381,11 +376,8 @@ fun PlayerScreen(
     // line, the sweep, and the cover preview — one shift, everywhere.
     val offsetMs = clampLyricOffset(lyricOffsetMs)
     val effPositionMs = applyLyricOffset(positionMs, offsetMs)
-    // UI-3：positionMs 是普通参数（每个 tick 都是新值），derivedStateOf 的计算式
-    // 只有读到 State 才会被失效重算，所以先把它装进 State。这样包在
-    // derivedStateOf 里的读取只有「effPositionState.value + lines」；计算结果
-    // （当前行下标）与上次相同时不会向下游通知，因此歌词行的"当前行高亮"只在
-    // 跨行那一刻重组，而不是每个 tick 都重组一遍。
+    // UI-3：positionMs 每个 tick 都是新值，先装进 State 再进 derivedStateOf —— 这样
+    // 读数只有 effPositionState + lines，当前行下标不变时不会向下游通知（不逐 tick 重组）。
     val effPositionState = rememberUpdatedState(effPositionMs)
     val currentLine by remember(lines) {
         derivedStateOf {
@@ -393,11 +385,11 @@ fun PlayerScreen(
         }
     }
     val lyricsListState = rememberLazyListState()
-    // UI-4：不再拿 song?.sourceId 当 key —— 自动切歌（一首播完进下一首）不该把
-    // 正在看歌词的用户弹回封面。至于"重新进入播放页回封面"，由组合生命周期保证：
-    // MainActivity 的 Crossfade(targetState = screen) 在离开 Screen.Player 后会
-    // 销毁本组合，remember 自然重置成 COVER，无需挂在歌曲变化上。
+    // UI-4：不拿 song?.sourceId 当 key —— 自动切歌不该把看歌词的用户弹回封面；
+    // 「重新进入播放页回封面」由组合生命周期保证（离开 Screen.Player 即销毁本组合）。
     var view by remember { mutableStateOf(PlayerView.COVER) }
+    // 系统返回键与左上「‹」同一语义：歌词页先回封面；封面页不拦截（那就是「关播放器」）。
+    BackHandler(enabled = view == PlayerView.LYRICS) { view = PlayerView.COVER }
     var showHints by remember { mutableStateOf(false) }
     var lastGestureMs by remember { mutableStateOf(-1L) }
     val density = LocalDensity.current
@@ -421,11 +413,8 @@ fun PlayerScreen(
             }
         }
     }
-    // Vinyl rotation state lives inside VinylCover (PlayerFx.kt): the angle
-    // is read only there, so the rest of PlayerScreen does not recompose
-    // per frame. Scale/corner stay here — they animate on toggle/play only.
-    // Track B4: cover scale/corner animate on view toggle + play state
-    // (GPU layer props; the toggle itself crossfades below).
+    // 旋转角度只在 VinylCover（PlayerFx.kt）里读，避免逐帧重组；scale/corner 只随
+    // 播放状态与切页变化，留在这里（GPU 图层属性，切页本身由 Crossfade 承担）。
     val coverScale by animateFloatAsState(
         targetValue = if (view == PlayerView.COVER && isPlaying) 1f else 0.92f,
         animationSpec = tween(300),
@@ -544,6 +533,10 @@ fun PlayerScreen(
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 歌词页的「返回」= 回封面，不是关播放器（关播放器是封面页左上角的 X）。
+                    IconButton(
+                        onClick = { view = PlayerView.COVER }, modifier = Modifier.size(48.dp)
+                    ) { AppIcon(AppIconKind.CHEVRON_LEFT, InkOnDark, contentDescription = "返回封面") }
                     CoverImage(
                         coverUrl = song.coverUrl,
                         size = 48.dp,
@@ -570,12 +563,6 @@ fun PlayerScreen(
                             Spacer(Modifier.height(2.dp))
                             BiliBadge()
                         }
-                    }
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        AppIcon(AppIconKind.CLOSE, InkOnDark)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -808,57 +795,26 @@ fun PlayerScreen(
                         }
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        // 竖屏：weight 吃剩余高度（原行为）；横屏：固定正方形，因为滚动
-                        // 容器里没有"剩余高度"可分配（见上方 compactHeight 注释）。
-                        // 用 size 而不是 height：VinylCover 是"按宽度取边长"的
-                        // （fillMaxWidth(fraction) + aspectRatio(1f)），只限高会让
-                        // 0.62×宽度 超过可用高度，aspectRatio 退化成非正方形。
-                        .then(
-                            if (compactHeight) Modifier.size(PLAYER_COMPACT_COVER_DP)
-                            else Modifier.weight(1f).fillMaxWidth()
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .pointerInput(song?.sourceId) {
-                                var tx = 0f
-                                var ty = 0f
-                                detectDragGestures(
-                                    onDragStart = { tx = 0f; ty = 0f },
-                                    onDrag = { change, amount ->
-                                        change.consume()
-                                        tx += amount.x
-                                        ty += amount.y
-                                    },
-                                    onDragEnd = {
-                                        val dxDp = with(density) { tx.toDp().value }
-                                        val dyDp = with(density) { ty.toDp().value }
-                                        fireGesture(
-                                            resolvePlayerGesture(
-                                                dxDp,
-                                                dyDp,
-                                                fromCoverZone = true
-                                            )
-                                        )
-                                    }
-                                )
-                            }
-                            .clickable { view = togglePlayerView(view) }
-                    ) {
-                        VinylCover(
-                            coverUrl = coverUrl,
-                            isPlaying = isPlaying,
-                            spinKey = song?.sourceId,
-                            scale = coverScale,
-                            cornerDp = coverCornerDp,
-                            // 紧凑布局下 Box 已是定宽正方形，fraction=1 才能铺满且不畸变。
-                            fraction = if (compactHeight) 1f else 0.62f
+                // 封面舞台（几何修正见 PlayerCoverStage.kt）：竖屏吃剩余高度，横屏定高舞台。
+                PlayerCoverStage(
+                    coverUrl = coverUrl,
+                    isPlaying = isPlaying,
+                    spinKey = song?.sourceId,
+                    scale = coverScale,
+                    cornerDp = coverCornerDp,
+                    compact = compactHeight,
+                    onDrag = { dxDp, dyDp ->
+                        fireGesture(
+                            resolvePlayerGesture(dxDp, dyDp, fromCoverZone = true)
                         )
+                    },
+                    onClick = { view = togglePlayerView(view) },
+                    modifier = if (compactHeight) {
+                        Modifier.fillMaxWidth().height(PLAYER_COMPACT_COVER_STAGE_DP)
+                    } else {
+                        Modifier.weight(1f).fillMaxWidth()
                     }
-                }
+                )
                 // Track B2: spectrum below the cover (hidden when no session).
                 SpectrumVisualizer(
                     audioSessionId = audioSessionId,
