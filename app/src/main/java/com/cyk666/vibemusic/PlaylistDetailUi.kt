@@ -1,24 +1,17 @@
 package com.cyk666.vibemusic
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,12 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 
 /**
  * Standalone QQ-style playlist detail page (Obsidian Bloom dark).
@@ -42,6 +31,10 @@ import coil.compose.AsyncImage
  * 2-line description) → 分享 action → big 播放全部 row → song rows with
  * ⋯ menus (收藏/加入歌单/下载/从歌单移除). Skeleton + empty + diagnosable
  * error states mirror the Mine list.
+ *
+ * 多选（一键管理）：长按任意行进入 → 顶部换成 [SelectionToolbar]（取消/已选 N 项/
+ * 全选/移除），行左侧出现勾选圈、右侧 ⋯ 收起，点击行 = 勾选。退出三条路径：
+ * 工具栏取消、左上（普通态的返回键 / 多选态的取消）、系统返回键（[BackHandler]）。
  */
 @Composable
 fun PlaylistDetailScreen(
@@ -66,6 +59,7 @@ fun PlaylistDetailScreen(
     onAddToPlaylist: (Song) -> Unit = {},
     onDownload: (Song) -> Unit = {},
     onRemoveSong: (Song) -> Unit = {},
+    onRemoveSongs: (List<Song>) -> Unit = {},
     onShare: (String) -> Unit = {},
     onRenamePlaylist: (Playlist, String) -> Unit = { _, _ -> },
     onUpdateDescription: (Playlist, String) -> Unit = { _, _ -> },
@@ -86,10 +80,22 @@ fun PlaylistDetailScreen(
     // already-loaded songs (no network). Reset when switching playlists.
     var filterOpen by remember { mutableStateOf(false) }
     var filterQuery by remember(playlist.id) { mutableStateOf("") }
+    // 多选只认 sourceId：playlist_song 的唯一键是 (playlist_id, source_id)，
+    // 后端 remove-song 也只认 sourceId。
+    var checkedIds by remember(playlist.id) { mutableStateOf(emptySet<String>()) }
+    var confirmBatchRemove by remember { mutableStateOf(false) }
+    var confirmClearAll by remember { mutableStateOf(false) }
     val filtering = filterOpen && filterQuery.trim().isNotEmpty()
     val visibleSongs = remember(songs, filterOpen, filterQuery) {
         if (filterOpen) filterInPlaylistSongs(songs, filterQuery) else songs
     }
+    // 与当前歌单求交：残留的已删除 key 不会让「已选 N 项」虚高
+    val checkedSongs = remember(songs, checkedIds) { selectedSongs(songs, checkedIds) }
+    val selecting = checkedSongs.isNotEmpty()
+    val songIds = remember(songs) { songs.map { it.sourceId } }
+
+    // 系统返回键：多选态先退出多选；非多选态**不拦截**，交还系统默认返回
+    BackHandler(enabled = selecting) { checkedIds = emptySet() }
 
     val vipCount = remember(songs) { countVipSongs(songs) }
     val count = resolveDetailSongCount(songs, songsLoading, playlist.songCount)
@@ -110,10 +116,28 @@ fun PlaylistDetailScreen(
                 visibleSongs,
                 key = { idx, s -> s.sourceId + s.platform + idx }
             ) { _, song ->
-                SongRow(
+                SelectableSongRow(
                     model = buildSongRowModel(song),
                     meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
-                    onClick = { onPlaySong(songs.indexOf(song).takeIf { it >= 0 } ?: 0) },
+                    checked = song.sourceId in checkedIds,
+                    selecting = selecting,
+                    onClick = {
+                        if (selecting) {
+                            checkedIds = toggleSelected(checkedIds, song.sourceId)
+                        } else {
+                            onPlaySong(songs.indexOf(song).takeIf { it >= 0 } ?: 0)
+                        }
+                    },
+                    onLongClick = {
+                        // 进入多选就收掉筛选：否则「已选 N 项」会混着被筛掉、看不见的行
+                        filterOpen = false
+                        filterQuery = ""
+                        checkedIds = if (selecting) {
+                            toggleSelected(checkedIds, song.sourceId)
+                        } else {
+                            checkedIds + song.sourceId
+                        }
+                    },
                     onOverflow = { songSheetFor = song }
                 )
             }
@@ -129,62 +153,80 @@ fun PlaylistDetailScreen(
     )
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                // 这一页只有图标返回键、没有「返回/我的」文字入口：CHEVRON_LEFT 默认标签是
-                // null（其他页面靠旁边文字兜底，见 defaultAppIconLabel），此处必须显式给标签，
-                // 否则 TalkBack 只会念「按钮」，读屏用户无法离开歌单详情。
-                AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, contentDescription = "返回")
-            }
-            Text(
-                text = playlist.name.ifBlank { "(untitled)" },
-                style = MaterialTheme.typography.titleMedium,
-                color = UiInk,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+        if (selecting) {
+            SelectionToolbar(
+                count = checkedSongs.size,
+                allSelected = allSelected(songIds, checkedIds),
+                actionLabel = "移除",
+                onCancel = { checkedIds = emptySet() },
+                onToggleAll = { checkedIds = toggleAllSelected(songIds, checkedIds) },
+                onAction = { confirmBatchRemove = true }
             )
-            IconButton(
-                onClick = {
-                    filterOpen = !filterOpen
-                    if (!filterOpen) filterQuery = ""
-                },
-                modifier = Modifier.size(48.dp)
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                AppIcon(AppIconKind.SEARCH, UiMuted)
-            }
-            IconButton(onClick = { showOverflow = true }, modifier = Modifier.size(48.dp)) {
-                AppIcon(AppIconKind.MORE, UiMuted)
-            }
-        }
-        if (filterOpen) {
-            OutlinedTextField(
-                value = filterQuery,
-                onValueChange = { filterQuery = it },
-                placeholder = { Text("筛选本歌单歌曲") },
-                singleLine = true,
-                trailingIcon = {
-                    if (filterQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { filterQuery = "" },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            AppIcon(AppIconKind.CLOSE, UiMuted)
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            )
-            if (filtering) {
+                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    // 这一页只有图标返回键、没有「返回/我的」文字入口：CHEVRON_LEFT 默认标签是
+                    // null（其他页面靠旁边文字兜底，见 defaultAppIconLabel），此处必须显式给标签，
+                    // 否则 TalkBack 只会念「按钮」，读屏用户无法离开歌单详情。
+                    AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, contentDescription = "返回")
+                }
                 Text(
-                    text = "${visibleSongs.size}/${songs.size}首",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = UiMuted,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                    text = playlist.name.ifBlank { "(untitled)" },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = UiInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(
+                    onClick = {
+                        // 多选态下打开筛选 = 清空并关闭（选中项与可见行必须同一集合）
+                        if (selecting) {
+                            filterOpen = false
+                            filterQuery = ""
+                        } else {
+                            filterOpen = !filterOpen
+                            if (!filterOpen) filterQuery = ""
+                        }
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    AppIcon(AppIconKind.SEARCH, UiMuted)
+                }
+                IconButton(onClick = { showOverflow = true }, modifier = Modifier.size(48.dp)) {
+                    AppIcon(AppIconKind.MORE, UiMuted)
+                }
+            }
+            if (filterOpen) {
+                OutlinedTextField(
+                    value = filterQuery,
+                    onValueChange = { filterQuery = it },
+                    placeholder = { Text("筛选本歌单歌曲") },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (filterQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { filterQuery = "" },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                AppIcon(AppIconKind.CLOSE, UiMuted)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                if (filtering) {
+                    Text(
+                        text = "${visibleSongs.size}/${songs.size}首",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = UiMuted,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
         when (contentState) {
@@ -251,6 +293,7 @@ fun PlaylistDetailScreen(
                 SongMenuAction("rename", "重命名"),
                 SongMenuAction("desc", "改简介"),
                 SongMenuAction("import", "导入外部歌单"),
+                SongMenuAction("clear", "清空歌单", enabled = songs.isNotEmpty(), danger = true),
                 SongMenuAction("delete", "删除歌单", danger = true)
             ),
             onAction = { id ->
@@ -258,6 +301,7 @@ fun PlaylistDetailScreen(
                     "rename" -> renameOpen = true
                     "desc" -> descOpen = true
                     "import" -> importOpen = true
+                    "clear" -> confirmClearAll = true
                     "delete" -> deleteOpen = true
                 }
                 showOverflow = false
@@ -355,139 +399,53 @@ fun PlaylistDetailScreen(
             onDismiss = { confirmRemove = null }
         )
     }
-}
-
-@Composable
-private fun DetailHeader(
-    playlist: Playlist,
-    count: Int,
-    vipCount: Int,
-    onPlayAll: () -> Unit,
-    onShare: () -> Unit,
-    playEnabled: Boolean,
-    onJoinMine: (() -> Unit)? = null
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AsyncImage(
-                model = coverModelOrDefault(playlist.coverUrl),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.cover_default),
-                fallback = painterResource(R.drawable.cover_default),
-                modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = playlist.name.ifBlank { "(untitled)" },
-                    style = MaterialTheme.typography.titleLarge,
-                    color = UiInk,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.padding(top = 4.dp))
-                if (playlist.creator.isNotBlank()) {
-                    Text(
-                        text = playlist.creator,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = UiMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(
-                    text = "共${count.coerceAtLeast(0)}首",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = UiMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        if (playlist.description.isNotBlank()) {
-            Spacer(Modifier.padding(top = 8.dp))
-            Text(
-                text = playlist.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = UiMuted,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        Spacer(Modifier.padding(top = 12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (onJoinMine != null) {
-                OutlinedButton(
-                    onClick = onJoinMine,
-                    modifier = Modifier.weight(1f).heightIn(min = 44.dp)
-                ) {
-                    Text("加入我的歌单")
-                }
-            }
-            OutlinedButton(
-                onClick = onShare,
-                enabled = playEnabled,
-                modifier = Modifier.weight(1f).heightIn(min = 44.dp)
-            ) {
-                Text("分享")
-            }
-        }
-        Spacer(Modifier.padding(top = 8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(UiSurface)
-                .clickable(enabled = playEnabled) { onPlayAll() }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AppIcon(
-                kind = AppIconKind.PLAY_CIRCLE,
-                tint = if (playEnabled) UiViolet else UiMuted,
-                filled = true,
-                size = 32.dp
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "播放全部",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = UiInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = buildPlayAllLabel(count, vipCount),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = UiMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        Spacer(Modifier.padding(top = 8.dp))
+    if (confirmBatchRemove && checkedSongs.isNotEmpty()) {
+        val targets = checkedSongs
+        DangerConfirmDialog(
+            title = "移除歌曲",
+            text = "将把选中的 ${targets.size} 首从歌单移除，不可恢复。",
+            confirmText = "移除",
+            onConfirm = {
+                confirmBatchRemove = false
+                checkedIds = emptySet()
+                onRemoveSongs(targets)
+            },
+            onDismiss = { confirmBatchRemove = false }
+        )
+    }
+    if (confirmClearAll) {
+        DangerConfirmDialog(
+            title = "清空歌单",
+            text = "将移除「${playlist.name}」里的全部 ${songs.size} 首歌曲，歌单本身保留，不可恢复。",
+            confirmText = "清空",
+            onConfirm = {
+                confirmClearAll = false
+                checkedIds = emptySet()
+                onRemoveSongs(songsForClearAll(songs, visibleSongs))
+            },
+            onDismiss = { confirmClearAll = false }
+        )
     }
 }
 
-@Composable
-private fun DetailHeaderSkeleton() {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        ShimmerBox(modifier = Modifier.size(96.dp), shape = RoundedCornerShape(12.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            ShimmerBox(modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp))
-            Spacer(Modifier.padding(top = 8.dp))
-            ShimmerBox(modifier = Modifier.fillMaxWidth(0.5f).heightIn(min = 16.dp))
-        }
-    }
-    Spacer(Modifier.padding(top = 12.dp))
-}
+// ---- 纯函数（真值表见 PlaylistSelectionTest） ----
+
+/**
+ * 纯函数：按 sourceId 去重并保持原顺序。
+ * `playlist_song` 的唯一键是 (playlist_id, source_id)，而且后端 remove-song 只认
+ * sourceId —— 重复提交同一首会被算成两次「成功」，所以批量前必须先去掉重复。
+ */
+fun dedupeBySourceId(songs: List<Song>): List<Song> = songs.distinctBy { it.sourceId }
+
+/** 纯函数：选中集合与当前歌单求交（顺序跟随歌单），残留的旧 key 不计入。 */
+fun selectedSongs(songs: List<Song>, checked: Set<String>): List<Song> =
+    songs.filter { it.sourceId in checked }
+
+/**
+ * 纯函数：清空歌单的目标 = **整个歌单全集**，与「筛选后可见集」无关
+ * （筛选只改变视图，不改变清空范围，否则会留下看不见的歌）。
+ */
+fun songsForClearAll(
+    all: List<Song>,
+    @Suppress("UNUSED_PARAMETER") visible: List<Song>
+): List<Song> = dedupeBySourceId(all)

@@ -282,6 +282,10 @@ class MainActivity : ComponentActivity() {
             var offlineItems by remember { mutableStateOf(listOf<OfflineMeta>()) }
             var offlineLoading by remember { mutableStateOf(false) }
             var offlineCount by remember { mutableIntStateOf(0) }
+            // 每首落盘字节（key = playKey）与合计：只在这里（IO 线程）读盘，
+            // OfflineScreen 只收结果 —— 分层红线，界面不碰磁盘。
+            var offlineSizes by remember { mutableStateOf(mapOf<String, Long>()) }
+            var offlineTotalBytes by remember { mutableLongStateOf(0L) }
             var lastCountedKey by remember { mutableStateOf<String?>(null) }
             // Validate-before-delete strikes: per-song consecutive local-failure
             // count keyed by playKey; a local file is deleted only on strike 2.
@@ -1397,6 +1401,43 @@ class MainActivity : ComponentActivity() {
             }
 
             /**
+             * 批量删除（多选 / 全部清除）。一次 IO 批量删，成功后**只弹一次**提示，
+             * 只做一次 UI 刷新 —— 不再循环调 [deleteOffline]（那会每首弹一次 toast、
+             * 每首触发一轮列表刷新）。单曲删除仍走 [deleteOffline]，行为不变。
+             */
+            fun deleteOfflineMany(metas: List<OfflineMeta>) {
+                if (metas.isEmpty()) return
+                scope.launch(Dispatchers.IO) {
+                    var removed = 0
+                    for (m in metas) {
+                        val ok = try {
+                            OfflineStore.delete(context, m)
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (ok) removed++
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (removed == 0) {
+                            showError("删除失败")
+                            return@withContext
+                        }
+                        downloadedTick += 1
+                        val goneKeys = metas.map { playKey(it.platform, it.sourceId) }.toSet()
+                        localFailCounts = localFailCounts - goneKeys
+                        redownloadedKeys = redownloadedKeys - goneKeys
+                        showError(
+                            if (removed == metas.size) {
+                                "已删除 $removed 首"
+                            } else {
+                                "已删除 $removed 首，${metas.size - removed} 首失败"
+                            }
+                        )
+                    }
+                }
+            }
+
+            /**
              * 会话终结的统一收尾（CODE-REVIEW-2026-10-28 SEC-1 + SEC-2）。
              *
              * 1) 同步关续期闸 + 清内存 CookieJar：否则在飞请求 401 后会拿残留的
@@ -1880,6 +1921,47 @@ class MainActivity : ComponentActivity() {
                 api.launch("删除歌曲失败") {
                     VibeApi.removeSongFromPlaylist(pl.id, song.sourceId)
                     showError("已从歌单删除《${song.name}》")
+                    loadSongs(pl)
+                    loadPlaylists()
+                }
+            }
+
+            /**
+             * 批量移除（歌单详情多选「移除」/ 清空歌单）。后端没有批量端点，只能循环调
+             * remove-song；整批包在**一个** api.launch 里 —— 一次鉴权处理、一条提示。
+             * 每首单独 try/catch 统计，避免一首失败就中断整批。
+             */
+            fun removeSongsAction(songs: List<Song>) {
+                if (currentUser == null) {
+                    screen = Screen.Login
+                    return
+                }
+                val pl = selectedPlaylist ?: return
+                // 唯一键是 (playlist_id, source_id)：重复的 sourceId 会被算成两次成功
+                val targets = dedupeBySourceId(songs)
+                if (targets.isEmpty()) return
+                api.launch("移除歌曲失败") {
+                    var ok = 0
+                    var fail = 0
+                    for (song in targets) {
+                        try {
+                            VibeApi.removeSongFromPlaylist(pl.id, song.sourceId)
+                            ok++
+                        } catch (e: Exception) {
+                            // 鉴权失败 / 协程取消不能记成「这一首失败」：前者要交给
+                            // 统一处理（清会话、回登录），后者必须原样抛出（结构化作废）。
+                            if (e is CancellationException || e is AuthException ||
+                                e is NetworkAuthException
+                            ) {
+                                throw e
+                            }
+                            fail++
+                        }
+                    }
+                    showError(
+                        if (fail == 0) "已从歌单移除 $ok 首" else "已移除 $ok 首，$fail 首失败"
+                    )
+                    // 部分成功也必须刷新，否则界面与后端不一致
                     loadSongs(pl)
                     loadPlaylists()
                 }
@@ -3020,8 +3102,22 @@ class MainActivity : ComponentActivity() {
                             emptyList()
                         }
                     }
+                    // 文件大小同一次 IO 里读完，UI 线程不再碰 File。
+                    val sizes = withContext(Dispatchers.IO) {
+                        try {
+                            items.associate {
+                                playKey(it.platform, it.sourceId) to
+                                    OfflineStore.audioFile(context, it.toSong())
+                                        .length().coerceAtLeast(0L)
+                            }
+                        } catch (_: Exception) {
+                            emptyMap()
+                        }
+                    }
                     offlineItems = items
                     offlineCount = items.size
+                    offlineSizes = sizes
+                    offlineTotalBytes = sumOfflineBytes(sizes)
                     offlineLoading = false
                 }
             }
@@ -3614,6 +3710,7 @@ class MainActivity : ComponentActivity() {
                                 onAddToPlaylist = ::openAddSheet,
                                 onDownload = { song -> downloadSong(song, false) },
                                 onRemoveSong = ::removeSongAction,
+                                onRemoveSongs = ::removeSongsAction,
                                 onShare = ::sharePlaylistText,
                                 onRenamePlaylist = ::renamePlaylistAction,
                                 onUpdateDescription = ::updateDescAction,
@@ -3729,12 +3826,15 @@ class MainActivity : ComponentActivity() {
                             is Screen.Offline -> OfflineScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 items = offlineItems,
+                                sizes = offlineSizes,
+                                totalBytes = offlineTotalBytes,
                                 loading = offlineLoading,
                                 onPlayAt = { idx ->
                                     val songs = offlineItems.map { it.toSong() }
                                     if (songs.isNotEmpty()) playAt(songs, idx.coerceIn(songs.indices))
                                 },
                                 onDelete = ::deleteOffline,
+                                onDeleteMany = ::deleteOfflineMany,
                                 onBack = { screen = Screen.Mine },
                                 onGoSearch = { screen = Screen.Search }
                             )

@@ -1,5 +1,6 @@
 package com.cyk666.vibemusic
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,12 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,17 @@ fun PlaylistsScreen(
     var showBatchConfirm by remember { mutableStateOf(false) }
     var menuSheetFor by remember { mutableStateOf<Playlist?>(null) }
     val scroll = rememberScrollState()
+    // 退出多选的统一清理：返回键与标题行「取消」都走这里，避免有一条路径漏清勾选
+    val exitSelection = {
+        selecting = false
+        checkedIds = emptySet()
+    }
+    // 批量删除或外部刷新可能把列表清空，此时多选态没有意义，自动退出
+    LaunchedEffect(playlists.isEmpty()) {
+        if (shouldExitSelection(selecting, playlists.size)) exitSelection()
+    }
+    // 系统返回键：多选态先退出多选；非多选态不拦截，交还系统默认返回
+    BackHandler(enabled = selecting) { exitSelection() }
     Column(
         modifier = modifier.fillMaxSize().padding(16.dp)
             .verticalScroll(scroll)
@@ -76,7 +88,7 @@ fun PlaylistsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(
-                onClick = onBack,
+                onClick = { if (selecting) exitSelection() else onBack() },
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
                 AppIcon(AppIconKind.CHEVRON_LEFT, UiMuted, size = 20.dp)
@@ -206,39 +218,26 @@ fun PlaylistsScreen(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(
-                            onClick = { showListMenu = true },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            AppIcon(AppIconKind.MORE, UiMuted)
+                        if (!selecting) {
+                            IconButton(
+                                onClick = { showListMenu = true },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                AppIcon(AppIconKind.MORE, UiMuted)
+                            }
                         }
                     }
                     if (selecting) {
-                        val allChecked = playlists.isNotEmpty() &&
-                            checkedIds.size == playlists.size
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = {
-                                checkedIds =
-                                    if (allChecked) emptySet()
-                                    else playlists.map { it.id }.toSet()
-                            }) {
-                                Text(if (allChecked) "全不选" else "全选")
-                            }
-                            Text(
-                                text = "已选 ${checkedIds.size} 项",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Button(
-                                onClick = { showBatchConfirm = true },
-                                enabled = checkedIds.isNotEmpty()
-                            ) {
-                                Text("删除所选")
-                            }
-                        }
+                        val ids = playlists.map { it.id }
+                        // 与下载页 / 歌单详情同一套工具栏：取消 · 已选 N 项 · 全选 · 破坏性动作
+                        SelectionToolbar(
+                            count = checkedIds.size,
+                            allSelected = allSelected(ids, checkedIds),
+                            actionLabel = "删除",
+                            onCancel = exitSelection,
+                            onToggleAll = { checkedIds = toggleAllSelected(ids, checkedIds) },
+                            onAction = { showBatchConfirm = true }
+                        )
                     }
                     playlists.forEach { pl ->
                         val checked = pl.id in checkedIds
@@ -247,14 +246,7 @@ fun PlaylistsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (selecting) {
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = {
-                                        checkedIds =
-                                            if (checked) checkedIds - pl.id
-                                            else checkedIds + pl.id
-                                    }
-                                )
+                                SelectionDot(checked = checked)
                             }
                             EntryRow(
                                 modifier = Modifier.weight(1f),
@@ -270,10 +262,10 @@ fun PlaylistsScreen(
                                         onSelectPlaylist(pl)
                                     }
                                 },
-                                trailing = {
-                                    if (selecting) {
-                                        AppIcon(AppIconKind.CHEVRON_RIGHT, UiMuted)
-                                    } else {
+                                trailing = if (selecting) {
+                                    null
+                                } else {
+                                    {
                                         IconButton(
                                             onClick = { menuSheetFor = pl },
                                             modifier = Modifier.size(48.dp)

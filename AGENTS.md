@@ -33,6 +33,8 @@ apksigner verify app/build/outputs/apk/release/app-release.apk    # 校签名
 
 ## 规范 / 军规
 - **一次只改一件事**；改行为先改测试真值表（`shouldAutoSkip` / `shouldFireRetryProbe` 等纯函数抽取出来专门测）
+- **单文件纯 LOC**：新增文件硬上限 400，>250 只警告；存量白名单（`scripts/file-size-baseline.txt`）只降不升。行数是烟感器不是设计原则——拆分必须搬走完整概念，不为凑行数拆半截
+- **分层**：界面层（`*Screen.kt` / `*Ui.kt` / `UiAtoms.kt`）禁止自己切线程 / 摸磁盘 / 发请求，`scripts/check-layering.sh` 在 CI 断言（当前零违规）
 - **交付三验**：单测全绿 + 构建 + aapt/apksigner 校验，**三者缺一不可**
 - **发版**：先改 `app/build.gradle.kts` 的 `versionCode`/`versionName`（`X.Y.Z-ai`），再 `git tag vX.Y.Z-ai && git push origin <tag>` 触发 CI（CI 校验 tag ↔ versionName 一致；tag 含 `beta` → 预发布通道）
 - 提交信息沿用 `feat(app):` / `fix(app):` 中文风格
