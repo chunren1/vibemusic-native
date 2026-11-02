@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -101,13 +100,8 @@ fun PlaylistsScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-        }
-        Spacer(Modifier.height(4.dp))
-        Button(
-            onClick = { showCreate = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("新建歌单")
+            // 新建入口一（常驻，空态/失败态也在）。多选态隐藏：正在挑要删的歌单时不建新的。
+            if (!selecting) PlaylistsCreateIconButton(onClick = { showCreate = true })
         }
         Spacer(Modifier.height(8.dp))
         if (showCreate) {
@@ -276,6 +270,10 @@ fun PlaylistsScreen(
                                 }
                             )
                         }
+                    }
+                    // 新建入口二：卡片内列表末尾，跟着「全部歌单」走；多选态隐藏。
+                    if (!selecting) {
+                        PlaylistsCreateFooterRow(onClick = { showCreate = true })
                     }
                 }
             }
