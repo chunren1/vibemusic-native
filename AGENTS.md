@@ -4,7 +4,7 @@
 > 项目全景见 `README.md`；阶段计划与验收门在本地 `PLAN.md`（内部文档，不入库）。
 
 ## 概述
-VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.20-ai`（versionCode 98，2026-10-29 发布），发版由 CI tag 触发。
+VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.21-ai`（versionCode 99，2026-11-02 发布），发版由 CI tag 触发。
 
 ## 技术栈（冻结，改动需用户批准）
 - Kotlin 2.1.21 · AGP 8.11.1 · Gradle 8.13 · JDK 21（`jvmTarget 17`）
