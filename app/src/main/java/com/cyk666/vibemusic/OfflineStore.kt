@@ -193,8 +193,6 @@ object OfflineStore {
     /** 扫盘 + 按 playKey 去重 + 清理重复 `.meta`（见 OfflineDownloads.kt）；这里只绑路径。 */
     fun listDownloads(context: Context): List<OfflineMeta> = readDownloads(dir(context))
 
-    fun count(context: Context): Int = listDownloads(context).size
-
     /**
      * Startup audit: re-validate every persisted download against the same
      * bar as [isAudioFileIntact] (exists + size floor + audio head) and

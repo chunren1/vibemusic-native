@@ -613,8 +613,8 @@ fun resumeOffsetFor(partLen: Long, expectedBytes: Long): Long {
  * sources that publish `size` — GitHub — now feed [GithubRelease.apkSize]
  * through, so prefer exact); a leftover `.part` from an interrupted attempt
  * is resumed by [downloadSingleApk], never silently reused as complete.
- * Intended call site (wiring task): `MainActivity.startUpdateDownload`
- * replaces `!apk.exists() || apk.length() <= 0L` with `!isDownloadComplete(apk, expectedBytes)`.
+ * 调用点：`UpdateCoordinator.download` 用 `!isDownloadComplete(apk, expectedBytes)`
+ * 决定「复用已下载的包」还是重下（原来裸判 `apk.length() <= 0L`）。
  */
 fun isDownloadComplete(file: File, expectedBytes: Long): Boolean {
     try {
@@ -700,15 +700,15 @@ fun isInstallableUpdate(apkVersionCode: Long, currentVersionCode: Long): Boolean
     currentVersionCode <= 0L || apkVersionCode >= currentVersionCode
 
 /**
- * Fail-closed signature check for the Top-5 install gate (wiring task):
+ * Fail-closed signature check for the Top-5 install gate:
  * true only when [apkFile] parses AND its APK-content signers exactly match
  * the installed app's signers (`GET_SIGNING_CERTIFICATES` on API 28+,
  * `GET_SIGNATURES` on 26/27 — no reflection, R8-safe). Any failure (missing/
  * truncated file, unparsable package, no signers, signer mismatch — e.g. the
  * 1.0.40-ai key rotation vs a store build) returns false.
- * Intended call site (wiring task): `MainActivity.tryInstallUpdate` calls
- * this BEFORE the FileProvider launch — false means "show 签名不一致，需卸载重装
- * (会清空离线内容） and do NOT launch the installer"; true proceeds.
+ * 调用点：`UpdateCoordinator.tryInstall` 在 FileProvider 启动安装前调用 ——
+ * false 时提示 `UPDATE_SIGNATURE_MISMATCH_MESSAGE`（签名不一致，需卸载重装，会清空离线内容）
+ * 并且**不**启动安装器；true 才继续。
  */
 fun isSameSignature(context: Context, apkFile: File): Boolean {
     try {
