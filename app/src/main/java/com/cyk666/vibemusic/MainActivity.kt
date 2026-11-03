@@ -300,7 +300,6 @@ class MainActivity : ComponentActivity() {
             // One-shot: Player next/prev transport seeks resolve their target
             // index async, so the saved-position restore runs on the next
             // MEDIA_ITEM_TRANSITION instead of guessing the index up front.
-            var pendingRestoreAfterSeek by remember { mutableStateOf(false) }
 
             // ---- auth state ----
             var currentUser by remember { mutableStateOf<LoggedInUser?>(null) }
@@ -2366,10 +2365,10 @@ class MainActivity : ComponentActivity() {
                         }
                         positionMs = c.currentPosition
                         durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                        if (pendingRestoreAfterSeek) {
-                            pendingRestoreAfterSeek = false
-                            queue.getOrNull(currentIndex)?.let { restorePosition(it) }
-                        }
+                        // 手动 ⏭/⏮ 一律从 0:00 开始：这里原来会 `restorePosition(queue[currentIndex])`
+                        // 把目标曲上次的播放点续上（队尾回绕时就是"又播回以前那首歌、还从
+                        // 上次的位置接着播"）。"续上次播放点"只属于冷启动恢复与队列点选，
+                        // 用户按"下一首"表达的是"换一首"，不是"继续上次"。
                         // 外部音频（content:// 一次性授权）不落盘：下次启动已无读权限，
                         // 存下来只会让「恢复上次队列」点播必失败。跳过保存时，磁盘上
                         // 保留的仍是用户原来的歌单，重启后还能回到那个歌单。
@@ -3475,16 +3474,13 @@ class MainActivity : ComponentActivity() {
                                             // 单曲循环下播放器的 next/prev 会原地重开本曲（PB-6），按下标走。
                                             val jump = manualSkipTarget(playModeState.mode, c.mediaItemCount, c.currentMediaItemIndex, true)
                                             if (jump >= 0) {
-                                                pendingRestoreAfterSeek = true
                                                 c.seekTo(jump, 0L)
                                             } else when (nextBoundaryAction(playModeState.mode, c.hasNextMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
-                                                    pendingRestoreAfterSeek = true
                                                     c.seekToNextMediaItem()
                                                 }
                                                 BoundaryAction.WRAP_TO_FIRST -> {
                                                     if (c.mediaItemCount > 0) {
-                                                        pendingRestoreAfterSeek = true
                                                         c.seekTo(0, 0L)
                                                     }
                                                 }
@@ -3511,17 +3507,14 @@ class MainActivity : ComponentActivity() {
                                             // 单曲循环下播放器的 next/prev 会原地重开本曲（PB-6），按下标走。
                                             val jump = manualSkipTarget(playModeState.mode, c.mediaItemCount, c.currentMediaItemIndex, false)
                                             if (jump >= 0) {
-                                                pendingRestoreAfterSeek = true
                                                 c.seekTo(jump, 0L)
                                             } else when (prevBoundaryAction(playModeState.mode, c.hasPreviousMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
-                                                    pendingRestoreAfterSeek = true
                                                     c.seekToPreviousMediaItem()
                                                 }
                                                 BoundaryAction.WRAP_TO_LAST -> {
                                                     val last = c.mediaItemCount - 1
                                                     if (last >= 0) {
-                                                        pendingRestoreAfterSeek = true
                                                         c.seekTo(last, 0L)
                                                     }
                                                 }
