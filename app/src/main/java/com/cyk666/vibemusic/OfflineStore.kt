@@ -8,7 +8,7 @@ import androidx.media3.common.MediaMetadata
 import java.io.File
 import org.json.JSONObject
 
-const val HIGH_FREQ_THRESHOLD = 3
+const val HIGH_FREQ_THRESHOLD = 6
 
 fun playKey(platform: String, sourceId: String): String =
     "${platform.ifBlank { "netease" }}:$sourceId"
@@ -16,11 +16,15 @@ fun playKey(platform: String, sourceId: String): String =
 fun playKey(song: Song): String = playKey(song.platform, song.sourceId)
 
 /**
- * 常听到第 3 次开始自动离线。
+ * 常听到第 6 次开始自动离线（2026-11-03 按用户要求从 3 调到 6：3 次太容易触发，
+ * 只是随便听两遍的歌就被自动存了）。
  *
- * `count == THRESHOLD` 只有一个窗口：第 3 次播放时断网、或内容校验失败（`saveBytes`
- * 返回 false）后计数已经变成 4，此后再播多少次都不会再试（用户看到的是「常听却
- * 一直不下载」）。改成 `>=` 后每次播放都会重试，`isDownloaded` 仍然挡住重复下载。
+ * `count == THRESHOLD` 只有一个窗口：命中那一次断网、或内容校验失败（`saveBytes`
+ * 返回 false）后计数已经变成 7，此后再播多少次都不会再试（用户看到的是「常听却
+ * 一直不下载」）。`>=` 保证每次播放都会重试，`isDownloaded` 仍然挡住重复下载。
+ *
+ * ⚠️ 老用户已存的计数不回滚：原本 3~5 次的歌要再听到 6 次才自动存；
+ * 已经存过的照旧（`isDownloaded` 挡住重复下载）。
  */
 fun shouldAutoSave(count: Int): Boolean = count >= HIGH_FREQ_THRESHOLD
 

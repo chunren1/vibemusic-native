@@ -49,23 +49,33 @@ class OfflineStoreTest {
     }
 
     @Test
-    fun threshold_twoDoesNotAutoSave() {
+    fun threshold_belowSixDoesNotAutoSave() {
+        // 2026-11-03 起阈值 3 → 6（用户要求）：1~5 次都不许自动存。
         assertFalse(shouldAutoSave(0))
         assertFalse(shouldAutoSave(1))
         assertFalse(shouldAutoSave(2))
+        assertFalse(shouldAutoSave(3))
+        assertFalse(shouldAutoSave(4))
+        assertFalse(shouldAutoSave(5))
     }
 
     @Test
-    fun threshold_threeAutoSaves() {
-        assertTrue(shouldAutoSave(3))
+    fun threshold_sixAutoSaves() {
+        assertTrue(shouldAutoSave(6))
     }
 
     @Test
-    fun threshold_aboveThreeStillRetries() {
-        // 回归：原来 `count == 3` 只有一个窗口 —— 第 3 次播放时断网或内容校验失败，
-        // 计数就变成 4，此后再也不会尝试。改成 >= 后每次播放都会重试（isDownloaded 挡重复）。
-        assertTrue(shouldAutoSave(4))
+    fun threshold_aboveSixStillRetries() {
+        // 回归：`count == THRESHOLD` 只有一个窗口 —— 命中那次断网或内容校验失败后
+        // 计数就跨过去了，此后再也不会尝试。`>=` 保证每次播放都重试（isDownloaded 挡重复）。
+        assertTrue(shouldAutoSave(7))
         assertTrue(shouldAutoSave(100))
+    }
+
+    @Test
+    fun threshold_matchesDeclaredConstant() {
+        // 阈值只有一处来源：改常量必须连带改上面三条真值表，不许只改一处。
+        assertEquals(6, HIGH_FREQ_THRESHOLD)
     }
 
     @Test

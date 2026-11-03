@@ -122,7 +122,8 @@ fun OfflineScreen(
             }
             items.isEmpty() -> {
                 EmptyStateLine(
-                    text = "还没有下载，常听3次自动离线",
+                    // 次数不许写死：阈值改了文案必须跟着改（这里直接引常量）
+                    text = "还没有下载，常听${HIGH_FREQ_THRESHOLD}次自动离线",
                     actionLabel = "去搜索",
                     onAction = onGoSearch
                 )
