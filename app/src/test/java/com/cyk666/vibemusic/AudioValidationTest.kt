@@ -36,6 +36,17 @@ class AudioValidationTest {
     }
 
     @Test
+    fun magic_isoBmffIsAudio() {
+        // B 站音轨是 fMP4：前 4 字节是 box 长度，`ftyp` 落在 4..7（2026-11-03 线上实测
+        // `00 00 00 20 66 74 79 70 69 73 6f 35`）。只看第 0-3 字节会让每一首 B 站歌曲
+        // 下载失败，并把已下好的判成损坏。
+        val mp4 = byteArrayOf(0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x35)
+        assertTrue(looksLikeAudio(fakeAudioBytes(mp4, 16)))
+        // 只有 4 字节（长度 + 半截 box 类型）不足以判断 → 不能算音频
+        assertFalse(looksLikeAudio(mp4.copyOfRange(0, 4)))
+    }
+
+    @Test
     fun magic_flacIsAudio() {
         assertTrue(
             looksLikeAudio(

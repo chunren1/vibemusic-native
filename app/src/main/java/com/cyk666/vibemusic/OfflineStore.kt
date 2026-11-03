@@ -55,41 +55,6 @@ fun bumpPlayCount(counts: Map<String, Int>, key: String): Pair<Map<String, Int>,
 
 private val FILENAME_SAFE = Regex("[^A-Za-z0-9_-]")
 
-/**
- * Offline-poisoning guard: the stream endpoint returns HTTP 200 even for
- * errors, so a failed stream (JSON error body, stub, truncated bytes) must
- * never be persisted as a "song". Floor kills JSON bodies and stubs;
- * real 30s+ snippets are ~500KB+, so 100KB is a safe floor.
- */
-const val MIN_AUDIO_BYTES = 100_000
-
-/**
- * Pure magic-bytes check: ID3 ("ID3") or MPEG frame sync (0xFF Ex) or
- * fLaC / OggS / RIFF (WAV). Anything else (JSON, text, truncated header)
- * is not playable audio.
- */
-fun looksLikeAudio(bytes: ByteArray): Boolean {
-    if (bytes.size < 4) return false
-    val b0 = bytes[0].toInt() and 0xFF
-    val b1 = bytes[1].toInt() and 0xFF
-    val b2 = bytes[2].toInt() and 0xFF
-    val b3 = bytes[3].toInt() and 0xFF
-    // ID3v2 tag
-    if (b0 == 0x49 && b1 == 0x44 && b2 == 0x33) return true // "ID3"
-    // MPEG audio frame sync: 0xFF followed by top 3 bits set
-    if (b0 == 0xFF && (b1 and 0xE0) == 0xE0) return true
-    // FLAC
-    if (b0 == 0x66 && b1 == 0x4C && b2 == 0x61 && b3 == 0x43) return true // "fLaC"
-    // Ogg
-    if (b0 == 0x4F && b1 == 0x67 && b2 == 0x67 && b3 == 0x53) return true // "OggS"
-    // WAV
-    if (b0 == 0x52 && b1 == 0x49 && b2 == 0x46 && b3 == 0x46) return true // "RIFF"
-    return false
-}
-
-/** Pure: a download is worth persisting only when big enough AND audio-shaped. */
-fun isValidDownload(bytes: ByteArray): Boolean =
-    bytes.size >= MIN_AUDIO_BYTES && looksLikeAudio(bytes)
 
 /**
  * Startup download-audit probe: one persisted meta entry plus a snapshot of
@@ -208,7 +173,8 @@ object OfflineStore {
         return try {
             val f = audioFile(context, song)
             if (!f.exists() || f.length() < MIN_AUDIO_BYTES) return false
-            val head = ByteArray(4)
+            // 12 字节：ISO-BMFF 的 `ftyp` 落在 4..7，只读 4 字节会把 B 站音轨判成损坏
+            val head = ByteArray(12)
             var read = 0
             f.inputStream().use { ins ->
                 while (read < head.size) {
