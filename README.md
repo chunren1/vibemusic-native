@@ -3,7 +3,7 @@
 原生 Android 客户端，后端 `https://vibe.cyk666.top`（访客直进，登录接自家账号）。
 包名 `com.cyk666.vibemusic`，展示名 `VibeMusic`。
 
-当前版本：`2.0.23-ai`（versionCode 101，正式通道）；上一个稳定版 `2.0.22-ai`。
+当前版本：`2.0.24-ai`（versionCode 102，正式通道）；上一个稳定版 `2.0.23-ai`。
 发版走 CI 打 tag 直发 GitHub Release（LanShare 传包已退役）；CI 发版前会先跑 `testDebugUnitTest` 作为发布门。
 
 ## 技术栈（版本冻结，升级需批准）
