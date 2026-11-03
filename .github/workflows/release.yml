@@ -255,9 +255,19 @@ jobs:
             echo "::error::Gitee mirror failed: APK file ${APK_NAME:-<unset>} not found"
             exit 1
           fi
-          NOTES="VibeMusic 原生版 $TAG（CI 自动构建签名，与 GitHub Release 同包）"
+          # ⚠ body 必须带 `APK sha256: <64 hex>`：App 的 UPD-4 内容门
+          #   （UpdateCheck.parseSha256FromBody）从 release body 正则抽这个字段，
+          #   抽不到 → GithubRelease.sha256 = null → verifyApkSha256 直接放行。
+          #   原来这里只写一句介绍（GitHub 侧的 Publish 步骤写了哈希，Gitee 侧漏了），
+          #   而 pickBestRelease 版本相等时**优先 Gitee** —— 于是所有更新的内容校验
+          #   静默失效。2026-11-03 实测 v2.0.22-ai 的 Gitee body 只有一句话。
+          if [ -z "${SHA256:-}" ]; then
+            echo "::error::SHA256 未从 Verify 步骤继承（GITHUB_ENV 断链）——拒绝发布无哈希的 release"
+            exit 1
+          fi
+          NOTES=$(printf 'VibeMusic 原生版 %s（CI 自动构建签名，与 GitHub Release 同包）\n\nAPK sha256: `%s`' "$TAG" "$SHA256")
           if printf '%s' "$TAG" | grep -qi 'beta'; then
-            NOTES="VibeMusic 原生版 $TAG（测试版，CI 自动构建签名，与 GitHub Release 同包）"
+            NOTES=$(printf 'VibeMusic 原生版 %s（测试版，CI 自动构建签名，与 GitHub Release 同包）\n\nAPK sha256: `%s`' "$TAG" "$SHA256")
             PRERELEASE_JSON=',"prerelease":true'
           else
             PRERELEASE_JSON=',"prerelease":false'
@@ -317,6 +327,17 @@ jobs:
             exit 1
           fi
           echo "Gitee release id: $RELEASE_ID"
+          # (a2) 422 = 该 tag 的 release 已存在（例如 Gitee 先自动镜像了一份）。
+          #      create 不会更新已存在 release 的 body，而内容校验字段就在 body 里 ——
+          #      补一次 PATCH，否则 App 永远读不到 sha256（下面的断言会因此变红）。
+          if [ "$CREATE_CODE" = "422" ]; then
+            PATCH_CODE=$(curl -sS --connect-timeout 20 --max-time 60 -o /tmp/gitee_patch.json -w '%{http_code}' \
+              -X PATCH "${API}/${RELEASE_ID}?access_token=${GITEE_TOKEN}" \
+              -H "Content-Type: application/json;charset=UTF-8" \
+              --data "$(TAG="$TAG" NOTES="$NOTES" python3 -c 'import json,os;print(json.dumps({"body":os.environ["NOTES"]}))')" \
+              || echo "curl-failed")
+            echo "Gitee patch body HTTP: $PATCH_CODE"
+          fi
           # (b) attach the SAME APK file, with retries: the 3.4MB upload
           #     over the runner→Gitee link intermittently stalls past the
           #     old 120s cap (v2.0.0-ai: curl timeout, release created but
@@ -347,22 +368,33 @@ jobs:
           #     注意：查列表而非 /releases/latest —— prerelease tag 不会出现在 latest。
           VERIFY_JSON=$(curl -sS --connect-timeout 20 --max-time 60 \
             "${API}?per_page=100" || echo "")
-          VERIFY=$(printf '%s' "$VERIFY_JSON" | TAG="$TAG" python3 -c '
+          VERIFY=$(printf '%s' "$VERIFY_JSON" | TAG="$TAG" WANT="$SHA256" python3 -c '
           import json,os,sys
           try:
               items=json.loads(sys.stdin.read() or "[]")
           except Exception:
               items=[]
           tag=os.environ.get("TAG","")
+          want=os.environ.get("WANT","").lower()
           hit=next((r for r in items if r.get("tag_name")==tag), None)
           if hit is None:
               print("MISSING_RELEASE"); raise SystemExit
           apk=[a for a in (hit.get("assets") or []) if str(a.get("browser_download_url","")).lower().endswith(".apk")]
-          print("OK" if apk else "MISSING_APK")
+          if not apk:
+              print("MISSING_APK"); raise SystemExit
+          # App 的 UPD-4 内容门只认 body 里的 APK sha256（UpdateCheck.parseSha256FromBody）。
+          # 少了它 → 客户端 sha256 门静默放行，签名门只证"同一开发者"不证"同一份字节"。
+          if want and want not in str(hit.get("body") or "").lower():
+              print("MISSING_SHA256"); raise SystemExit
+          print("OK")
           ' 2>/dev/null || echo "VERIFY_ERROR")
           echo "Gitee verify (anonymous): $VERIFY"
           case "$VERIFY" in
-            OK) echo "Gitee mirror verified: $TAG has an .apk asset" ;;
+            OK) echo "Gitee mirror verified: $TAG has an .apk asset + APK sha256 in body" ;;
+            MISSING_SHA256)
+              echo "::error::Gitee release $TAG 的 body 里没有 APK sha256 —— App 的安装包内容校验会静默失效（期望 $SHA256）"
+              exit 1
+              ;;
             *)
               echo "::error::Gitee mirror verification failed for $TAG: $VERIFY — App 的更新源首选 Gitee，缺这一步会导致客户端一直提示「已是最新版本」"
               exit 1
