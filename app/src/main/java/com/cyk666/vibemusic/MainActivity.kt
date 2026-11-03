@@ -2350,6 +2350,15 @@ class MainActivity : ComponentActivity() {
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                         val c = controller ?: return
+                        // 纯观察：AUTO 切轨时上一首若明显没放到结尾（提前 EOF / 静默截断，
+                        // 没有任何 onPlayerError），记一条。用于区分"出错被跳"（error:…@pos/dur）
+                        // 与"上游把流截断当正常结束"。positionMs/durationMs 此刻仍是上一首的值。
+                        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO &&
+                            durationMs > 0 && positionMs > 0 &&
+                            positionMs < durationMs - 5_000
+                        ) {
+                            PlayDiag.observe(context, "early-auto:$positionMs/$durationMs")
+                        }
                         if (queue.isEmpty() && c.mediaItemCount > 0) {
                             val rebuilt =
                                 (0 until c.mediaItemCount).map { songFromMediaItem(c.getMediaItemAt(it)) }
@@ -3482,6 +3491,8 @@ class MainActivity : ComponentActivity() {
                                                 BoundaryAction.WRAP_TO_FIRST -> {
                                                     if (c.mediaItemCount > 0) {
                                                         c.seekTo(0, 0L)
+                                                        // 回首不是"故障"，给一句话免得听感像乱跳。
+                                                        showError("已回到第一首")
                                                     }
                                                 }
                                                 BoundaryAction.STAY ->
@@ -3516,6 +3527,7 @@ class MainActivity : ComponentActivity() {
                                                     val last = c.mediaItemCount - 1
                                                     if (last >= 0) {
                                                         c.seekTo(last, 0L)
+                                                        showError("已回到最后一首")
                                                     }
                                                 }
                                                 BoundaryAction.STAY ->

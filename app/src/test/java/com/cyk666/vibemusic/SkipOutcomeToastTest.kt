@@ -33,6 +33,14 @@ class SkipOutcomeToastTest {
         )
     }
 
+    /** 中途断流不再跳歌，文案必须是"停住 + 点播放重试"，不能谎称已跳过。 */
+    @Test
+    fun stoppedMidSong_saysPausedNotSkipped() {
+        val msg = skipErrorToast("夜曲", "ERROR_CODE_IO_BAD_HTTP_STATUS", SkipOutcome.STOPPED_MID_SONG)
+        assertEquals("《夜曲》播放中断，已停在当前位置，点播放重试 (ERROR_CODE_IO_BAD_HTTP_STATUS)", msg)
+        assert(!msg.contains("已跳过")) { "中途停止不许说已跳过：$msg" }
+    }
+
     @Test
     fun nullTitle_fallsBackToUnknown() {
         assertEquals(

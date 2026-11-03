@@ -306,7 +306,13 @@ enum class SkipOutcome {
      * 单曲循环（REPEAT_MODE_ONE）：`hasNextMediaItem()` 为 true 但 seekToNext 只会
      * 原地重开本曲，所以"跳过"根本不存在（PB-6）。播报"无法跳过"，不许谎称已跳过。
      */
-    STOPPED_SINGLE_LOOP
+    STOPPED_SINGLE_LOOP,
+
+    /**
+     * 播放**中途** IO 失败（见 [shouldStopInsteadOfSkip]）：就地停住、保留播放点，
+     * 不替用户跳下一首 —— "上一首还没播完就自己换歌"就是这么来的。
+     */
+    STOPPED_MID_SONG
 }
 
 /**
@@ -343,6 +349,7 @@ fun skipErrorToast(title: String?, errorCodeName: String, outcome: SkipOutcome):
         SkipOutcome.STOPPED_CONSEC_FAILURES -> "${label}播不了，连续多次失败，播放停止 ($errorCodeName)"
         SkipOutcome.STOPPED_SINGLE_LOOP -> "${label}播不了，单曲循环下无法跳过，播放停止 ($errorCodeName)"
         SkipOutcome.RETRIED_SAME_ITEM -> "${label}播不了，正在重试 ($errorCodeName)"
+        SkipOutcome.STOPPED_MID_SONG -> "${label}播放中断，已停在当前位置，点播放重试 ($errorCodeName)"
     }
 }
 
@@ -702,7 +709,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                PlayDiag.mark(this@PlaybackService, "error:${error.errorCodeName}")
+                PlayDiag.mark(this@PlaybackService, errorDiagCode(exo, error))
                 // Local (downloaded-file) items: **在线**时归 MainActivity 的自愈
                 // 路径（删坏文件 + 转流 + 重下），这里跳歌会跟自愈抢队列，所以完全
                 // 放手。**离线**时自愈什么也做不了 —— 若也放手，一个截断的下载就让
@@ -825,14 +832,6 @@ class PlaybackService : MediaLibraryService() {
                     val attempt = weakRetryAttempt++
                     val delay = weakRetryDelayMs(attempt)
                     lastSkipOutcome = SkipOutcome.RETRIED_SAME_ITEM
-                    try {
-                        android.util.Log.d(
-                            "VibeWeakRetry",
-                            "weak retry idx=$errIndex attempt=$attempt delay=${delay}ms"
-                        )
-                    } catch (_: Exception) {
-                        SilentFail.note("PlaybackService.onPlayerError:781")
-                    }
                     serviceMainHandler.postDelayed({
                         val cur = player
                         if (cur == null || cur !== exo) return@postDelayed
@@ -878,13 +877,16 @@ class PlaybackService : MediaLibraryService() {
                     lastStreamRetryKey = streamRetryKey(errMediaId, error.errorCode)
                     lastStreamRetryIndex = errIndex
                     lastSkipOutcome = SkipOutcome.RETRIED_SAME_ITEM
+                    // 中途断流的补试要回到原位置：`Player.replaceMediaItem` 只有
+                    // (index, item) 两参（javap 实测 media3 1.9.4），换完位置会回到默认值，
+                    // 不自己 seek 回去，听感就是"这首歌又从头播一遍"。
+                    val midSong = isMidSongFailure(exo, error.errorCode)
+                    val resumeAt = try { exo.currentPosition } catch (_: Exception) { 0L }
                     try {
                         suppressSwitchStart = true
-                        exo.replaceMediaItem(
-                            errIndex,
-                            songFromMediaItem(errItem).toCachedMediaItem()
-                        )
+                        exo.replaceMediaItem(errIndex, songFromMediaItem(errItem).toCachedMediaItem())
                         exo.prepare()
+                        if (midSong && resumeAt > 0) exo.seekTo(resumeAt)
                         if (playerWantsPlay(exo)) exo.play()
                     } catch (_: Exception) {
                         SilentFail.note("PlaybackService.onPlayerError:828")
@@ -902,7 +904,7 @@ class PlaybackService : MediaLibraryService() {
                 } catch (_: Exception) {
                     false
                 }
-                if (shouldAutoSkip(consecFails, hasNext, repeatMode)) {
+                if (shouldAutoSkip(consecFails, hasNext, repeatMode) && !isMidSongFailure(exo, error.errorCode)) {
                     consecFails++
                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                     exo.seekToNextMediaItem()
@@ -912,15 +914,18 @@ class PlaybackService : MediaLibraryService() {
                     // Guard exit with items remaining is the melt-down cap,
                     // not the queue end — report it truthfully (never 末尾).
                     // 单曲循环是第三种"跳不了"：hasNext 为 true 但只会原地重开（PB-6）。
-                    lastSkipOutcome = if (repeatMode == Player.REPEAT_MODE_ONE && hasNext) {
-                        try {
-                            exo.stop()
-                        } catch (_: Exception) {
-                            SilentFail.note("PlaybackService.onPlayerError:singleLoopStop")
+                    lastSkipOutcome = when {
+                        // 放到一半断流：就地停住，别替用户换歌（他自己点播放会重试）。
+                        isMidSongFailure(exo, error.errorCode) -> SkipOutcome.STOPPED_MID_SONG
+                        repeatMode == Player.REPEAT_MODE_ONE && hasNext -> {
+                            try {
+                                exo.stop()
+                            } catch (_: Exception) {
+                                SilentFail.note("PlaybackService.onPlayerError:singleLoopStop")
+                            }
+                            SkipOutcome.STOPPED_SINGLE_LOOP
                         }
-                        SkipOutcome.STOPPED_SINGLE_LOOP
-                    } else {
-                        meltDownOutcome(hasNext)
+                        else -> meltDownOutcome(hasNext)
                     }
                 }
             }
