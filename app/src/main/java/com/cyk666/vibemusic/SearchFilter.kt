@@ -163,6 +163,12 @@ data class CachedSearch(val songs: List<Song>, val total: Int, val atMs: Long)
  * ([VibeApi.search] always runs page 1 / size 20, so no page dim needed).
  * Fav hearts stay live: rows render from the ambient favIds set, never from
  * the cached Song objects. Pass [nowMs] in tests; production uses the clock.
+ *
+ * ⚠️ 线程约束：内部是普通 `LinkedHashMap`（非线程安全）。唯一持有者是
+ * `MainActivity` 里 `remember { SearchResultCache() }`，读写都发生在
+ * `rememberCoroutineScope()` 的 Main 协程里（`awaitCall` 从 OkHttp 线程 resume 后会
+ * 回到 Main 再继续），所以现在是主线程独占。**别在 `Dispatchers.IO` 里碰它**，
+ * 要跨线程用就先加锁或换 ConcurrentHashMap。
  */
 class SearchResultCache(
     private val maxEntries: Int = SEARCH_CACHE_MAX_ENTRIES,

@@ -63,6 +63,23 @@ fun prevBoundaryAction(mode: PlayMode, hasPrevious: Boolean): BoundaryAction = w
     else -> BoundaryAction.WRAP_TO_LAST
 }
 
+/**
+ * 手动 ⏭/⏮ 的目标下标，**单曲循环专用**：返回 -1 表示"交给播放器默认动作"。
+ *
+ * 为什么需要：`REPEAT_MODE_ONE` 下 `Timeline.getNextWindowIndex` 直接返回当前窗口
+ * （项目在 `shouldAutoSkip` 里记过 PB-6），所以 `seekToNextMediaItem()` 会把本曲从
+ * 0:00 重开 —— 用户按了下一首却听到同一首重新开始，等于按钮失效。其它模式一律返回
+ * -1：洗牌序只有播放器自己知道，按下标算会把随机播放打乱成歌单顺序（PB-7）。
+ *
+ * 单曲/单首队列（count == 1）返回 0：仍是"重开本曲"，这与单曲循环的语义一致。
+ */
+fun manualSkipTarget(mode: PlayMode, count: Int, current: Int, forward: Boolean): Int = when {
+    mode != PlayMode.SINGLE_LOOP || count <= 0 -> -1
+    forward -> (current + 1) % count
+    current <= 0 -> count - 1
+    else -> current - 1
+}
+
 /** Icon-only mode button glyph per mode (player action row, no text label). */
 fun playModeIconKind(mode: PlayMode): AppIconKind = when (mode) {    PlayMode.SEQUENTIAL -> AppIconKind.MODE_SEQUENTIAL
     PlayMode.LIST_LOOP -> AppIconKind.MODE_LOOP

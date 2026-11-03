@@ -784,10 +784,12 @@ class PlaybackService : MediaLibraryService() {
                                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                                     if (shuffleOn) exo.seekToNextMediaItem() else exo.seekTo(target, 0L)
                                     exo.prepare()
-                                    exo.play()
+                                    if (playerWantsPlay(exo)) exo.play()
                                 } else {
                                     offlineFails++
-                                    lastSkipOutcome = SkipOutcome.STOPPED_AT_END
+                                    // 熔断（连续坏 ≥3 但后面还有可播项）≠ 队列末尾，
+                                    // 同一个错误口令会让你在还有 20 首时听到"已到末尾"。
+                                    lastSkipOutcome = meltDownOutcome(canAdvance)
                                     exo.stop()
                                 }
                             } catch (_: Exception) {
@@ -883,7 +885,7 @@ class PlaybackService : MediaLibraryService() {
                             songFromMediaItem(errItem).toCachedMediaItem()
                         )
                         exo.prepare()
-                        exo.play()
+                        if (playerWantsPlay(exo)) exo.play()
                     } catch (_: Exception) {
                         SilentFail.note("PlaybackService.onPlayerError:828")
                     }
@@ -905,7 +907,7 @@ class PlaybackService : MediaLibraryService() {
                     lastSkipOutcome = SkipOutcome.SKIPPED_TO_NEXT
                     exo.seekToNextMediaItem()
                     exo.prepare()
-                    exo.play()
+                    if (playerWantsPlay(exo)) exo.play()
                 } else {
                     // Guard exit with items remaining is the melt-down cap,
                     // not the queue end — report it truthfully (never 末尾).

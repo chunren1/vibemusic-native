@@ -1013,6 +1013,8 @@ class MainActivity : ComponentActivity() {
                     try {
                         ensureTimeline(c)
                         if (c.playbackState == Player.STATE_IDLE) c.prepare()
+                        // 播完（ENDED）后 playWhenReady 仍是 true，play() 零变化 → 先归位。
+                        if (needsRewindBeforePlay(c.playbackState)) c.seekToDefaultPosition()
                         if (c.isPlaying) c.pause() else c.play()
                     } catch (e: Exception) {
                         showError(diagnosableError("播放失败", e))
@@ -1050,7 +1052,8 @@ class MainActivity : ComponentActivity() {
                     }
                     cc.replaceMediaItem(idx, song.toCachedMediaItem())
                     cc.prepare()
-                    cc.play()
+                    // 自愈是错误驱动的，不许把用户这几百毫秒里按下的暂停撤销。
+                    if (playerWantsPlay(cc)) cc.play()
                 } catch (_: Exception) {
                     SilentFail.note("MainActivity.onCreate:1020")
                 }
@@ -1185,15 +1188,6 @@ class MainActivity : ComponentActivity() {
                     showError("播放器连接中，请稍候")
                     return
                 }
-                val countNow = try {
-                    c.mediaItemCount
-                } catch (_: Exception) {
-                    0
-                }
-                if (!needsMaterialize(countNow, queue.size) && countNow <= 1) {
-                    showError("至少保留一首")
-                    return
-                }
                 // Invalidate any in-flight playAt / restorePosition seek: the
                 // timeline it would land on no longer exists.
                 playGen += 1
@@ -1201,6 +1195,12 @@ class MainActivity : ComponentActivity() {
                     try {
                         ensureTimeline(c, restoreSaved = false)
                         val count = c.mediaItemCount
+                        // 守卫必须在 materialize **之后**判：进程被杀后 countNow=0 而
+                        // queue.size=1，原来的前置判断整条短路 → 唯一一首被删掉、队列空转。
+                        if (count <= 1) {
+                            showError("至少保留一首")
+                            return@launch
+                        }
                     val removedIdx = index.coerceIn(0, count - 1)
                     val curBefore = c.currentMediaItemIndex
                     val wasCurrent = removedPlayingItem(removedIdx, curBefore)
@@ -3472,7 +3472,12 @@ class MainActivity : ComponentActivity() {
                                             try {
                                                 val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            when (nextBoundaryAction(playModeState.mode, c.hasNextMediaItem())) {
+                                            // 单曲循环下播放器的 next/prev 会原地重开本曲（PB-6），按下标走。
+                                            val jump = manualSkipTarget(playModeState.mode, c.mediaItemCount, c.currentMediaItemIndex, true)
+                                            if (jump >= 0) {
+                                                pendingRestoreAfterSeek = true
+                                                c.seekTo(jump, 0L)
+                                            } else when (nextBoundaryAction(playModeState.mode, c.hasNextMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
                                                     pendingRestoreAfterSeek = true
                                                     c.seekToNextMediaItem()
@@ -3503,7 +3508,12 @@ class MainActivity : ComponentActivity() {
                                             try {
                                                 val materialized = ensureTimeline(c, restoreSaved = false)
                                             if (c.playbackState == Player.STATE_IDLE) c.prepare()
-                                            when (prevBoundaryAction(playModeState.mode, c.hasPreviousMediaItem())) {
+                                            // 单曲循环下播放器的 next/prev 会原地重开本曲（PB-6），按下标走。
+                                            val jump = manualSkipTarget(playModeState.mode, c.mediaItemCount, c.currentMediaItemIndex, false)
+                                            if (jump >= 0) {
+                                                pendingRestoreAfterSeek = true
+                                                c.seekTo(jump, 0L)
+                                            } else when (prevBoundaryAction(playModeState.mode, c.hasPreviousMediaItem())) {
                                                 BoundaryAction.ADVANCE -> {
                                                     pendingRestoreAfterSeek = true
                                                     c.seekToPreviousMediaItem()
@@ -3527,6 +3537,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onSeek = { targetMs ->
+                                    // 乐观置位：松手后立刻读 500ms 轮询的旧值会先弹回再跳。
+                                    positionMs = targetMs.coerceAtLeast(0L)
                                     scope.launch {
                                         try {
                                             val c = controller
