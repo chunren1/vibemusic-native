@@ -354,6 +354,7 @@ object VibeApi {
      */
     fun endSession() {
         AuthToken.sessionEnded = true
+        AuthToken.bumpSessionEpoch()
         cookieJar.clear()
     }
 
@@ -385,6 +386,8 @@ object VibeApi {
             if (AuthToken.sessionEnded) return RefreshOutcome.NETWORK_FAIL
             if (shouldReuseRefreshedToken(AuthToken.token, failedToken)) return RefreshOutcome.REFRESHED
             val ctx = appContext ?: return RefreshOutcome.NETWORK_FAIL
+            // 代次快照：写回前会比较，跨代的迟到 200 一律丢弃（登出/换号不能被撤销）。
+            val epoch = AuthToken.sessionEpoch
             val rt = AuthToken.refreshToken
             // Cookie-only sessions (backend never sends a body refreshToken):
             // the jar cookie alone is a sufficient credential; only "neither
@@ -399,13 +402,9 @@ object VibeApi {
                 return RefreshOutcome.NETWORK_FAIL
             } ?: return RefreshOutcome.INVALID_TOKEN
             if (res.token.isBlank()) return RefreshOutcome.NETWORK_FAIL
-            AuthToken.token = res.token
-            if (res.refreshToken.isNotBlank()) AuthToken.refreshToken = res.refreshToken
-            return try {
-                AuthStore.saveTokens(ctx, AuthToken.token, AuthToken.refreshToken)
+            return if (AuthStore.applyRefreshedTokens(ctx, res.token, res.refreshToken, epoch)) {
                 RefreshOutcome.REFRESHED
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+            } else {
                 RefreshOutcome.NETWORK_FAIL
             }
         }
@@ -677,24 +676,26 @@ object VibeApi {
         val root = JSONObject(json)
         checkEnvelope(root, "Search")
         val data = root.optJSONObject("data") ?: throw RuntimeException("Search: missing data")
+        // 与 listData() 同口径：形状漂移要抛，不能静默变空结果 —— 空列表（data.list=[]）
+        // 才是"没搜到"，list 缺失/为 null 是协议坏了（用户看到的"搜不到"会掩盖后端故障）。
         val arr = data.optJSONArray("list")
-        val out = ArrayList<Song>(arr?.length() ?: 0)
-        if (arr != null) {
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                out.add(
-                    Song(
-                        sourceId = o.optString("sourceId"),
-                        name = o.optString("name"),
-                        artist = o.optString("artist"),
-                        album = o.optString("album"),
-                        coverUrl = o.optString("coverUrl"),
-                        durationSec = o.optInt("duration", o.optInt("durationSec", 0)),
-                        platform = o.optString("platform"),
-                        vip = parseVipFlag(o)
-                    )
+            ?: throw RuntimeException("Search failed: unexpected data shape (list)")
+        val out = ArrayList<Song>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            out.add(
+                Song(
+                    sourceId = o.optString("sourceId"),
+                    name = o.optString("name"),
+                    artist = o.optString("artist"),
+                    album = o.optString("album"),
+                    coverUrl = o.optString("coverUrl"),
+                    durationSec = o.optInt("duration", o.optInt("durationSec", 0)),
+                    // 其余解析路径都兜底 netease：留空会让后续 platform= 空参点播失败。
+                    platform = o.optString("platform").ifBlank { "netease" },
+                    vip = parseVipFlag(o)
                 )
-            }
+            )
         }
         // 加性字段：老后端无此键时 optString 回 ""，统一折 null（调用方只判 null）
         val suggested = data.optString("suggestedKeyword").ifBlank { null }

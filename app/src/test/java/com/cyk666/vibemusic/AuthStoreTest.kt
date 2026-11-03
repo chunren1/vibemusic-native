@@ -3,6 +3,8 @@ package com.cyk666.vibemusic
 import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -59,6 +61,62 @@ class AuthStoreTest {
         assertEquals("", snap.token)
         assertEquals("", snap.username)
         assertEquals("", snap.nickname)
+    }
+
+    /**
+     * 2026-11-03 审计 P2：资料更新只能改昵称一个键。
+     *
+     * 旧实现 `load()` + `save()` 整体回写：弱网下改昵称，同一瞬间别的请求 401 完成静默
+     * 续期（新 token/refreshToken 已落盘），随后旧快照被整体写回 —— 新 refreshToken 被
+     * 覆盖回旧值（后端轮转后旧值已作废），`save` 还把 `sessionEnded` 清零。
+     */
+    @Test
+    fun updateNickname_leavesTokensAlone(): Unit = runBlocking {
+        AuthStore.save(context(), "acc1", "alice", "Alice", "ref1")
+        AuthStore.saveTokens(context(), "acc-rotated", "ref2")
+        AuthToken.sessionEnded = false
+
+        AuthStore.updateNickname(context(), "新昵称")
+
+        val snap = AuthStore.load(context())
+        assertEquals("新昵称", snap.nickname)
+        assertEquals("acc-rotated", snap.token)
+        assertEquals("ref2", snap.refreshToken)
+        assertEquals("alice", snap.username)
+        assertEquals("acc-rotated", AuthToken.token)
+        assertEquals("ref2", AuthToken.refreshToken)
+        assertFalse(AuthToken.sessionEnded)
+    }
+
+    /** 跨代写回必须整体丢弃：登出在"网络已回、还没写盘"之间发生时不能复活会话。 */
+    @Test
+    fun applyRefreshedTokens_dropsResultFromStaleEpoch(): Unit = runBlocking {
+        AuthStore.save(context(), "acc1", "alice", "Alice", "ref1")
+        val stale = AuthToken.sessionEpoch
+        AuthStore.clear(context())
+
+        val applied = AuthStore.applyRefreshedTokens(context(), "acc-late", "ref-late", stale)
+
+        assertFalse(applied)
+        assertEquals("", AuthStore.load(context()).token)
+        assertEquals("", AuthToken.token)
+        assertEquals("", AuthToken.refreshToken)
+        assertTrue(AuthToken.sessionEnded)
+    }
+
+    /** 同代写回照旧生效（别把闸门做成永久关闭）。 */
+    @Test
+    fun applyRefreshedTokens_appliesWhenEpochMatches(): Unit = runBlocking {
+        AuthStore.save(context(), "acc1", "alice", "Alice", "ref1")
+        val epoch = AuthToken.sessionEpoch
+
+        val applied = AuthStore.applyRefreshedTokens(context(), "acc2", "ref2", epoch)
+
+        assertTrue(applied)
+        assertEquals("acc2", AuthStore.load(context()).token)
+        assertEquals("ref2", AuthStore.load(context()).refreshToken)
+        assertEquals("acc2", AuthToken.token)
+        assertEquals("ref2", AuthToken.refreshToken)
     }
 
     @Test

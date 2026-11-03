@@ -15,6 +15,31 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
+ * 更新包缓存只留 [keep] 一份，返回删掉的兄弟包数量。
+ *
+ * 只动 `vibemusic-*.apk` / `*.apk.part`：`updates` 目录里本来就只放这两类，但用前缀
+ * 收窄范围，避免哪天有人往里塞别的东西被误删。删除失败不抛（cache 目录只读/被占用
+ * 时下载本身还得继续）。
+ */
+internal fun pruneStaleApks(dir: File, keep: File): Int {
+    val keepPart = partFileFor(keep).name
+    val siblings = dir.listFiles() ?: return 0
+    var removed = 0
+    for (f in siblings) {
+        if (f.name == keep.name || f.name == keepPart) continue
+        if (!f.name.startsWith("vibemusic-")) continue
+        if (!f.name.endsWith(".apk") && !f.name.endsWith(".apk.part")) continue
+        if (f.isDirectory) continue
+        try {
+            if (f.delete()) removed++
+        } catch (_: Exception) {
+            SilentFail.note("UpdateCoordinator.pruneStaleApks")
+        }
+    }
+    return removed
+}
+
+/**
  * Self-update flow, lifted out of `MainActivity.onCreate` (refactor slice C4).
  *
  * This is a **pure code move**: state names, operation order, 24h throttle,
@@ -171,6 +196,9 @@ class UpdateCoordinator(
                 val dir = File(context.cacheDir, "updates").apply { mkdirs() }
                 val safeTag = rel.tag.replace(Regex("[^A-Za-z0-9._-]"), "_")
                 val apk = File(dir, "vibemusic-$safeTag.apk")
+                // 只留本次这一份：每发一版都下 ~4MB，全仓没有任何清理点，用户连续升级
+                // N 个版本就是 N 份残留（系统清 cache 之前一直占着）。
+                pruneStaleApks(dir, keep = apk)
                 if (!isDownloadComplete(apk, rel.apkSize)) {
                     // 回退源必须带**同 tag**：`.../latest` 是正式版，测试通道回退
                     // 会装到另一个版本（UPD-2）。

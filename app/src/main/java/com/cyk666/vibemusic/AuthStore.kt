@@ -32,6 +32,24 @@ object AuthToken {
      * "logged out" distinguishable from "cookie-only session".
      */
     @Volatile var sessionEnded: Boolean = false
+
+    /**
+     * 会话代次：每次「登出 / 清空 / 登录成功」自增。
+     *
+     * 为什么需要：静默续期的网络往返可以卡到 45s（connect 15 + read 30）。旧实现只在
+     * 拿锁时判一次 `sessionEnded`，于是「401 → refresh 卡住 → 用户退出登录 → refresh
+     * 返回 200」会让这次迟到的成功把 token 写回内存和磁盘，下次冷启动 `/me` 直接成功
+     * = 退出登录被静默撤销（2026-11-03 审计 P1）。代次在写回那一刻再比一次，跨代的
+     * 结果整体丢弃。
+     */
+    private val epochCounter = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** 读代次：`endSession` 与登录可能并发，用原子读避免丢更新（丢更新会让闸门失效）。 */
+    val sessionEpoch: Long get() = epochCounter.get()
+
+    fun bumpSessionEpoch() {
+        epochCounter.incrementAndGet()
+    }
 }
 
 /** Token-only persistence. Password is never stored. */
@@ -72,15 +90,65 @@ object AuthStore {
         AuthToken.refreshToken = refreshToken
         // A successful login/register re-arms silent refresh.
         AuthToken.sessionEnded = false
+        // 换号/登录也换代次：登录前发出的静默续期若迟到返回，绝不能覆盖新账号的凭据。
+        AuthToken.bumpSessionEpoch()
     }
 
-    suspend fun saveTokens(context: Context, token: String, refreshToken: String) {
-        context.authDataStore.edit { p ->
-            p[KEY_TOKEN] = token
-            if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken
+    /** 同代写回（Kotlin 侧常用入口）。跨代/已登出时返回 false 且不落盘。 */
+    suspend fun saveTokens(context: Context, token: String, refreshToken: String): Boolean =
+        applyRefreshedTokens(context, token, refreshToken, AuthToken.sessionEpoch)
+
+    /**
+     * 静默续期的唯一写回口。[epoch] 是进入续期时抓的 [AuthToken.sessionEpoch] 快照。
+     *
+     * 两道门都必须在**写的时候**判，而不是在拿锁时判一次：
+     * - 磁盘：`edit` 与登出的 [clear]（同样是 `edit`）由 DataStore 串行执行，把代次
+     *   检查放进 `edit` 内部 → 登出先落地则本次写入整体跳过，不会出现「行删了又写回」。
+     * - 内存：写盘后同代再写 `AuthToken`，避免登出后内存又被喂回旧 token。
+     *
+     * 返回 false = 结果被丢弃（已登出/已换号）。调用方按 NETWORK_FAIL 处理：这次请求
+     * 失败，但绝不复活会话。
+     */
+    suspend fun applyRefreshedTokens(
+        context: Context,
+        token: String,
+        refreshToken: String,
+        epoch: Long
+    ): Boolean {
+        fun current() = AuthToken.sessionEpoch == epoch && !AuthToken.sessionEnded
+        var applied = false
+        try {
+            context.authDataStore.edit { p ->
+                if (!current()) return@edit
+                p[KEY_TOKEN] = token
+                if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken
+                applied = true
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // 写盘失败（磁盘满/DataStore IO 异常）不埋掉这次续期：内存里换上新 token
+            // 让当前进程继续可用，冷启动后旧值只是 401 一次，与旧行为一致。
+            if (!current()) return false
+            AuthToken.token = token
+            if (refreshToken.isNotBlank()) AuthToken.refreshToken = refreshToken
+            return true
         }
-        AuthToken.token = token
-        if (refreshToken.isNotBlank()) AuthToken.refreshToken = refreshToken
+        if (applied && current()) {
+            AuthToken.token = token
+            if (refreshToken.isNotBlank()) AuthToken.refreshToken = refreshToken
+        }
+        return applied
+    }
+
+    /**
+     * 只改昵称一个键。
+     *
+     * 为什么不用 `load()` + `save()`：资料更新拿的是**读**时刻的快照，回写会把期间
+     * 静默续期刚落盘的新 token/refreshToken 整体覆盖回旧值，`save` 还会顺手把
+     * `sessionEnded` 清零（2026-11-03 审计 P2）。
+     */
+    suspend fun updateNickname(context: Context, nickname: String) {
+        context.authDataStore.edit { p -> p[KEY_NICKNAME] = nickname }
     }
 
     suspend fun clear(context: Context) {
@@ -94,6 +162,7 @@ object AuthStore {
         AuthToken.refreshToken = ""
         AuthToken.username = ""
         AuthToken.sessionEnded = true
+        AuthToken.bumpSessionEpoch()
     }
 
     suspend fun load(context: Context): Snapshot {

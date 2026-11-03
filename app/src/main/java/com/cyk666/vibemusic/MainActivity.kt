@@ -2176,14 +2176,8 @@ class MainActivity : ComponentActivity() {
                 api.launch("改资料失败") {
                     currentUser = VibeApi.updateProfile(nickname, gender, birthday)
                     try {
-                        val snap = AuthStore.load(context)
-                        AuthStore.save(
-                            context,
-                            snap.token,
-                            snap.username,
-                            currentUser?.nickname.orEmpty(),
-                            snap.refreshToken
-                        )
+                        // 只改昵称一个键：load()+save() 整体回写会覆盖期间轮转的 token。
+                        AuthStore.updateNickname(context, currentUser?.nickname.orEmpty())
                     } catch (_: Exception) {
                         SilentFail.note("MainActivity.onCreate:2282")
                     }

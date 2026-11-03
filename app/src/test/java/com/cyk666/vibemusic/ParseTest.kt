@@ -56,7 +56,32 @@ class ParseTest {
         assertEquals("", bare.album)
         assertEquals("", bare.coverUrl)
         assertEquals(0, bare.durationSec)
-        assertEquals("", bare.platform)
+        // 2026-11-03：platform 缺省兜底 netease（其余解析路径一直如此，只有搜索留空 →
+        // 后续 platform= 空参点播失败）。
+        assertEquals("netease", bare.platform)
+    }
+
+    @Test
+    fun parseSearch_listMissingThrowsInsteadOfSilentEmpty() {
+        // data.list 缺失/为 null 是协议漂移，不能渲染成"没搜到"（空列表 data.list=[] 才是）。
+        for (bad in listOf(
+            """{"code":200,"message":"ok","data":{"total":0}}""",
+            """{"code":200,"message":"ok","data":{"total":0,"list":null}}"""
+        )) {
+            try {
+                VibeApi.parseSearch(bad)
+                fail("expected RuntimeException for missing/null list")
+            } catch (e: RuntimeException) {
+                assertTrue((e.message ?: "").contains("unexpected data shape"))
+            }
+        }
+    }
+
+    @Test
+    fun parseSearch_emptyListIsLegitEmptyResult() {
+        val r = VibeApi.parseSearch("""{"code":200,"message":"ok","data":{"total":0,"list":[]}}""")
+        assertTrue(r.list.isEmpty())
+        assertEquals(0, r.total)
     }
 
     @Test
