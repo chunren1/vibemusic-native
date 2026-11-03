@@ -60,4 +60,36 @@ class EnvelopeAuthTest {
         assertEquals(2, attempts)
         assertEquals(1, refreshes)
     }
+
+    /**
+     * 续期拿到的必须是**本次请求真正携带**的 token。
+     *
+     * 旧实现用 catch 时刻的 `AuthToken.token`：请求拿 token-A 发出去，期间并发续期
+     * 已换成 token-B，这次旧 401 才到 —— 于是 `failed = token-B` 与当前值相同，
+     * `shouldReuseRefreshedToken` 判成「新 token 也 401」，白刷一轮（后端轮转即作废
+     * 旧 refresh，每次多余轮转都在放大失效面）。
+     */
+    @Test
+    fun lateUnauthorized401ReportsTokenTheRequestCarried() = runBlocking {
+        AuthToken.token = "token-A"
+        var attempts = 0
+        var seenFailed: String? = null
+        val out = VibeApi.authedWith(
+            refresh = { failed: String ->
+                seenFailed = failed
+                RefreshOutcome.REFRESHED
+            }
+        ) {
+            attempts += 1
+            if (attempts == 1) {
+                // 模拟并发续期已经换了 token，随后这次旧 token 的 401 才到。
+                AuthToken.token = "token-B"
+                throw AuthException("密码错/登录过期，请重登 (HTTP 401)")
+            }
+            "ok"
+        }
+        assertEquals("ok", out)
+        assertEquals(2, attempts)
+        assertEquals("token-A", seenFailed)
+    }
 }

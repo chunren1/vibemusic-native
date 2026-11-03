@@ -524,10 +524,13 @@ object VibeApi {
         refresh: suspend (String) -> RefreshOutcome,
         block: suspend () -> T
     ): T {
+        // 抓**本次请求真正携带**的 token：catch 时刻再读会拿到并发续期已经轮转后的新值，
+        // 于是"迟到的 401"被当成"新 token 也 401"，白白多刷一轮（每次轮转都作废旧凭据）。
+        val sent = AuthToken.token
         try {
             return block()
         } catch (e: AuthException) {
-            val failed = AuthToken.token
+            val failed = sent
             val outcome = try {
                 refresh(failed)
             } catch (e2: kotlinx.coroutines.CancellationException) {
