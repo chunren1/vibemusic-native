@@ -131,4 +131,22 @@ class CachePolicyTest {
         assertTrue(MediaCache.sizeBytes(ctx) >= 0L)
     }
 
+    // ---- 单曲清理（位置越界错误重试前用，2026-11-06） ----
+
+    @Test
+    fun remove_blankUrlIsFalse() {
+        assertFalse(MediaCache.remove(context(), ""))
+        assertFalse(MediaCache.remove(context(), "   "))
+    }
+
+    @Test
+    fun remove_missingKeyIsSafeAndNeverThrows() {
+        val ctx = context()
+        MediaCache.clear(ctx)
+        MediaCache.remove(ctx, demo.streamUrl())
+        // 幂等：没有该 key 时重复调用也不许抛（重试路径不能因清缓存失败而中断）
+        MediaCache.remove(ctx, demo.streamUrl())
+        assertEquals(0L, MediaCache.cachedBytes(ctx, demo.streamUrl()))
+    }
+
 }

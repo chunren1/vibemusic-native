@@ -75,4 +75,63 @@ class PlaybackErrorPolicyTest {
         // 位置越界（>duration）也按"已结束"处理
         assertFalse(shouldStopInsteadOfSkip(300_000L, 240_000L, io))
     }
+
+    // ---- 2026-11-06：位置越界型错误的重试起点 ----
+
+    @Test
+    fun readPositionOutOfRange_mustRestartFromStart() {
+        assertTrue(
+            shouldRestartFromStart(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+        )
+        // 其余 IO 错误只是"这一下没拿到字节"，位置仍然有效 → 保持原来中途续播的行为
+        assertFalse(shouldRestartFromStart(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS))
+        assertFalse(shouldRestartFromStart(PlaybackException.ERROR_CODE_TIMEOUT))
+        assertFalse(shouldRestartFromStart(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED))
+    }
+
+    @Test
+    fun retryAfterOutOfRange_dropsResumePosition() {
+        // 中途、位置有效（>0）——但错误码说明该位置在新资源里不存在，不能 seek 回去
+        assertFalse(
+            shouldRestorePositionAfterRetry(
+                midSong = true,
+                positionMs = 120_000L,
+                errorCode = PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+            )
+        )
+    }
+
+    @Test
+    fun retryAfterOrdinaryDropout_keepsResumePosition() {
+        // 普通中途断流：位置仍有效，回原位置才不会"又从头播一遍"
+        assertTrue(
+            shouldRestorePositionAfterRetry(
+                midSong = true,
+                positionMs = 120_000L,
+                errorCode = PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            )
+        )
+        assertTrue(
+            shouldRestorePositionAfterRetry(
+                midSong = true,
+                positionMs = 120_000L,
+                errorCode = PlaybackException.ERROR_CODE_TIMEOUT
+            )
+        )
+        // 没到中途 / 本来就在开头：默认值 0 即可，不需要 seek
+        assertFalse(
+            shouldRestorePositionAfterRetry(
+                midSong = false,
+                positionMs = 120_000L,
+                errorCode = PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            )
+        )
+        assertFalse(
+            shouldRestorePositionAfterRetry(
+                midSong = true,
+                positionMs = 0L,
+                errorCode = PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            )
+        )
+    }
 }

@@ -51,6 +51,34 @@ fun shouldStopInsteadOfSkip(positionMs: Long, durationMs: Long, errorCode: Int):
     return true
 }
 
+/**
+ * 该 IO 错误说明"请求的位置已超出当前资源"，位置本身不可复用，重试必须从头开始。
+ *
+ * 现场（2026-11-06 用户报「暂停数小时后点播放，报 READ_POSITION_OUT_OF_RANGE 且再点也没用」）：
+ * 服务端 `/api/songs/stream` 会把上游 CDN 的 416 伪装成 `200 + 202 字节 HTML`，
+ * Media3 收到「200 + 非零 position」会自己 skip 掉 position 个字节 → 直接 EOF →
+ * 抛这个错误码。它的含义不是"这一次没读到"，而是**"你问的起点在这个资源里不存在"**：
+ * 同一位置再请求多少次都是同一个答案。所以只重试不换起点等于白试。
+ *
+ * 注意与"中途断流回原位置"的区别（见 [shouldRestorePositionAfterRetry]）：断流是
+ * 暂时没拿到字节，原位置仍然有效；这个错误是位置本身失效，必须回 0。
+ */
+fun shouldRestartFromStart(errorCode: Int): Boolean =
+    errorCode == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+
+/**
+ * 纯函数：这次同曲重试要不要把播放点带回 [positionMs]。
+ *
+ * 保住播放点只在"位置仍然有效"时才是体验优化：
+ * - [midSong] = false（歌根本没起来/已到结尾）：默认值 0 就对了。
+ * - [positionMs] <= 0：本来就在开头，无需 seek。
+ * - [shouldRestartFromStart]：位置已越界（典型是重取到更短的音质文件，风控/VIP
+ *   掉档后原位置永远超出新文件长度）→ 必须放弃原位置，否则二次 416，用户再点
+ *   播放也永远失败。这是本条规则存在的全部理由，别为了"少一次 seek"把它删了。
+ */
+fun shouldRestorePositionAfterRetry(midSong: Boolean, positionMs: Long, errorCode: Int): Boolean =
+    midSong && positionMs > 0L && !shouldRestartFromStart(errorCode)
+
 /** Player 侧薄封装：读位置/时长失败按"没在中途"处理（宁可沿用旧行为，不误停）。 */
 fun isMidSongFailure(player: Player, errorCode: Int): Boolean {
     val pos = try {

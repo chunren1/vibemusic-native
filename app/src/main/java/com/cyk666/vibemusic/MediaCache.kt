@@ -183,6 +183,31 @@ object MediaCache {
     fun isCached(context: Context, url: String): Boolean = cachedBytes(context, url) > 0L
 
     /**
+     * 移除**单曲**缓存；[url] 就是 [cacheKey]（完整 stream URL）。失败静默，绝不抛。
+     *
+     * 为什么需要单曲粒度：[get] 的 SimpleCache 按 URL 存整段字节，而
+     * `CacheDataSource` 是先查缓存再走网络的写入式缓存 —— 一旦某次响应被上游
+     * 伪装成 `200 + 一小段 HTML`（历史问题：`/api/songs/stream` 把 416 变成
+     * 202 字节错误页），这段 HTML 会被当成正常 payload 落进缓存。之后同一个 URL
+     * 的读取会**优先命中**这段坏 span（比网络快得多），于是无论重试多少次、从哪个
+     * 位置开始，都还在读那段 HTML。清掉这个 key 是让重试真正回到网络的唯一办法。
+     *
+     * @return true 表示已删除（或本来就没有）；false 表示 url 为空/删除失败。
+     */
+    fun remove(context: Context, url: String): Boolean {
+        if (url.isBlank()) return false
+        return try {
+            // SimpleCache.removeResource 是 void（media3 1.9.4）：没有该 key 时静默
+            // 什么都不做，正好符合"删了/本来就没有"两种情况的返回值语义。
+            get(context).removeResource(url)
+            true
+        } catch (_: Exception) {
+            SilentFail.note("MediaCache.remove:205")
+            false
+        }
+    }
+
+    /**
      * 从 0 开始**连续可读**的字节数（离线点播门用，PB-4）。
      *
      * 为什么不能用 [cachedBytes]：那是区间内所有 span 的字节**总和**，中间有空洞

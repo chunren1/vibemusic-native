@@ -880,13 +880,20 @@ class PlaybackService : MediaLibraryService() {
                     // 中途断流的补试要回到原位置：`Player.replaceMediaItem` 只有
                     // (index, item) 两参（javap 实测 media3 1.9.4），换完位置会回到默认值，
                     // 不自己 seek 回去，听感就是"这首歌又从头播一遍"。
+                    // 例外：位置越界型错误不 seek（见 shouldRestorePositionAfterRetry）——
+                    // 那个位置在新资源里根本不存在，seek 回去只会二次 416。
                     val midSong = isMidSongFailure(exo, error.errorCode)
                     val resumeAt = try { exo.currentPosition } catch (_: Exception) { 0L }
                     try {
                         suppressSwitchStart = true
-                        exo.replaceMediaItem(errIndex, songFromMediaItem(errItem).toCachedMediaItem())
+                        // 位置越界型错误：重试前清掉这条 URL 可能被上游错误页污染的缓存，
+                        // 并从 0 开始（不 seek 回已失效的旧位置）。详见 retryMediaItem。
+                        exo.replaceMediaItem(
+                            errIndex,
+                            retryMediaItem(this@PlaybackService, errItem, error.errorCode)
+                        )
                         exo.prepare()
-                        if (midSong && resumeAt > 0) exo.seekTo(resumeAt)
+                        if (shouldRestorePositionAfterRetry(midSong, resumeAt, error.errorCode)) exo.seekTo(resumeAt)
                         if (playerWantsPlay(exo)) exo.play()
                     } catch (_: Exception) {
                         SilentFail.note("PlaybackService.onPlayerError:828")
