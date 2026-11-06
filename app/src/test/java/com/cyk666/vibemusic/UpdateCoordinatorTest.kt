@@ -119,15 +119,17 @@ class UpdateCoordinatorTest {
     }
 
     @Test
-    fun checkOnLaunch_usesPersistedChannel(): Unit = runBlocking {
+    fun checkOnLaunch_ignoresPersistedChannel(): Unit = runBlocking {
         resetThrottle()
+        // 2026-11-06：测试通道已移除，持久化里的 BETA 必须被忽略，
+        // 否则老用户机器上残留的值会绕过界面继续拉 prerelease。
         QueueStore.saveUpdateChannel(context(), UpdateChannel.BETA)
         var seen: UpdateChannel? = null
         val c = coordinator(this, fetch = { ch -> seen = ch; release("v99.0.0-ai") })
         c.checkOnLaunch()
         assertTrue(awaitTrue { seen != null })
-        assertEquals(UpdateChannel.BETA, seen)
-        assertEquals(UpdateChannel.BETA, c.channel)
+        assertEquals(UpdateChannel.STABLE, seen)
+        assertEquals(UpdateChannel.STABLE, c.channel)
     }
 
     @Test

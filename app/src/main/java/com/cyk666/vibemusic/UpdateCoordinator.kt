@@ -110,14 +110,11 @@ class UpdateCoordinator(
                     0L
                 }
                 if (!shouldRunUpdateCheck(now, last, force = false)) return@launch
-                val storedChannel = try {
-                    QueueStore.loadUpdateChannel(context)
-                } catch (_: Exception) {
-                    UpdateChannel.STABLE
-                }
-                channel = storedChannel
+                // 2026-11-06：通道已统一为正式版。这里原本还从持久化读一次，
+                // 会绕过 loadChannel() 让老用户机器上的 BETA 继续拉 prerelease。
+                channel = UpdateChannel.STABLE
                 val rel = try {
-                    fetchLatest(storedChannel)
+                    fetchLatest(UpdateChannel.STABLE)
                 } catch (_: Exception) {
                     // 拉取失败**不**记时间戳：否则断网启动一次就把 24h 窗口烧掉，
                     // 用户接下来一天都收不到更新（手动检查不受影响，但没人会去点）。
