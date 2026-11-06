@@ -230,48 +230,6 @@ fun KeepAliveSelfCheckRow(
 }
 
 @Composable
-fun UpdateChannelRow(
-    channel: UpdateChannel,
-    onSelect: (UpdateChannel) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "更新通道",
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = updateChannelSubtitle(channel),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        TextButton(
-            onClick = { onSelect(UpdateChannel.STABLE) },
-            enabled = channel != UpdateChannel.STABLE
-        ) {
-            Text(if (channel == UpdateChannel.STABLE) "✓正式版" else "正式版")
-        }
-        TextButton(
-            onClick = { onSelect(UpdateChannel.BETA) },
-            enabled = channel != UpdateChannel.BETA
-        ) {
-            Text(if (channel == UpdateChannel.BETA) "✓测试版" else "测试版")
-        }
-    }
-}
-
-@Composable
 fun OrientationModeRow(
     mode: OrientationMode,
     onSelect: (OrientationMode) -> Unit
@@ -366,8 +324,6 @@ fun SettingsScreen(
     versionLabel: String,
     checkingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
-    updateChannel: UpdateChannel = UpdateChannel.STABLE,
-    onSelectChannel: (UpdateChannel) -> Unit = {},
     orientationMode: OrientationMode = OrientationMode.LOCK_PORTRAIT,
     onSelectOrientation: (OrientationMode) -> Unit = {},
     onClearCache: () -> Unit,
@@ -546,42 +502,14 @@ fun SettingsScreen(
                 trailing = { Text(text = "✓", color = NeonViolet) }
             )
             MineDivider()
-            SettingsRowShell(
-                title = "登录诊断",
-                subtitle = remember(authDiagCode, authDiagTimeMs, positionSaveTimeMs) {
-                    formatAuthDiag(authDiagCode, authDiagTimeMs, positionSaveTimeMs)
-                },
-                showChevron = false
-            )
-            if (playDiagLine.isNotBlank()) {
-                MineDivider()
-                SettingsRowShell(
-                    title = "播放诊断",
-                    subtitle = playDiagLine,
-                    showChevron = false
-                )
-            }
-            // 最近 5 条（2026-10-19）：沿用同一行样式（多行 subtitle，同"关于"行的做法），
-            // 不做新设计、不加新控件类型；单条文案保留在上面那行。
-            if (recentDiagLine.isNotBlank()) {
-                MineDivider()
-                SettingsRowShell(
-                    title = "播放诊断 · 最近 5 条",
-                    subtitle = recentDiagLine,
-                    showChevron = false
-                )
-            }
-            MineDivider()
+            // 诊断信息（登录诊断 / 播放诊断）不再对用户展示：它们是开发排查用的，
+            // 数据仍由 PlayDiag / 认证链路写入本地 SharedPreferences，需要时用 adb 取。
             SettingsRowShell(
                 title = aboutRow.title,
-                subtitle = "${aboutRow.subtitle}\n$SETTINGS_GITHUB_URL\n开源致谢：感谢每一位贡献者"
+                subtitle = aboutRow.subtitle
             )
         }
         Spacer(Modifier.height(4.dp))
-        UpdateChannelRow(
-            channel = updateChannel,
-            onSelect = onSelectChannel
-        )
         OrientationModeRow(
             mode = orientationMode,
             onSelect = onSelectOrientation

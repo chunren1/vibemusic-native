@@ -81,27 +81,14 @@ class UpdateCoordinator(
     var channel by mutableStateOf(UpdateChannel.STABLE)
         private set
 
-    /** Load the persisted channel once per Activity (was `LaunchedEffect("update-channel")`). */
+    /**
+     * 更新通道已统一为正式版（2026-11-06）：测试通道的 UI 入口已移除，
+     * 这里也不再读持久化值 —— 老用户机器上残留的 BETA 记录不该继续生效，
+     * 否则界面上看不到开关、更新检查却还在拉 prerelease。
+     * 保留函数是为了不动 Activity 的调用点。
+     */
     fun loadChannel() {
-        scope.launch {
-            channel = try {
-                QueueStore.loadUpdateChannel(context)
-            } catch (_: Exception) {
-                SilentFail.note("UpdateCoordinator.loadChannel:55")
-                UpdateChannel.STABLE
-            }
-        }
-    }
-
-    fun selectChannel(value: UpdateChannel) {
-        channel = value
-        scope.launch {
-            try {
-                QueueStore.saveUpdateChannel(context, value)
-            } catch (_: Exception) {
-                SilentFail.note("UpdateCoordinator.selectChannel:67")
-            }
-        }
+        channel = UpdateChannel.STABLE
     }
 
     /** Dialog "later": ignore while installing so the sheet cannot vanish mid-flow. */

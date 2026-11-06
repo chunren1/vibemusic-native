@@ -162,10 +162,11 @@ class UpdateCoordinatorTest {
     }
 
     @Test
-    fun selectChannel_persists(): Unit = runBlocking {
+    fun loadChannel_isAlwaysStable(): Unit = runBlocking {
+        // 2026-11-06：测试通道已移除，持久化里的 BETA 不再生效。
+        QueueStore.saveUpdateChannel(context(), UpdateChannel.BETA)
         val c = coordinator(this, fetch = { release("v99.0.0-ai") })
-        c.selectChannel(UpdateChannel.BETA)
-        assertEquals(UpdateChannel.BETA, c.channel)
-        assertTrue(awaitTrue { QueueStore.loadUpdateChannel(context()) == UpdateChannel.BETA })
+        c.loadChannel()
+        assertEquals(UpdateChannel.STABLE, c.channel)
     }
 }

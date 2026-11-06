@@ -3790,8 +3790,6 @@ class MainActivity : ComponentActivity() {
                                 versionLabel = formatVersionLabel(appVersionName),
                                 checkingUpdate = updater.manualChecking,
                                 onCheckUpdate = { updater.checkManual(appVersionName) },
-                                updateChannel = updater.channel,
-                                onSelectChannel = { updater.selectChannel(it) },
                                 orientationMode = orientationMode,
                                 onSelectOrientation = ::setOrientationMode,
                                 onClearCache = ::clearMediaCache,
