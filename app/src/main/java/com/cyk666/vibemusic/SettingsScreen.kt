@@ -473,26 +473,10 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
             }
-            // 诊断联动（2026-10-10）：最近一次播放诊断=进程曾被系统清理且白名单未开 →
-            // 把"下拉播放键失灵"的实机证据直接指到保活设置上（否则用户根本不知道要开）。
-            if (shouldShowKilledHint(playDiagCode, keepAliveIgnoring)) {
-                Text(
-                    text = KILLED_HINT_TEXT,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
-                )
-            }
-            MineDivider()
-            val keepAliveCheck = remember(keepAliveIgnoring, notificationsEnabled) {
-                KeepAliveCheck(keepAliveIgnoring, notificationsEnabled)
-            }
-            KeepAliveSelfCheckRow(
-                check = keepAliveCheck,
-                oemGuide = oemGuide,
-                onOpenBatterySettings = onOpenBatterySettings,
-                onOpenNotificationSettings = onOpenNotificationSettings
-            )
+            // 2026-11-06：保活自查与"检测到服务曾被清理"提示下线。
+            // 它们的前提（Media3 1.5.1 暂停必退前台 → 被 ROM 清理 → 通知键失灵）
+            // 在 1.9.4 上已不成立；cold 事件也可能只是用户划掉了任务，据此推断会误报。
+            // 设置项本身保留：仍是"通知键没反应"时唯一可自救的入口。
         }
         SettingsSectionTitle("关于与退出")
         MineSectionCard {

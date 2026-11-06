@@ -246,9 +246,12 @@ class BeautyPhase10Test {
     }
 
     @Test
-    fun `后台保活_未开启带引导文案`() {
+    fun `后台保活_未开启为可选项`() {
+        // 2026-11-06：不再是"建议开启"的强引导——1.9.4 之后原假设已不成立，
+        // 只在文案里保留"通知键没反应时可自救"的说明。
         val row = keepAliveRow(ignoring = false)
-        assertTrue(row.title.contains("建议开启"))
+        assertTrue(row.title == "后台保活")
+        assertTrue(row.subtitle.contains("可选"))
         assertTrue(row.subtitle.contains("通知栏播放键"))
     }
 

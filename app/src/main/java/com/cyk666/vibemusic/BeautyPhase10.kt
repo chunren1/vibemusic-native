@@ -176,7 +176,7 @@ data class KeepAliveRow(val title: String, val subtitle: String)
 fun keepAliveRow(ignoring: Boolean): KeepAliveRow = if (ignoring) {
     KeepAliveRow("后台保活", "已开启 · 暂停时后台不易被清理")
 } else {
-    KeepAliveRow("后台保活（建议开启）", "未开启：暂停久了通知栏播放键可能没反应 · 点此开启")
+    KeepAliveRow("后台保活", "可选：若通知栏播放键长时间暂停后没反应，可把 App 加入系统白名单")
 }
 
 /**
