@@ -330,11 +330,22 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            get(context).removeResource(url)"
+        errorLine2="                         ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
+            line="202"
+            column="26"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="                get(context).getCachedSpans(url).map {"
         errorLine2="                             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="200"
+            line="225"
             column="30"/>
     </issue>
 
@@ -345,7 +356,7 @@
         errorLine2="                                      ~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="201"
+            line="226"
             column="39"/>
     </issue>
 
@@ -356,7 +367,7 @@
         errorLine2="                                                   ~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="201"
+            line="226"
             column="52"/>
     </issue>
 
@@ -367,7 +378,7 @@
         errorLine2="                                                              ~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="201"
+            line="226"
             column="63"/>
     </issue>
 
@@ -378,7 +389,7 @@
         errorLine2="                         ~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="212"
+            line="237"
             column="26"/>
     </issue>
 
@@ -389,7 +400,7 @@
         errorLine2="            ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="229"
+            line="254"
             column="13"/>
     </issue>
 
@@ -400,7 +411,7 @@
         errorLine2="                             ~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="239"
+            line="264"
             column="30"/>
     </issue>
 
@@ -411,7 +422,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/MediaCache.kt"
-            line="241"
+            line="266"
             column="26"/>
     </issue>
 
@@ -759,7 +770,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/cyk666/vibemusic/PlayerScreen.kt"
-            line="402"
+            line="394"
             column="37"/>
     </issue>
 
