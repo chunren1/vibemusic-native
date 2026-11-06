@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.cyk666.vibemusic.security.TokenCipher
+import com.cyk666.vibemusic.security.TokenCipherRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -54,12 +56,22 @@ object AuthToken {
 
 /** Token-only persistence. Password is never stored. */
 object AuthStore {
-    /** Preferences DataStore name; file is datastore/<name>.preferences_pb. Mirrored in backup rules. */
+    /**
+     * Preferences DataStore name; file is datastore/<name>.preferences_pb. Mirrored in backup rules.
+     *
+     * Token 与 refreshToken 落盘前一律走 [TokenCipher]（AES/GCM，见 security/TokenCipher.kt），
+     * username/nickname 仍是明文。备份规则**故意**把整个 auth 文件排除：密钥住在
+     * AndroidKeyStore 里、不随备份走，恢复到新机必然解不开 —— 宁可新机 401 一次
+     * （游客态可继续用），也不要让明文 token 进云端备份 / 换机传输。
+     */
     const val DATASTORE_NAME = "auth"
     private val KEY_TOKEN = stringPreferencesKey("token")
     private val KEY_REFRESH = stringPreferencesKey("refresh_token")
     private val KEY_USERNAME = stringPreferencesKey("username")
     private val KEY_NICKNAME = stringPreferencesKey("nickname")
+
+    /** 每次读写都取当前实现：单测可换 JVM 密钥版，生产走 AndroidKeyStore。 */
+    private val cipher: TokenCipher get() = TokenCipherRegistry.current
 
     data class Snapshot(
         val token: String,
@@ -76,14 +88,18 @@ object AuthStore {
         refreshToken: String = ""
     ) {
         context.authDataStore.edit { p ->
-            p[KEY_TOKEN] = token
+            p[KEY_TOKEN] = cipher.encrypt(token)
             p[KEY_USERNAME] = username
             p[KEY_NICKNAME] = nickname
             // **整体替换**：登录/注册响应当次没带 refreshToken（cookie-only 会话）时，
             // 绝不能沿用上一个账号的续期凭据 —— 否则新账号的续期会挂到旧账号上，
             // 退出再登录还可能被旧 cookie 静默拉回（CODE-REVIEW-2026-10-28 API-4）。
             // 轮转语义（后端只回新 refresh 才替换）只在 saveTokens 里。
-            if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken else p.remove(KEY_REFRESH)
+            if (refreshToken.isNotBlank()) {
+                p[KEY_REFRESH] = cipher.encrypt(refreshToken)
+            } else {
+                p.remove(KEY_REFRESH)
+            }
         }
         AuthToken.token = token
         AuthToken.username = username
@@ -120,8 +136,8 @@ object AuthStore {
         try {
             context.authDataStore.edit { p ->
                 if (!current()) return@edit
-                p[KEY_TOKEN] = token
-                if (refreshToken.isNotBlank()) p[KEY_REFRESH] = refreshToken
+                p[KEY_TOKEN] = cipher.encrypt(token)
+                if (refreshToken.isNotBlank()) p[KEY_REFRESH] = cipher.encrypt(refreshToken)
                 applied = true
             }
         } catch (e: Exception) {
@@ -152,6 +168,7 @@ object AuthStore {
     }
 
     suspend fun clear(context: Context) {
+        // 删键即可，不需要“加密地删”；内存镜像同步清空。
         context.authDataStore.edit { p ->
             p.remove(KEY_TOKEN)
             p.remove(KEY_REFRESH)
@@ -167,11 +184,12 @@ object AuthStore {
 
     suspend fun load(context: Context): Snapshot {
         val snap = context.authDataStore.data.map { p ->
+            // 历史明文（无 v1: 前缀）原样返回；密文解不开时是空串（不崩，见 TokenCipher）。
             Snapshot(
-                token = p[KEY_TOKEN].orEmpty(),
+                token = cipher.decrypt(p[KEY_TOKEN].orEmpty()),
                 username = p[KEY_USERNAME].orEmpty(),
                 nickname = p[KEY_NICKNAME].orEmpty(),
-                refreshToken = p[KEY_REFRESH].orEmpty()
+                refreshToken = cipher.decrypt(p[KEY_REFRESH].orEmpty())
             )
         }.first()
         // Populate the synchronous holder so the interceptor works without DataStore reads.

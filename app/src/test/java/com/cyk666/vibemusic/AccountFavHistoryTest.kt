@@ -74,6 +74,19 @@ class AccountFavHistoryTest {
     }
 
     @Test
+    fun buildRegisterBody_withInviteCode() {
+        val o = JSONObject(VibeApi.buildRegisterBody("bob", "password123", "Bob", "INV-2026"))
+        assertEquals("INV-2026", o.getString("inviteCode"))
+    }
+
+    /** 邀请码未启用时不能塞空字段（服务端按“没传”处理）。 */
+    @Test
+    fun buildRegisterBody_blankInviteCodeOmitted() {
+        assertFalse(JSONObject(VibeApi.buildRegisterBody("bob", "password123", "Bob", null)).has("inviteCode"))
+        assertFalse(JSONObject(VibeApi.buildRegisterBody("bob", "password123", "Bob", " ")).has("inviteCode"))
+    }
+
+    @Test
     fun parseRegister_sameShapeAsLogin() {
         val r = VibeApi.parseRegister(registerJson("tok1", "ref1"))
         assertEquals("tok1", r.token)

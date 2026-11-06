@@ -12,8 +12,8 @@ android {
         applicationId = "com.cyk666.vibemusic"
         minSdk = 26
         targetSdk = 35
-        versionCode = 105
-        versionName = "2.0.27-ai"
+        versionCode = 106
+        versionName = "2.0.28-ai"
     }
 
     val wantsRelease = gradle.startParameter.taskNames.any {

@@ -306,6 +306,8 @@ class MainActivity : ComponentActivity() {
             var authChecked by remember { mutableStateOf(false) }
             var loginBusy by remember { mutableStateOf(false) }
             var loginInitialRegister by remember { mutableStateOf(false) }
+            // 服务端 register-config 的镜像：只有 true 时注册页才显示邀请码输入框。
+            var inviteCodeRequired by remember { mutableStateOf(false) }
             // Settings 登录诊断 row: code + timestamps from "playback".
             var authDiagCode by remember { mutableStateOf("") }
             var authDiagTimeMs by remember { mutableLongStateOf(0L) }
@@ -2111,14 +2113,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun doRegister(username: String, password: String, nickname: String) {
+            /** 进注册模式时问一次服务端要不要邀请码；失败按「不需要」处理（VibeApi 已兜底）。 */
+            fun loadRegisterConfig() {
+                api.launch("注册配置加载失败") { inviteCodeRequired = VibeApi.fetchRegisterConfig() }
+            }
+
+            fun doRegister(username: String, password: String, nickname: String, inviteCode: String) {
                 if (loginBusy) return
-                if (username.isBlank() || password.isBlank()) {
-                    showError("请输入用户名和密码")
-                    return
-                }
-                if (password.length < 8) {
-                    showError("注册失败：密码至少8位")
+                val invalid = RegisterRules.submitError(username, password, inviteCode, inviteCodeRequired)
+                if (invalid != null) {
+                    showError(invalid)
                     return
                 }
                 loginBusy = true
@@ -2127,7 +2131,8 @@ class MainActivity : ComponentActivity() {
                         val r = VibeApi.register(
                             username.trim(),
                             password,
-                            nickname.trim().ifBlank { null }
+                            nickname.trim().ifBlank { null },
+                            inviteCode.trim().ifBlank { null }
                         )
                         AuthStore.save(context, r.token, r.user.username, r.user.nickname, r.refreshToken)
                         currentUser = r.user
@@ -3620,8 +3625,10 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                                 busy = loginBusy,
                                 initialRegister = loginInitialRegister,
+                                inviteCodeRequired = inviteCodeRequired,
                                 onLogin = ::doLogin,
                                 onRegister = ::doRegister,
+                                onRegisterModeEntered = ::loadRegisterConfig,
                                 onBrowseAsGuest = { screen = Screen.Discover },
                                 onBack = { screen = Screen.Mine }
                             )

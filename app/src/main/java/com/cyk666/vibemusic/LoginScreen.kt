@@ -139,15 +139,23 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
     busy: Boolean,
     initialRegister: Boolean = false,
+    inviteCodeRequired: Boolean = false,
     onLogin: (String, String) -> Unit,
-    onRegister: (String, String, String) -> Unit = { _, _, _ -> },
+    onRegister: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onRegisterModeEntered: () -> Unit = {},
     onBrowseAsGuest: () -> Unit = {},
     onBack: () -> Unit
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
+    var inviteCode by remember { mutableStateOf("") }
     var registerMode by remember(initialRegister) { mutableStateOf(initialRegister) }
+    // 进入注册模式才去问服务端要不要邀请码；界面自己不联网，只往上报一次事件。
+    // 同一模式内的重组不会重复触发（key = registerMode）。
+    LaunchedEffect(registerMode) {
+        if (registerMode) onRegisterModeEntered()
+    }
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -201,10 +209,21 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+        // 仅当服务端明确要求时才出现：多一个输入框就是多一道劝退，多数时候用不上。
+        if (registerMode && inviteCodeRequired) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = inviteCode,
+                onValueChange = { inviteCode = it },
+                label = { Text("邀请码") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = {
-                if (registerMode) onRegister(username, password, nickname)
+                if (registerMode) onRegister(username, password, nickname, inviteCode)
                 else onLogin(username, password)
             },
             enabled = !busy,

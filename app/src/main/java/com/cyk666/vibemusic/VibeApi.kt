@@ -1439,17 +1439,27 @@ object VibeApi {
     /** Idempotency header for POST /api/favorites/toggle (5-min replay guard). */
     const val FAV_IDEMPOTENCY_HEADER = "X-Request-Id"
 
-    /** Pure builder: POST /api/auth/register body (nickname omitted when blank). */
-    fun buildRegisterBody(username: String, password: String, nickname: String? = null): String {
+    /** Pure builder: POST /api/auth/register body (nickname/inviteCode omitted when blank). */
+    fun buildRegisterBody(username: String, password: String, nickname: String? = null, inviteCode: String? = null): String {
         val o = JSONObject()
             .put("username", username)
             .put("password", password)
         if (!nickname.isNullOrBlank()) o.put("nickname", nickname)
+        // 空邀请码不发字段：服务端把它当可选参数，没必要塞一个空串进去。
+        if (!inviteCode.isNullOrBlank()) o.put("inviteCode", inviteCode)
         return o.toString()
     }
 
     /** Register returns the same envelope shape as login (token + refreshToken + user). */
     fun parseRegister(json: String): LoginResult = parseLogin(json)
+
+    /**
+     * GET /api/auth/register-config（公开，无需鉴权）→ 是否需要邀请码。
+     *
+     * 失败一律回落 false，绝不抛给 UI：进注册页时拉一次，拉不到就当作不需要邀请码
+     * （服务端未启用时本来就是这个值；真启用而这次失败，服务端会拒绝并给出提示）。
+     */
+    suspend fun fetchRegisterConfig(): Boolean = RegisterRules.fetchConfig { rawGetInner("api/auth/register-config") }
 
     /** Pure builder: POST /api/auth/change-password body. */
     fun buildChangePasswordBody(oldPassword: String, newPassword: String): String =
@@ -1620,12 +1630,12 @@ object VibeApi {
         return AvatarUploadResult(url, user)
     }
 
-    suspend fun register(username: String, password: String, nickname: String?): LoginResult =
+    suspend fun register(username: String, password: String, nickname: String?, inviteCode: String? = null): LoginResult =
         suspendCoroutine { cont ->
             val req = Request.Builder()
                 .url(BASE_URL + "api/auth/register")
                 .post(
-                    buildRegisterBody(username, password, nickname)
+                    buildRegisterBody(username, password, nickname, inviteCode)
                         .toRequestBody("application/json; charset=utf-8".toMediaType())
                 )
                 .build()
