@@ -782,7 +782,10 @@ class MainActivity : ComponentActivity() {
                         c.play()
                         screen = Screen.Player
                         cacheTick += 1
-                        restorePosition(target, gen)
+                        // 2026-11-06 用户报：点歌单/搜索结果里的歌会从上次的播放点
+                        // 续播（尤其被中途切走的歌，下次点开直接跳到断点）。
+                        // 显式点选表达的是「我要听这首」，一律 0:00 起播；
+                        // 续上次播放点只保留给冷启动恢复（ensureTimeline 的 restoreSaved）。
                         val snapshot = queue
                         val snapshotIndex = currentIndex
                         scope.launch {
@@ -896,7 +899,7 @@ class MainActivity : ComponentActivity() {
                         c.play()
                         screen = Screen.Player
                         cacheTick += 1
-                        restorePosition(song, gen)
+                        // 同上：搜索里点一首 = 从头听，不续旧进度。
                         persistQueue()
                     } catch (e: Exception) {
                         showError(diagnosableError("播放失败", e))
@@ -1167,14 +1170,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (isStalePlayGen(gen, playGen)) return@launch
+                        // 0L = 从头开始。队列页点某一首与点歌单同义（2026-11-06
+                        // 用户报"切回旧歌按旧进度播"），不再续上次播放点；这里
+                        // 原来会 selectSeekRestoreTarget(...)?.let { restorePosition(...) }。
                         c.seekTo(safeIndex, 0L)
                         if (c.playbackState == Player.STATE_IDLE) c.prepare()
                         c.play()
-                        // Restore the REQUESTED song: currentMediaItemIndex is still
-                        // the old window here (seekTo is async), so resolving the
-                        // target from it restores the wrong song's position.
                         currentIndex = safeIndex
-                        selectSeekRestoreTarget(queue, safeIndex)?.let { restorePosition(it, gen) }
                     } catch (e: Exception) {
                         showError(diagnosableError("切歌失败", e))
                     }
@@ -2376,8 +2378,8 @@ class MainActivity : ComponentActivity() {
                         durationMs = c.duration.takeIf { it != C.TIME_UNSET } ?: 0L
                         // 手动 ⏭/⏮ 一律从 0:00 开始：这里原来会 `restorePosition(queue[currentIndex])`
                         // 把目标曲上次的播放点续上（队尾回绕时就是"又播回以前那首歌、还从
-                        // 上次的位置接着播"）。"续上次播放点"只属于冷启动恢复与队列点选，
-                        // 用户按"下一首"表达的是"换一首"，不是"继续上次"。
+                        // 上次的位置接着播"）。2026-11-06 起口径统一：「续上次播放点」只属于
+                        // **冷启动恢复**；手动切歌、点歌单、点队列、换源一律从 0 开始。
                         // 外部音频（content:// 一次性授权）不落盘：下次启动已无读权限，
                         // 存下来只会让「恢复上次队列」点播必失败。跳过保存时，磁盘上
                         // 保留的仍是用户原来的歌单，重启后还能回到那个歌单。

@@ -3,7 +3,6 @@ package com.cyk666.vibemusic
 import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -124,18 +123,5 @@ class AuthDiagTest {
         QueueStore.saveAuthDiag(ctx, "USER_LOGOUT")
         val (code2, _) = QueueStore.loadAuthDiag(ctx)
         assertEquals("USER_LOGOUT", code2)
-    }
-
-    @Test
-    fun seekRestoreTarget_usesRequestedIndex() {
-        val q = listOf(
-            Song("a", "A", "", "", "", 200, "netease"),
-            Song("b", "B", "", "", "", 200, "netease"),
-            Song("c", "C", "", "", "", 200, "netease")
-        )
-        // Stale controller index 0, user tapped 2 -> song c, never song a.
-        assertEquals("c", selectSeekRestoreTarget(q, 2)?.sourceId)
-        assertNull(selectSeekRestoreTarget(q, 9))
-        assertNull(selectSeekRestoreTarget(emptyList(), 0))
     }
 }

@@ -90,8 +90,7 @@ class PlaybackErrorPolicyTest {
     }
 
     @Test
-    fun retryAfterOutOfRange_dropsResumePosition() {
-        // 中途、位置有效（>0）——但错误码说明该位置在新资源里不存在，不能 seek 回去
+    fun retryAfterOutOfRange_dropsResumePosition() {        // 中途、位置有效（>0）——但错误码说明该位置在新资源里不存在，不能 seek 回去
         assertFalse(
             shouldRestorePositionAfterRetry(
                 midSong = true,
@@ -131,6 +130,58 @@ class PlaybackErrorPolicyTest {
                 midSong = true,
                 positionMs = 0L,
                 errorCode = PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            )
+        )
+    }
+
+    // ---- 2026-11-06：中途内容类错误先清缓存再重试 ----
+
+    @Test
+    fun midSongContentError_evictsCacheBeforeRetry() {
+        // 中途解析/解码失败：字节读到了但解不出来，最常见来源是被污染的缓存 span
+        assertTrue(
+            shouldEvictCacheOnRetry(
+                PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, midSong = true
+            )
+        )
+        assertTrue(
+            shouldEvictCacheOnRetry(PlaybackException.ERROR_CODE_DECODING_FAILED, midSong = true)
+        )
+        assertTrue(
+            shouldEvictCacheOnRetry(PlaybackException.ERROR_CODE_UNSPECIFIED, midSong = true)
+        )
+        // 歌没起来（位置 < 10s）：内容类错误是坏源，跳歌即可，不必清整条缓存
+        assertFalse(
+            shouldEvictCacheOnRetry(
+                PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, midSong = false
+            )
+        )
+    }
+
+    @Test
+    fun midSongIoError_keepsCache() {
+        // 普通断流的字节是好的，删了要重新下载
+        assertFalse(
+            shouldEvictCacheOnRetry(PlaybackException.ERROR_CODE_TIMEOUT, midSong = true)
+        )
+        assertFalse(
+            shouldEvictCacheOnRetry(
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, midSong = true
+            )
+        )
+    }
+
+    @Test
+    fun outOfRange_alwaysEvicts() {
+        // 无论是否中途，位置越界都说明该位置在新资源里不存在，缓存也可能已被污染
+        assertTrue(
+            shouldEvictCacheOnRetry(
+                PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE, midSong = true
+            )
+        )
+        assertTrue(
+            shouldEvictCacheOnRetry(
+                PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE, midSong = false
             )
         )
     }

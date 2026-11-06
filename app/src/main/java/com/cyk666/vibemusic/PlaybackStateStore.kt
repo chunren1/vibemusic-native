@@ -72,16 +72,6 @@ fun shouldRestorePosition(savedMs: Long, durationMs: Long): Boolean {
 fun shouldSavePositionTick(nowMs: Long, lastSavedMs: Long): Boolean =
     nowMs - lastSavedMs >= POSITION_SAVE_INTERVAL_MS
 
-/**
- * Pure: queue-tap restore must use the REQUESTED index (known synchronously),
- * never the controller's currentMediaItemIndex — MediaController.seekTo is
- * async over binder, so currentMediaItemIndex still points at the OLD window
- * right after the seek and restore would load the wrong song's position
- * (root cause of dead queue-tap restore; see queueSeekTo).
- */
-fun selectSeekRestoreTarget(queue: List<Song>, requestedIndex: Int): Song? =
-    queue.getOrNull(requestedIndex)
-
 // ---- Auth diagnostic (Issue 1: mystery-logout instrumentation) ----
 
 /**

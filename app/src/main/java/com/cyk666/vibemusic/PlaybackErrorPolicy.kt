@@ -79,6 +79,22 @@ fun shouldRestartFromStart(errorCode: Int): Boolean =
 fun shouldRestorePositionAfterRetry(midSong: Boolean, positionMs: Long, errorCode: Int): Boolean =
     midSong && positionMs > 0L && !shouldRestartFromStart(errorCode)
 
+/**
+ * 纯函数：同曲重试前要不要先删掉这条 URL 的缓存。
+ *
+ * 两类必须删：
+ * - [shouldRestartFromStart]：位置越界，缓存里多半躺着上游的 HTML 错误页（见
+ *   [MediaCache.remove] 的 KDoc），不清就还会从缓存读到同一段坏字节。
+ * - **中途的内容类错误**（解析/解码/容器损坏）：字节流本身"读到了"，但解不出来。
+ *   网络层的字节不会中途变成非音频数据，最常见的来源恰恰是缓存里那段坏 span
+ *   （1cdadfe 的 202 字节 HTML 事故）或一次被中断的缓存写入。不清缓存，重试等于
+ *   再读一遍同一段坏字节——用户听感就是"歌放到一半又跳到下一首"。
+ *
+ * 普通 IO 错误（超时/断连/5xx）不删：那些字节是好的，删了要重新下载，白白浪费流量。
+ */
+fun shouldEvictCacheOnRetry(errorCode: Int, midSong: Boolean): Boolean =
+    shouldRestartFromStart(errorCode) || (midSong && !isIoLikeError(errorCode))
+
 /** Player 侧薄封装：读位置/时长失败按"没在中途"处理（宁可沿用旧行为，不误停）。 */
 fun isMidSongFailure(player: Player, errorCode: Int): Boolean {
     val pos = try {

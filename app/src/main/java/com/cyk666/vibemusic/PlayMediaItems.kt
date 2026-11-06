@@ -35,19 +35,24 @@ fun songFromMediaItem(mi: MediaItem): Song {
 }
 
 /**
- * 同曲重试前的物化：位置越界型错误先删掉这条 URL 的坏缓存，再重建带稳定 cache key 的
- * MediaItem（[MediaCache.toCachedMediaItem]）。
+ * 同曲重试前的物化：按 [shouldEvictCacheOnRetry] 决定是否先删掉这条 URL 的缓存，
+ * 再重建带稳定 cache key 的 MediaItem（[MediaCache.toCachedMediaItem]）。
  *
- * 为什么只有 [shouldRestartFromStart] 才清缓存：普通断流的缓存字节是好的，删掉等于把
- * 已经下过的音频扔掉，重试反而更慢；而位置越界通常意味着缓存里躺着上游的 HTML 错误页
- * （见 [MediaCache.remove] 的 KDoc），不清就还会从缓存读到同一段坏字节。
+ * 位置越界与"中途的内容类错误"都要清缓存（缓存里可能躺着上游的 HTML 错误页或
+ * 一段被中断的写入，见 [MediaCache.remove] 的 KDoc），不清就还会从缓存读到同一段坏字节。
+ * 普通断流的缓存字节是好的，删掉等于把已经下过的音频扔掉，重试反而更慢。
  *
  * [MediaCache.remove] 自身绝不抛：清理只是加固手段，不能演变成"不重试"。
  * `songFromMediaItem` 取不到 Song 时的行为与改造前一致 —— 抛给调用方，由重试分支统一兜住。
  */
-fun retryMediaItem(context: android.content.Context, item: MediaItem, errorCode: Int): MediaItem {
+fun retryMediaItem(
+    context: android.content.Context,
+    item: MediaItem,
+    errorCode: Int,
+    midSong: Boolean
+): MediaItem {
     val song = songFromMediaItem(item)
-    if (shouldRestartFromStart(errorCode)) MediaCache.remove(context, song.streamUrl())
+    if (shouldEvictCacheOnRetry(errorCode, midSong)) MediaCache.remove(context, song.streamUrl())
     return song.toCachedMediaItem()
 }
 

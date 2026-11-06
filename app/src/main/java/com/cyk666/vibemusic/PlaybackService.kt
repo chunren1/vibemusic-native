@@ -887,10 +887,11 @@ class PlaybackService : MediaLibraryService() {
                     try {
                         suppressSwitchStart = true
                         // 位置越界型错误：重试前清掉这条 URL 可能被上游错误页污染的缓存，
-                        // 并从 0 开始（不 seek 回已失效的旧位置）。详见 retryMediaItem。
+                        // 并从 0 开始（不 seek 回已失效的旧位置）。中途的内容类错误同样清缓存
+                        // （见 shouldEvictCacheOnRetry）。详见 retryMediaItem。
                         exo.replaceMediaItem(
                             errIndex,
-                            retryMediaItem(this@PlaybackService, errItem, error.errorCode)
+                            retryMediaItem(this@PlaybackService, errItem, error.errorCode, midSong)
                         )
                         exo.prepare()
                         if (shouldRestorePositionAfterRetry(midSong, resumeAt, error.errorCode)) exo.seekTo(resumeAt)
