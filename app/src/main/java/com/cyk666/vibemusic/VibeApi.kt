@@ -726,7 +726,9 @@ object VibeApi {
 
     // ---- auth (raw OkHttp so POST JSON stays dependency-free) ----
 
-    private suspend fun rawGet(path: String): String = authed {
+    // internal（而非 private）：同包顶层扩展 VibeApi.aiRecommend 在
+    // AiRecommendApi.kt 里调用它，只改可见性、不动实现。
+    internal suspend fun rawGet(path: String): String = authed {
         val body = rawGetInner(path)
         throwIfEnvelopeAuth(body)
         body

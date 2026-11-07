@@ -396,6 +396,11 @@ class MainActivity : ComponentActivity() {
             val updater = remember {
                 UpdateCoordinator(context, scope) { reason -> showError(reason) }
             }
+            // AI 推荐（GET /api/recommend/ai）：状态与取数在 AiPicks.kt 里自持，
+            // Activity 只负责装配 —— 发现页可见时按登录态加载一次、429/失败走 Snackbar。
+            val ai = remember { AiRecommendState() }
+            AiNoticeEffect(ai) { showError(it) }
+            AiPicksAutoLoad(ai, currentUser?.userId, screen is Screen.Discover)
             var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
             fun applyOrientationMode(mode: OrientationMode) {
                 requestedOrientation = if (mode == OrientationMode.FOLLOW_SYSTEM) {
@@ -3310,6 +3315,9 @@ class MainActivity : ComponentActivity() {
                                         playAt(dailyVisible, idx.coerceIn(dailyVisible.indices))
                                     }
                                 },
+                                ai = ai,
+                                // playAt 自带空列表守卫与 coerceIn，这里不需要重复兜底
+                                onPlayAi = { idx -> playAt(ai.visibleSongs, idx) },
                                 guessSongs = guessVisible,
                                 guessLoading = guessLoading,
                                 guessError = guessError,

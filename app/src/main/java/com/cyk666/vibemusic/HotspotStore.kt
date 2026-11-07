@@ -18,7 +18,7 @@ import java.io.File
 // reads as a miss (never show another account's lists).
 
 object HotspotStore {
-    private val ALLOWED_KEYS = setOf("daily", "guess", "hot", "playlists")
+    private val ALLOWED_KEYS = setOf("daily", "guess", "hot", "playlists", "ai")
 
     private fun dir(context: Context) = File(context.filesDir, "hotspot")
 

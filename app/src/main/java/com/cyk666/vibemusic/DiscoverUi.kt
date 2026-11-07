@@ -1,15 +1,12 @@
 package com.cyk666.vibemusic
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -153,176 +149,6 @@ private fun HomeTabLabel(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun HomeSongCard(
-    song: Song,
-    backCoverUrl: String,
-    enLabel: String,
-    enColor: Color,
-    onPlay: () -> Unit,
-    onOverflow: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .width(248.dp)
-            .background(UiSurface, RoundedCornerShape(16.dp))
-            .combinedClickable(onClick = onPlay, onLongClick = onOverflow)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.size(72.dp)) {
-            AsyncImage(
-                model = coverModelOrDefault(backCoverUrl),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.cover_default),
-                fallback = painterResource(R.drawable.cover_default),
-                modifier = Modifier
-                    .size(56.dp)
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(UiMuted.copy(alpha = 0.25f))
-            )
-            AsyncImage(
-                model = coverModelOrDefault(song.coverUrl),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.cover_default),
-                fallback = painterResource(R.drawable.cover_default),
-                modifier = Modifier
-                    .size(56.dp)
-                    .align(Alignment.BottomStart)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(UiMuted.copy(alpha = 0.25f))
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.name.ifBlank { "(untitled)" },
-                style = MaterialTheme.typography.bodyLarge,
-                color = UiInk,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = song.artist.ifBlank { "未知歌手" },
-                style = MaterialTheme.typography.bodySmall,
-                color = UiMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = enLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = enColor,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(UiViolet)
-                .clickable(onClick = onPlay),
-            contentAlignment = Alignment.Center
-        ) {
-            AppIcon(kind = AppIconKind.PLAY, tint = Color.White, size = 20.dp)
-        }
-    }
-}
-
-@Composable
-private fun EncounterRow(
-    song: Song,
-    faved: Boolean,
-    onPlay: () -> Unit,
-    onToggleFav: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlay)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(
-            model = coverModelOrDefault(song.coverUrl),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            error = painterResource(R.drawable.cover_default),
-            fallback = painterResource(R.drawable.cover_default),
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(UiMuted.copy(alpha = 0.25f))
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.name.ifBlank { "(untitled)" },
-                style = MaterialTheme.typography.bodyLarge,
-                color = UiInk,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = song.artist.ifBlank { "未知歌手" },
-                style = MaterialTheme.typography.bodySmall,
-                color = UiMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        FavHeart(faved = faved, onClick = onToggleFav)
-    }
-}
-
-@Composable
-private fun TreasureCell(
-    playlist: RecommendPlaylist,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.clickable(onClick = onTap)
-    ) {
-        AsyncImage(
-            model = coverModelOrDefault(playlist.picUrl),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            error = painterResource(R.drawable.cover_default),
-            fallback = painterResource(R.drawable.cover_default),
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(UiMuted.copy(alpha = 0.25f))
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = playlist.name.ifBlank { "(untitled)" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = UiInk,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = if (playlist.copywriter.isNotBlank()) playlist.copywriter
-            else "播放 " + formatPlayCount(playlist.playCount),
-            style = MaterialTheme.typography.bodySmall,
-            color = UiMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverScreen(
@@ -334,6 +160,8 @@ fun DiscoverScreen(
     onRetryDaily: () -> Unit,
     onRefreshDaily: () -> Unit,
     onPlayDaily: (Int) -> Unit,
+    ai: AiRecommendState,
+    onPlayAi: (Int) -> Unit,
     guessSongs: List<Song>,
     guessLoading: Boolean,
     guessError: String?,
@@ -477,6 +305,9 @@ fun DiscoverScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            item(key = "ai-picks") {
+                AiPicksSection(state = ai, onPlay = onPlayAi, onOverflow = { cardSheetFor = it })
             }
             item(key = "guess-head") {
                 Spacer(Modifier.height(24.dp))
