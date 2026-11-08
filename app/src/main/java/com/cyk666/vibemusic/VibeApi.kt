@@ -726,21 +726,23 @@ object VibeApi {
 
     // ---- auth (raw OkHttp so POST JSON stays dependency-free) ----
 
-    // internal（而非 private）：同包顶层扩展 VibeApi.aiRecommend 在
-    // AiRecommendApi.kt 里调用它，只改可见性、不动实现。
+    // internal（而非 private）：同包顶层扩展（如 VibeApi.assistantChat 所在的
+    // AssistantApi.kt）要调用它，只改可见性、不动实现。
     internal suspend fun rawGet(path: String): String = authed {
         val body = rawGetInner(path)
         throwIfEnvelopeAuth(body)
         body
     }
 
-    private suspend fun rawPost(path: String, jsonBody: String): String = authed {
+    // internal（而非 private）：同包顶层扩展 VibeApi.assistantChat 用它发 POST。
+    internal suspend fun rawPost(path: String, jsonBody: String): String = authed {
         val body = rawPostInner(path, jsonBody)
         throwIfEnvelopeAuth(body)
         body
     }
 
-    private suspend fun rawDelete(path: String): String = authed {
+    // internal（而非 private）：同包顶层扩展 VibeApi.clearAssistantHistory 用它清对话记忆。
+    internal suspend fun rawDelete(path: String): String = authed {
         val body = rawDeleteInner(path)
         throwIfEnvelopeAuth(body)
         body

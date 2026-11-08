@@ -16,7 +16,7 @@ class ScreenTest {
     @Test
     fun simpleRoutesRoundTrip() {
         val screens = listOf(
-            Screen.Discover, Screen.Search, Screen.Player, Screen.Queue,
+            Screen.Discover, Screen.Search, Screen.Assistant, Screen.Player, Screen.Queue,
             Screen.Login, Screen.Mine, Screen.Offline, Screen.History,
             Screen.Favorites, Screen.Settings, Screen.Playlists
         )

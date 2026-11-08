@@ -396,11 +396,10 @@ class MainActivity : ComponentActivity() {
             val updater = remember {
                 UpdateCoordinator(context, scope) { reason -> showError(reason) }
             }
-            // AI 推荐（GET /api/recommend/ai）：状态与取数在 AiPicks.kt 里自持，
-            // Activity 只负责装配 —— 发现页可见时按登录态加载一次、429/失败走 Snackbar。
-            val ai = remember { AiRecommendState() }
-            AiNoticeEffect(ai) { showError(it) }
-            AiPicksAutoLoad(ai, currentUser?.userId, screen is Screen.Discover)
+            // AI 助手（POST /api/assistant/chat）：状态在 AssistantState.kt 自持，
+            // deviceId 用来隔离游客的对话记忆与限流桶（后端缺省会落到公共 anon）。
+            val assistant = remember { AssistantState(deviceId = AssistantDevice.ensure(context)) }
+            AssistantNoticeEffect(assistant) { showError(it) }
             var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
             fun applyOrientationMode(mode: OrientationMode) {
                 requestedOrientation = if (mode == OrientationMode.FOLLOW_SYSTEM) {
@@ -3206,10 +3205,11 @@ class MainActivity : ComponentActivity() {
             val selectedTab: Int = when (screen) {
                 is Screen.Discover -> 0
                 is Screen.Search -> 1
-                is Screen.Player, is Screen.Queue -> 2
+                is Screen.Assistant -> 2
+                is Screen.Player, is Screen.Queue -> 3
                 is Screen.Mine, is Screen.Login, is Screen.Offline, is Screen.History,
                 is Screen.Favorites, is Screen.Settings, is Screen.Playlists,
-                is Screen.PlaylistDetail -> 3
+                is Screen.PlaylistDetail -> 4
             }
 
             // HOME cover gate: coverless tracks/playlists never render on
@@ -3240,56 +3240,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenQueue = { screen = Screen.Queue }
                                 )
                             }
-                            NavigationBar {
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = { screen = Screen.Discover },
-                                label = { Text("首页") },
-                                icon = {
-                                    AppIcon(
-                                        kind = AppIconKind.EXPLORE,
-                                        tint = if (selectedTab == 0) NeonViolet else GrayMuted,
-                                        filled = selectedTab == 0
-                                    )
-                                }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = { screen = Screen.Search },
-                                label = { Text("搜索") },
-                                icon = {
-                                    AppIcon(
-                                        kind = AppIconKind.SEARCH,
-                                        tint = if (selectedTab == 1) NeonViolet else GrayMuted,
-                                        filled = selectedTab == 1
-                                    )
-                                }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 2,
-                                onClick = { screen = Screen.Player },
-                                label = { Text("播放") },
-                                icon = {
-                                    AppIcon(
-                                        kind = AppIconKind.PLAY_CIRCLE,
-                                        tint = if (selectedTab == 2) NeonViolet else GrayMuted,
-                                        filled = selectedTab == 2
-                                    )
-                                }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 3,
-                                onClick = { screen = Screen.Mine },
-                                label = { Text("我的") },
-                                icon = {
-                                    AppIcon(
-                                        kind = AppIconKind.PERSON,
-                                        tint = if (selectedTab == 3) NeonViolet else GrayMuted,
-                                        filled = selectedTab == 3
-                                    )
-                                }
-                            )
-                            }
+                            AppBottomBar(selectedTab) { screen = it }
                         }
                     }
                 ) { innerPadding ->
@@ -3302,6 +3253,16 @@ class MainActivity : ComponentActivity() {
                             label = "tabSwitch"
                         ) { s ->
                             when (s) {
+                            is Screen.Assistant -> AssistantScreen(
+                                modifier = Modifier.padding(innerPadding),
+                                state = assistant,
+                                onSend = { assistant.send(scope, it) },
+                                onClear = { assistant.clear(scope) },
+                                onPlaySongs = { songs, idx -> playAt(songs, idx) },
+                                loggedIn = currentUser != null,
+                                onLogin = { screen = Screen.Login }
+                            )
+
                             is Screen.Discover -> DiscoverScreen(
                                 modifier = Modifier.padding(innerPadding),
                                 dailySongs = dailyVisible,
@@ -3315,9 +3276,6 @@ class MainActivity : ComponentActivity() {
                                         playAt(dailyVisible, idx.coerceIn(dailyVisible.indices))
                                     }
                                 },
-                                ai = ai,
-                                // playAt 自带空列表守卫与 coerceIn，这里不需要重复兜底
-                                onPlayAi = { idx -> playAt(ai.visibleSongs, idx) },
                                 guessSongs = guessVisible,
                                 guessLoading = guessLoading,
                                 guessError = guessError,

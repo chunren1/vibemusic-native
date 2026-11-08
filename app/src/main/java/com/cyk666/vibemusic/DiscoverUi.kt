@@ -160,8 +160,6 @@ fun DiscoverScreen(
     onRetryDaily: () -> Unit,
     onRefreshDaily: () -> Unit,
     onPlayDaily: (Int) -> Unit,
-    ai: AiRecommendState,
-    onPlayAi: (Int) -> Unit,
     guessSongs: List<Song>,
     guessLoading: Boolean,
     guessError: String?,
@@ -305,9 +303,6 @@ fun DiscoverScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-            item(key = "ai-picks") {
-                AiPicksSection(state = ai, onPlay = onPlayAi, onOverflow = { cardSheetFor = it })
             }
             item(key = "guess-head") {
                 Spacer(Modifier.height(24.dp))

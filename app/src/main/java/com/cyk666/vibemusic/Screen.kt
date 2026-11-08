@@ -12,6 +12,7 @@ import androidx.compose.runtime.saveable.Saver
 sealed interface Screen {
     data object Discover : Screen
     data object Search : Screen
+    data object Assistant : Screen
     data object Player : Screen
     data object Queue : Screen
     data object Login : Screen
@@ -42,6 +43,7 @@ private const val SCREEN_PCT_ESC = "%25"
 fun screenRoute(screen: Screen): String = when (screen) {
     Screen.Discover -> "discover"
     Screen.Search -> "search"
+    Screen.Assistant -> "assistant"
     Screen.Player -> "player"
     Screen.Queue -> "queue"
     Screen.Login -> "login"
@@ -87,6 +89,7 @@ fun decodeScreen(raw: String?): Screen {
     val simple = when (route) {
         "discover" -> Screen.Discover
         "search" -> Screen.Search
+        "assistant" -> Screen.Assistant
         "player" -> Screen.Player
         "queue" -> Screen.Queue
         "login" -> Screen.Login

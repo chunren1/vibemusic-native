@@ -31,10 +31,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 
 // Discover 页的自包含卡片（2026-11-07 从 DiscoverUi.kt 整块搬出，纯搬运零行为变更）：
-// HomeSongCard 同时被「每日推荐」「新歌速递」「AI 为你选」三行复用，EncounterRow /
-// TreasureCell 只属于发现页；拆出来是为了给 AiPicksSection 让出体量余量
+// HomeSongCard 同时被「每日推荐」「新歌速递」两行复用，EncounterRow /
+// TreasureCell 只属于发现页；拆出来是为了控制 DiscoverUi.kt 的体量
 // （DiscoverUi.kt 是硬上限 400 纯 LOC 的守门文件，不是设计原则）。
-// internal 而非 private：同模块其它文件（DiscoverUi.kt / AiPicks.kt）要调用。
+// internal 而非 private：同模块其它文件（DiscoverUi.kt）要调用。
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
