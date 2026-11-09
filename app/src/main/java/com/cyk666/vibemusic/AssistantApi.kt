@@ -17,8 +17,29 @@ import java.util.UUID
 data class AssistantReply(
     val reply: String,
     val songs: List<Song>,
-    val toolCalls: Int
+    val toolCalls: Int,
+    val actions: List<AssistantAction> = emptyList()
 )
+
+/**
+ * 一次「写」类工具的执行结果（后端 `data.actions[]`）。
+ *
+ * 为什么不能只信 [AssistantReply.reply]：模型会把工具返回的 `{"error":"未登录"}`
+ * 忽略掉，照样回一句「歌单建好了」。这份结构化结果由后端直接从工具返回值提取，
+ * 前端据此渲染结果卡、判断要不要刷新歌单列表。
+ */
+data class AssistantAction(
+    val tool: String,
+    val ok: Boolean,
+    val playlistName: String,
+    val playlistId: String,
+    val added: Int,
+    val failedCount: Int,
+    val error: String
+) {
+    /** 是否改动了歌单数据——是则本地歌单缓存必须失效。 */
+    fun touchesPlaylists(): Boolean = tool == "create_playlist" || tool == "add_to_playlist"
+}
 
 /**
  * 匿名设备标识：后端用它区分游客的对话记忆与限流桶。
@@ -84,8 +105,30 @@ fun parseAssistantReply(json: String): AssistantReply {
     return AssistantReply(
         reply = data.optString("reply", ""),
         songs = songs,
-        toolCalls = data.optInt("toolCalls", 0)
+        toolCalls = data.optInt("toolCalls", 0),
+        actions = parseActions(data.optJSONArray("actions"))
     )
+}
+
+/** 解析 `data.actions[]`；字段缺失一律降级为空，不因可选字段把整轮对话判失败。 */
+fun parseActions(arr: org.json.JSONArray?): List<AssistantAction> {
+    if (arr == null || arr.length() == 0) return emptyList()
+    val out = ArrayList<AssistantAction>(arr.length())
+    for (i in 0 until arr.length()) {
+        val o = arr.optJSONObject(i) ?: continue
+        out.add(
+            AssistantAction(
+                tool = o.optString("tool"),
+                ok = o.optBoolean("ok", false),
+                playlistName = o.optString("playlistName"),
+                playlistId = o.optString("playlistId"),
+                added = o.optInt("added", 0),
+                failedCount = o.optInt("failedCount", 0),
+                error = o.optString("error")
+            )
+        )
+    }
+    return out
 }
 
 suspend fun VibeApi.assistantChat(

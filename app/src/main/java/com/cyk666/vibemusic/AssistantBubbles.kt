@@ -100,6 +100,10 @@ internal fun AssistantMessageRow(
                     .background(UiSurface.copy(alpha = 0.72f))
                     .padding(horizontal = 14.dp, vertical = 11.dp)
             )
+            if (msg.actions.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                AssistantActionCard(msg.actions, maxBubble)
+            }
             if (msg.songs.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 AssistantSongCard(msg.songs, maxBubble, onPlaySongs)
@@ -189,6 +193,75 @@ private fun AssistantSongTile(song: Song, onClick: () -> Unit) {
             AppIcon(AppIconKind.PLAY, UiViolet, size = 15.dp, contentDescription = null)
         }
     }
+}
+
+/**
+ * 操作结果卡：把「AI 说建好了」变成用户可以自己核对的事实。
+ *
+ * 卡片数据来自后端 `actions[]`（直接取自工具返回值），不是模型的自然语言——
+ * 所以模型再怎么润色回复，失败也会在这里显示成红色的「操作失败 + 原因」。
+ */
+@Composable
+internal fun AssistantActionCard(actions: List<AssistantAction>, maxBubble: Dp) {
+    Column(
+        Modifier.widthIn(max = maxBubble),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        actions.forEach { ActionRow(it) }
+    }
+}
+
+@Composable
+private fun ActionRow(action: AssistantAction) {
+    val ok = action.ok
+    val accent = if (ok) UiCyan else UiViolet
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(accent.copy(alpha = 0.10f))
+            .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(accent.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(
+                if (ok) AppIconKind.CHECK else AppIconKind.CLOSE, accent,
+                size = 15.dp, contentDescription = null
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (ok) actionTitle(action) else "操作失败",
+                style = MaterialTheme.typography.bodyMedium,
+                color = UiInk, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                if (ok) actionSubtitle(action) else action.error.ifBlank { "请稍后再试" },
+                style = MaterialTheme.typography.labelSmall,
+                color = UiMuted, maxLines = 2, overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun actionTitle(action: AssistantAction): String = when {
+    action.tool == "create_playlist" && action.playlistName.isNotBlank() ->
+        "已创建《${action.playlistName}》"
+    action.tool == "add_to_playlist" && action.playlistName.isNotBlank() ->
+        "已加入《${action.playlistName}》"
+    action.tool == "create_playlist" -> "已创建歌单"
+    else -> "已加入歌单"
+}
+
+private fun actionSubtitle(action: AssistantAction): String {
+    val parts = ArrayList<String>(2)
+    if (action.added > 0) parts.add("${action.added} 首已添加")
+    if (action.failedCount > 0) parts.add("${action.failedCount} 首没找到")
+    return if (parts.isEmpty()) "完成" else parts.joinToString(" · ")
 }
 
 /** 思考态：头像 + 「正在想」+ 三颗呼吸点（保持原有节奏，换成与消息行一致的排版）。 */

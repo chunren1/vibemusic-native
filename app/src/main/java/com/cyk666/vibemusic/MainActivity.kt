@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -222,6 +223,32 @@ class MainActivity : ComponentActivity() {
             var screen by rememberSaveable(stateSaver = ScreenSaver) {
                 mutableStateOf<Screen>(Screen.Discover)
             }
+            // 登录返回目标：从哪个页面被引导去登录，成功/取消后就回哪里。
+            // 旧实现固定跳 Mine，从助手页点「去登录」的用户登录完会被丢到「我的」。
+            var loginReturnTo by remember { mutableStateOf<Screen>(Screen.Mine) }
+            fun goLogin() {
+                // 详情/队列页登录后状态已不可靠（依赖 selectedPlaylist 等），降级回 Mine
+                loginReturnTo = when (screen) {
+                    is Screen.PlaylistDetail, is Screen.Queue -> Screen.Mine
+                    else -> screen
+                }
+                goLogin()
+            }
+
+            // 系统返回键：二级页面回上一级，而不是直接退出 App。
+            // 单 Activity + 手写导航没有返回栈，不拦的话 Settings/History/Favorites/
+            // Playlists/PlaylistDetail/Queue/Offline/Login 里按返回会直接 finish。
+            // 5 个 tab 不在此拦截——按返回退出 App 是符合预期的。
+            val tabScreens = remember {
+                setOf<Screen>(Screen.Discover, Screen.Search, Screen.Assistant, Screen.Player, Screen.Mine)
+            }
+            BackHandler(enabled = screen !in tabScreens) {
+                screen = when (screen) {
+                    is Screen.PlaylistDetail -> Screen.Playlists
+                    is Screen.Queue -> Screen.Player
+                    else -> Screen.Mine
+                }
+            }
             // Phase 10: where the user came from before entering Player, so
             // swipe-down-close returns to the previous tab (default Search).
             var playerOrigin by remember { mutableStateOf<Screen>(Screen.Search) }
@@ -398,7 +425,16 @@ class MainActivity : ComponentActivity() {
             }
             // AI 助手（POST /api/assistant/chat）：状态在 AssistantState.kt 自持，
             // deviceId 用来隔离游客的对话记忆与限流桶（后端缺省会落到公共 anon）。
-            val assistant = remember { AssistantState(deviceId = AssistantDevice.ensure(context)) }
+            val assistant = remember {
+                AssistantState(
+                    deviceId = AssistantDevice.ensure(context),
+                    onWriteAction = {
+                        // AI 建/加歌单属于「外部写入」，界面自己感知不到：
+                        // 清零加载时间戳，下次进歌单页立即重拉，不再等 5 分钟 TTL 自然过期
+                        playlistsLastLoaded = 0L
+                    }
+                )
+            }
             AssistantNoticeEffect(assistant) { showError(it) }
             var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
             fun applyOrientationMode(mode: OrientationMode) {
@@ -1744,7 +1780,7 @@ class MainActivity : ComponentActivity() {
 
             fun toggleFav(song: Song) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (song.sourceId.isBlank()) return
@@ -1808,7 +1844,7 @@ class MainActivity : ComponentActivity() {
 
             fun openAddSheet(song: Song) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (playlists.isEmpty() && !playlistsLoading) loadPlaylists()
@@ -1817,7 +1853,7 @@ class MainActivity : ComponentActivity() {
 
             fun createPlaylistAction(name: String, description: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("新建歌单失败") {
@@ -1829,7 +1865,7 @@ class MainActivity : ComponentActivity() {
 
             fun renamePlaylistAction(pl: Playlist, name: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("重命名失败") {
@@ -1841,7 +1877,7 @@ class MainActivity : ComponentActivity() {
 
             fun updateDescAction(pl: Playlist, description: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("更新简介失败") {
@@ -1853,7 +1889,7 @@ class MainActivity : ComponentActivity() {
 
             fun deletePlaylistAction(pl: Playlist) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("删除失败") {
@@ -1871,7 +1907,7 @@ class MainActivity : ComponentActivity() {
 
             fun batchDeleteAction(ids: List<String>) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (ids.isEmpty()) return
@@ -1890,7 +1926,7 @@ class MainActivity : ComponentActivity() {
 
             fun movePlaylistAction(pl: Playlist, dir: Int) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 val idx = playlists.indexOfFirst { it.id == pl.id }
@@ -1921,7 +1957,7 @@ class MainActivity : ComponentActivity() {
             fun removeSongAction(song: Song) {
                 val pl = selectedPlaylist
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (pl == null) return
@@ -1940,7 +1976,7 @@ class MainActivity : ComponentActivity() {
              */
             fun removeSongsAction(songs: List<Song>) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 val pl = selectedPlaylist ?: return
@@ -1976,7 +2012,7 @@ class MainActivity : ComponentActivity() {
 
             fun importAction(source: String, id: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("导入失败") {
@@ -1995,7 +2031,7 @@ class MainActivity : ComponentActivity() {
             // (importAction) — importPlaylist stays the single entry point.
             fun openRecommendPlaylist(pl: RecommendPlaylist) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 recommendImportId = pl.id
@@ -2009,7 +2045,7 @@ class MainActivity : ComponentActivity() {
             // pick as the old import-then-open path).
             fun joinRecommendAsMine(recommendId: String, fallbackName: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("导入失败") {
@@ -2048,7 +2084,7 @@ class MainActivity : ComponentActivity() {
 
             fun addSongAction(pl: Playlist, song: Song) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (addBusy) return
@@ -2066,7 +2102,7 @@ class MainActivity : ComponentActivity() {
 
             fun createAndAddAction(name: String, song: Song) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (addBusy) return
@@ -2098,7 +2134,8 @@ class MainActivity : ComponentActivity() {
                         selectedPlaylist = null
                         playlistSongs = emptyList()
                         playlistSongsError = null
-                        screen = Screen.Mine
+                        // 回被踢出去的那一页，而不是无条件跳「我的」
+                        screen = loginReturnTo
                         loadPlaylists()
                         loadFavIds()
                         loadHistory()
@@ -2143,7 +2180,7 @@ class MainActivity : ComponentActivity() {
                         selectedPlaylist = null
                         playlistSongs = emptyList()
                         playlistSongsError = null
-                        screen = Screen.Mine
+                        screen = loginReturnTo
                         showError("注册成功，已自动登录")
                         loadPlaylists()
                         loadFavIds()
@@ -2165,7 +2202,7 @@ class MainActivity : ComponentActivity() {
 
             fun doChangePassword(oldPassword: String, newPassword: String) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (newPassword.length < 8) {
@@ -2180,7 +2217,7 @@ class MainActivity : ComponentActivity() {
 
             fun doUpdateProfile(nickname: String?, gender: String?, birthday: String?) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 api.launch("改资料失败") {
@@ -2197,7 +2234,7 @@ class MainActivity : ComponentActivity() {
 
             fun doUploadImage(bytes: ByteArray, filename: String, mime: String, bg: Boolean) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 scope.launch(Dispatchers.IO) {
@@ -2234,7 +2271,7 @@ class MainActivity : ComponentActivity() {
 
             fun doRemoveHistory(sourceIds: List<String>, clearAll: Boolean) {
                 if (currentUser == null) {
-                    screen = Screen.Login
+                    goLogin()
                     return
                 }
                 if (sourceIds.isEmpty()) return
@@ -2282,7 +2319,7 @@ class MainActivity : ComponentActivity() {
                     historyItems = emptyList()
                     lastReportedKey = null
                     loginInitialRegister = false
-                    screen = Screen.Login
+                    goLogin()
                 }
             }
 
@@ -2831,7 +2868,7 @@ class MainActivity : ComponentActivity() {
                         false
                     }
                     when (decideStartRoute(snap.token.isBlank(), launchedBefore)) {
-                        StartRoute.LOGIN -> screen = Screen.Login
+                        StartRoute.LOGIN -> goLogin()
                         StartRoute.SEARCH_GUEST -> screen = Screen.Discover
                         StartRoute.RESTORE -> Unit
                     }
@@ -3260,7 +3297,7 @@ class MainActivity : ComponentActivity() {
                                 onClear = { assistant.clear(scope) },
                                 onPlaySongs = { songs, idx -> playAt(songs, idx) },
                                 loggedIn = currentUser != null,
-                                onLogin = { screen = Screen.Login }
+                                onLogin = { goLogin() }
                             )
 
                             is Screen.Discover -> DiscoverScreen(
@@ -3596,7 +3633,7 @@ class MainActivity : ComponentActivity() {
                                 onRegister = ::doRegister,
                                 onRegisterModeEntered = ::loadRegisterConfig,
                                 onBrowseAsGuest = { screen = Screen.Discover },
-                                onBack = { screen = Screen.Mine }
+                                onBack = { screen = loginReturnTo }
                             )
 
                             is Screen.Mine -> MineScreen(
@@ -3608,11 +3645,11 @@ class MainActivity : ComponentActivity() {
                                 playlistsError = playlistsError,
                                 onLoginClick = {
                                     loginInitialRegister = false
-                                    screen = Screen.Login
+                                    goLogin()
                                 },
                                 onRegisterClick = {
                                     loginInitialRegister = true
-                                    screen = Screen.Login
+                                    goLogin()
                                 },
                                 onRetryPlaylists = { loadPlaylists() },
                                 onSelectPlaylist = { pl ->
@@ -3635,7 +3672,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenFavorites = {
                                     if (currentUser == null) {
                                         loginInitialRegister = false
-                                        screen = Screen.Login
+                                        goLogin()
                                     } else {
                                         screen = Screen.Favorites
                                     }
@@ -3779,7 +3816,7 @@ class MainActivity : ComponentActivity() {
                                 recentDiagLine = recentDiagLabel(PlayDiag.ringRaw(context), 5),
                                 onLoginClick = {
                                     loginInitialRegister = false
-                                    screen = Screen.Login
+                                    goLogin()
                                 },
                                 onLogout = ::doLogout,
                                 onChangePassword = ::doChangePassword,

@@ -19,7 +19,8 @@ data class ChatMessage(
     val role: ChatRole,
     val text: String,
     val songs: List<Song> = emptyList(),
-    val failed: Boolean = false
+    val failed: Boolean = false,
+    val actions: List<AssistantAction> = emptyList()
 )
 
 /**
@@ -37,7 +38,9 @@ class AssistantState(
     private val send: suspend (String) -> AssistantReply = { msg ->
         VibeApi.assistantChat(msg, deviceId)
     },
-    private val clearRemote: suspend () -> Unit = { VibeApi.clearAssistantHistory(deviceId) }
+    private val clearRemote: suspend () -> Unit = { VibeApi.clearAssistantHistory(deviceId) },
+    /** 服务端歌单被改动时通知宿主刷新本地缓存（AI 是「外部写入」，界面自己感知不到）。 */
+    private val onWriteAction: () -> Unit = {}
 ) {
     var messages by mutableStateOf<List<ChatMessage>>(emptyList())
         private set
@@ -69,8 +72,10 @@ class AssistantState(
                 messages = messages + ChatMessage(
                     role = ChatRole.ASSISTANT,
                     text = reply.reply.ifBlank { FALLBACK_REPLY },
-                    songs = reply.songs
+                    songs = reply.songs,
+                    actions = reply.actions
                 )
+                if (reply.actions.any { it.ok && it.touchesPlaylists() }) onWriteAction()
             } catch (e: Exception) {
                 SilentFail.note("AssistantState.send:${e.javaClass.simpleName}")
                 val rateLimited = isRateLimited(e)
