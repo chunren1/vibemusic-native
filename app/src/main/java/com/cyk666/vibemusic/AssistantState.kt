@@ -55,7 +55,12 @@ class AssistantState(
      */
     fun send(scope: CoroutineScope, raw: String) {
         val text = raw.trim()
-        if (text.isEmpty() || sending) return
+        if (text.isEmpty()) return
+        if (sending) {
+            // 静默丢弃会让用户以为发出去了；给一句明确反馈，输入框内容由界面保留
+            notice = BUSY_NOTICE
+            return
+        }
         sending = true
         messages = messages + ChatMessage(ChatRole.USER, text)
         scope.launch {
@@ -103,7 +108,13 @@ class AssistantState(
         notice = null
     }
 
+    /** 界面在「正在回答」时按了发送键：给一句提示，而不是让回车毫无反应。 */
+    fun notifyBusy() {
+        notice = BUSY_NOTICE
+    }
+
     companion object {
+        const val BUSY_NOTICE = "我还在回答上一条，稍等一下"
         const val RATE_NOTICE = "问得太快啦，歇一下再问（每分钟最多 10 次）"
         const val FAIL_NOTICE = "AI 助手暂时联系不上，稍后再试"
         const val CLEAR_FAIL_NOTICE = "本地已清空，服务端删除失败，可再点一次"

@@ -1,10 +1,5 @@
 package com.cyk666.vibemusic
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,19 +17,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,20 +34,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-// 气泡切角暗示对话方向：用户右对齐切右下，助手左对齐切左下。
-private val BubbleShapeUser = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
-private val BubbleShapeAi = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-
 /** 气泡宽度上限：屏宽 82%，平板封顶 340dp（再宽一行字会长得读不动）。 */
-private fun bubbleMaxWidth(screenWidth: Dp): Dp = (screenWidth * 0.82f).coerceAtMost(340.dp)
+internal fun bubbleMaxWidth(screenWidth: Dp): Dp = (screenWidth * 0.82f).coerceAtMost(340.dp)
 
 /** 空态建议问题：点击即发，顺序即展示顺序。 */
 private val ASSISTANT_STARTERS = listOf(
@@ -67,11 +50,12 @@ private val ASSISTANT_STARTERS = listOf(
     "帮我建一个跑步歌单"
 )
 
-/** 气泡里最多铺几首；多出的收成一行"还有 N 首"，不把对话拉成歌单页。 */
-private const val MAX_SONG_ROWS = 5
-
 /**
  * AI 助手对话页（纯展示层：只收 [AssistantState] 与回调，不自己发请求）。
+ *
+ * 本文件管"页面"本身：顶栏、消息列表编排、空态。消息气泡与歌曲卡片在
+ * [AssistantBubbles]，输入区在 [AssistantComposer]——那两块各有独立的
+ * 视觉规则（气泡切角/卡片行高、输入框焦点态），改一处不会牵动另一处。
  *
  * `state.notice` 由 Activity 用 Snackbar 消费，这里不显示、不弹，
  * 免得同一条错误在一屏里出现两次。
@@ -91,7 +75,12 @@ fun AssistantScreen(
 
     fun submit() {
         val text = draft.trim()
-        if (text.isEmpty() || state.sending) return
+        if (text.isEmpty()) return
+        if (state.sending) {
+            // 保留草稿：用户接着要发的是下一句，不该被这一下清掉
+            state.notifyBusy()
+            return
+        }
         draft = ""
         onSend(text)
     }
@@ -103,251 +92,186 @@ fun AssistantScreen(
         if (target >= 0) listState.animateScrollToItem(target)
     }
 
-    Column(modifier = modifier.fillMaxSize().padding(16.dp).imePadding()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "助手", style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold, color = UiInk
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "AI 生成", style = MaterialTheme.typography.labelSmall, color = UiChampagne,
-                modifier = Modifier.clip(RoundedCornerShape(22.dp))
-                    .background(UiChampagne.copy(alpha = 0.10f))
-                    .border(1.dp, UiChampagne.copy(alpha = 0.28f), RoundedCornerShape(22.dp))
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            )
-            Spacer(Modifier.weight(1f))
-            if (state.messages.isNotEmpty()) {
-                TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("清空", style = MaterialTheme.typography.bodySmall, color = UiMuted)
-                }
-            }
-        }
-        Text(
-            "告诉我心情或场景，我来点歌",
-            style = MaterialTheme.typography.bodySmall, color = UiMuted
-        )
+    Column(modifier = modifier.fillMaxSize().padding(horizontal = 16.dp).imePadding()) {
+        AssistantHeader(canClear = state.messages.isNotEmpty(), onClear = onClear)
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val bubbleMax = bubbleMaxWidth(maxWidth)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(top = 14.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (state.messages.isEmpty() && !state.sending) {
-                    item(key = "empty") { AssistantIntro(loggedIn, onSend, onLogin) }
+                    item(key = "empty") { AssistantEmptyState(loggedIn, onSend, onLogin) }
                 }
                 itemsIndexed(state.messages, key = { i, m -> "$i-${m.role}" }) { _, msg ->
-                    MessageBubble(msg, bubbleMax, onPlaySongs)
+                    AssistantMessageRow(msg, bubbleMax, onPlaySongs)
                 }
-                if (state.sending) item(key = "thinking") { ThinkingBubble(bubbleMax) }
+                if (state.sending) item(key = "thinking") { AssistantThinkingRow(bubbleMax) }
             }
         }
 
-        InputBar(draft, { draft = it }, !state.sending && draft.isNotBlank()) { submit() }
+        AssistantComposer(draft, { draft = it }, !state.sending && draft.isNotBlank()) { submit() }
     }
 }
 
-// ---- 消息 ----
-
+/**
+ * 顶栏：头像 + 名字 + 在线态。
+ *
+ * 「在线 · 实时搜曲库」不是装饰——它解释了为什么回答里会挂真实可播的歌曲，
+ * 比旧版的「AI 生成」徽章更有信息量（后者只提示风险，不说明能力）。
+ */
 @Composable
-private fun MessageBubble(
-    msg: ChatMessage,
-    maxBubble: Dp,
-    onPlaySongs: (List<Song>, Int) -> Unit
-) {
-    if (msg.role == ChatRole.USER) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Text(
-                msg.text, style = MaterialTheme.typography.bodyMedium, color = UiInk,
-                modifier = Modifier.widthIn(max = maxBubble).clip(BubbleShapeUser)
-                    .background(UiViolet).padding(horizontal = 14.dp, vertical = 10.dp)
-            )
-        }
-        return
-    }
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-        Text(
-            msg.text, style = MaterialTheme.typography.bodyMedium,
-            // 失败消息只降饱和、不刷红：整页暗色，红字像报警而不是"没连上"。
-            color = if (msg.failed) UiMuted else UiInk,
-            modifier = Modifier.widthIn(max = maxBubble).clip(BubbleShapeAi)
-                .background(UiSurface).padding(horizontal = 14.dp, vertical = 10.dp)
-        )
-        if (msg.songs.isNotEmpty()) SongResultCard(msg.songs, maxBubble, onPlaySongs)
-    }
-}
-
-@Composable
-private fun SongResultCard(
-    songs: List<Song>,
-    maxBubble: Dp,
-    onPlaySongs: (List<Song>, Int) -> Unit
-) {
-    val shown = songs.take(MAX_SONG_ROWS)
-    Column(
-        Modifier.padding(top = 6.dp).widthIn(max = maxBubble).clip(RoundedCornerShape(12.dp))
-            .background(UiSurface.copy(alpha = 0.72f))
-            .border(1.dp, UiInk.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        shown.forEachIndexed { index, song ->
-            SongRow(
-                buildSongRowModel(song), meta = null,
-                onClick = { onPlaySongs(songs, index) }, onOverflow = {}
-            )
-        }
-        if (songs.size > shown.size) {
-            Text(
-                "还有 ${songs.size - shown.size} 首", style = MaterialTheme.typography.bodySmall,
-                color = UiMuted, modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 6.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThinkingBubble(maxBubble: Dp) {
+private fun AssistantHeader(canClear: Boolean, onClear: () -> Unit) {
     Row(
-        Modifier.widthIn(max = maxBubble).clip(BubbleShapeAi).background(UiSurface)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("正在想", style = MaterialTheme.typography.bodyMedium, color = UiMuted)
-        Spacer(Modifier.width(6.dp))
-        val phase by rememberInfiniteTransition(label = "thinking").animateFloat(
-            0f, 3f,
-            animationSpec = infiniteRepeatable(tween(durationMillis = 1050, easing = LinearEasing)),
-            label = "thinkingDots"
-        )
-        val active = phase.toInt() % 3
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            repeat(3) { i ->
-                Box(
-                    Modifier.size(5.dp).clip(CircleShape)
-                        .background(if (i == active) UiCyan else UiMuted.copy(alpha = 0.35f))
+        AssistantAvatar(34.dp)
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "音乐精灵",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = UiInk
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(UiCyan))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "在线 · 实时搜曲库",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = UiMuted
                 )
             }
         }
+        if (canClear) {
+            Text(
+                "清空",
+                style = MaterialTheme.typography.labelMedium,
+                color = UiMuted,
+                modifier = Modifier.clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onClear)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
     }
 }
 
-// ---- 空态 ----
-
+/**
+ * 空态：品牌徽标 + 一句主张 + 三个建议。
+ *
+ * 建议做成整行卡片而不是居中小 chip：中文短语长短不一，chip 会排成参差的
+ * 瀑布；整行左对齐、带图标与箭头，扫读路径是一条直线。
+ */
 @Composable
-private fun AssistantIntro(
+private fun AssistantEmptyState(
     loggedIn: Boolean,
     onSend: (String) -> Unit,
     onLogin: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(top = 24.dp),
+        Modifier.fillMaxWidth().padding(top = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            Modifier.size(44.dp).clip(CircleShape)
-                .background(Brush.linearGradient(listOf(UiViolet, UiCyan))),
-            contentAlignment = Alignment.Center
-        ) {
-            AppIcon(AppIconKind.MESSAGE, UiInk, size = 22.dp, contentDescription = null)
+        Box(Modifier.size(78.dp), contentAlignment = Alignment.Center) {
+            // 外圈柔光：让徽标从深色背景里浮起来，而不是贴一个硬边圆
+            Box(
+                Modifier.size(78.dp).clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(UiViolet.copy(alpha = 0.16f), UiCyan.copy(alpha = 0.16f))
+                        )
+                    )
+            )
+            Box(
+                Modifier.size(56.dp).clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(UiViolet, UiCyan))),
+                contentAlignment = Alignment.Center
+            ) {
+                AppIcon(
+                    AppIconKind.MUSIC_NOTE, Color.White,
+                    size = 26.dp, contentDescription = null
+                )
+            }
         }
+
         Text(
-            "我是 vibe 音乐精灵，想听点什么？", style = MaterialTheme.typography.titleMedium,
-            color = UiInk, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 16.dp)
+            "想听点什么？",
+            style = MaterialTheme.typography.titleLarge,
+            color = UiInk, fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 18.dp)
         )
         Text(
-            "说个心情、场景或歌手，我来挑歌", style = MaterialTheme.typography.bodySmall,
-            color = UiMuted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp)
+            "说个心情、场景或歌手，我来挑歌",
+            style = MaterialTheme.typography.bodySmall,
+            color = UiMuted, textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp)
         )
+
         Column(
-            Modifier.fillMaxWidth().padding(top = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            Modifier.fillMaxWidth().padding(top = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            ASSISTANT_STARTERS.forEach { prompt -> StarterPill(prompt) { onSend(prompt) } }
+            ASSISTANT_STARTERS.forEach { prompt ->
+                StarterCard(prompt) { onSend(prompt) }
+            }
         }
+
         if (!loggedIn) {
             Text(
-                "现在是游客模式", style = MaterialTheme.typography.bodySmall,
-                color = UiMuted, modifier = Modifier.padding(top = 14.dp)
+                "现在是游客模式，登录后我能看你的收听历史",
+                style = MaterialTheme.typography.labelSmall,
+                color = UiMuted, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 18.dp)
             )
             Text(
-                "登录后我能看你的收听历史", style = MaterialTheme.typography.bodySmall,
-                color = UiCyan, textAlign = TextAlign.Center,
-                modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp))
-                    .clickable(onClick = onLogin).padding(horizontal = 12.dp, vertical = 12.dp)
+                "去登录",
+                style = MaterialTheme.typography.labelMedium,
+                color = UiCyan, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 4.dp).heightIn(min = 40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onLogin)
+                    .padding(horizontal = 14.dp, vertical = 11.dp)
             )
         }
     }
 }
 
 @Composable
-private fun StarterPill(text: String, onClick: () -> Unit) {
+private fun StarterCard(text: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp))
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
             .background(UiSurface)
-            .border(1.dp, UiInk.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+            .border(1.dp, UiInk.copy(alpha = 0.07f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape)
+                .background(UiViolet.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            AppIcon(
+                AppIconKind.MUSIC_NOTE, UiViolet,
+                size = 14.dp, contentDescription = null
+            )
+        }
+        Spacer(Modifier.width(11.dp))
         Text(
-            text, style = MaterialTheme.typography.bodyMedium, color = UiInk,
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = UiInk,
             modifier = Modifier.weight(1f)
         )
-        AppIcon(AppIconKind.CHEVRON_RIGHT, UiMuted, size = 16.dp, contentDescription = null)
-    }
-}
-
-// ---- 输入 ----
-
-@Composable
-private fun InputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    canSend: Boolean,
-    onSubmit: () -> Unit
-) {
-    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.Bottom) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
-            placeholder = {
-                Text(
-                    "和音乐精灵聊聊…", style = MaterialTheme.typography.bodyMedium, color = UiMuted
-                )
-            },
-            textStyle = MaterialTheme.typography.bodyMedium,
-            shape = RoundedCornerShape(28.dp),
-            maxLines = 4,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { if (canSend) onSubmit() }),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = UiSurface, unfocusedContainerColor = UiSurface,
-                focusedBorderColor = UiViolet.copy(alpha = 0.55f),
-                unfocusedBorderColor = UiInk.copy(alpha = 0.10f),
-                focusedTextColor = UiInk, unfocusedTextColor = UiInk, cursorColor = UiCyan
-            )
-        )
-        Spacer(Modifier.width(8.dp))
-        SendButton(canSend, onSubmit)
-    }
-}
-
-@Composable
-private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(48.dp).clip(CircleShape)
-            .background(if (enabled) UiViolet else UiSurface)
-            .clickable(enabled = enabled, onClickLabel = "发送", onClick = onClick)
-            .semantics { contentDescription = "发送" },
-        contentAlignment = Alignment.Center
-    ) {
         AppIcon(
-            AppIconKind.MESSAGE, if (enabled) UiInk else UiMuted,
-            size = 20.dp, contentDescription = null
+            AppIconKind.CHEVRON_RIGHT, UiMuted.copy(alpha = 0.65f),
+            size = 15.dp, contentDescription = null
         )
     }
 }
