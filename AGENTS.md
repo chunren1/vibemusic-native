@@ -4,19 +4,19 @@
 > 项目全景见 `README.md`；阶段计划与验收门在本地 `PLAN.md`（内部文档，不入库）。
 
 ## 概述
-VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。当前线上 `2.0.27-ai`（versionCode 105，2026-11-06 发布），发版由 CI tag 触发。
+VibeMusic 原生 Android 客户端：**纯 Kotlin + Jetpack Compose (Material3)**，单 Activity / 单模块（`:app`），后端 `https://vibe.cyk666.top`（游客模式 + 自建账号登录）。发版由 CI tag 触发；**当前版本以 `git tag --sort=-creatordate | head -1` 为准**，本文不记录版本号。
 
 ## 技术栈（冻结，改动需用户批准）
 - Kotlin 2.1.21 · AGP 8.11.1 · Gradle 8.13 · JDK 21（`jvmTarget 17`）
 - compileSdk 36 / minSdk 26 / targetSdk **35**（targetSdk 36 会强制 edge-to-edge 等行为变更，另行决策）
 - Compose BOM 2024.10.00 + Material3 + material-icons-extended；Media3 1.9.4；Retrofit 2.11.0 / OkHttp 4.12.0；Coil 2.6.0；DataStore 1.1.1；Bugly 4.1.9
 - JSON 走 **`org.json`（不用 Moshi）**
-- 测试：JUnit 4.13.2 + Robolectric 4.14.1（101 个测试文件 / 1161 用例）
+- 测试：JUnit 4.13.2 + Robolectric 4.14.1（用例数以 `./gradlew testDebugUnitTest` 输出为准）
 - 版本单一来源：`gradle/libs.versions.toml`
 
 ## 常用命令（工具链 `$ANDROID_HOME/build-tools/36.0.0/`）
 ```bash
-./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：1161 用例必须全绿
+./gradlew testDebugUnitTest --no-daemon    # ★ 验收门：必须全绿（不做"只跑改动的测试"）
 ./gradlew assembleDebug --no-daemon        # debug 构建
 VIBEMUSIC_KEYSTORE_PASSWORD=<本机凭据文件> ./gradlew assembleRelease --no-daemon
 aapt dump badging app/build/outputs/apk/release/app-release.apk   # 校 versionName/versionCode
@@ -25,15 +25,17 @@ apksigner verify app/build/outputs/apk/release/app-release.apk    # 校签名
 ```
 
 ## 目录与分层
-- 代码平铺于 `app/src/main/java/com/cyk666/vibemusic/`（71 个 `.kt`）；测试在 `app/src/test/java/.../`（101 个）
+- 代码平铺于 `app/src/main/java/com/cyk666/vibemusic/`；测试在 `app/src/test/java/.../`（数量以 `ls *.kt | wc -l` 为准）
 - 分层 `data → business → presentation`，**禁止跨层**（UI 不得直连网络/存储）
-- 单一属主：`PlaybackService.kt` = 唯一 ExoPlayer 持有者；`MainActivity.kt` = 单 Activity 4 屏；`VibeApi.kt` = 后端契约
+- 单一属主：`PlaybackService.kt` = 唯一 ExoPlayer 持有者；`MainActivity.kt` = 页面编排与状态宿主（5 个底部 tab + 8 个二级页面，枚举见 `Screen.kt`）；`VibeApi.kt` = 后端契约
 - 命名：文件/类 `PascalCase`，函数/变量 `camelCase`，常量 `UPPER_SNAKE`；`*Screen.kt`=界面，`*Store.kt`=DataStore，`*Ui`/`UiAtoms.kt`=设计系统，主题在 `UiTheme.kt`
 - 状态：DataStore Preferences（`AuthStore`/`PlaybackStateStore`/`SearchStore`），媒体控制走 `MediaController`
 
 ## 规范 / 军规
 - **一次只改一件事**；改行为先改测试真值表（`shouldAutoSkip` / `shouldFireRetryProbe` 等纯函数抽取出来专门测）
-- **单文件纯 LOC**：新增文件硬上限 400，>250 只警告；存量白名单（`scripts/file-size-baseline.txt`）只降不升。行数是烟感器不是设计原则——拆分必须搬走完整概念，不为凑行数拆半截
+- **单文件纯 LOC**：新增文件硬上限 400，>250 只警告；存量白名单（`scripts/file-size-baseline.txt`）不得增长。
+  **加功能导致存量超基线时，允许一次性上调 ≤5% 并在提交信息写明理由**——不要为一行代码先拆一个 3000 行的文件，那种拆分只会产生「为凑行数而拆」的半截文件。
+  行数是烟感器不是设计原则；拆分必须搬走完整概念，**禁止把不相干代码塞进邻近文件**（2026-11-09 踩过：把空态塞进输入区文件，用户明确纠正）。
 - **分层**：界面层（`*Screen.kt` / `*Ui.kt` / `UiAtoms.kt`）禁止自己切线程 / 摸磁盘 / 发请求，`scripts/check-layering.sh` 在 CI 断言（当前零违规）
 - **交付三验**：单测全绿 + 构建 + aapt/apksigner 校验，**三者缺一不可**
 - **发版**：先改 `app/build.gradle.kts` 的 `versionCode`/`versionName`（`X.Y.Z-ai`），再 `git tag vX.Y.Z-ai && git push origin <tag>` 触发 CI（CI 校验 tag ↔ versionName 一致；tag 含 `beta` → 预发布通道）
