@@ -56,6 +56,21 @@ fun screenRoute(screen: Screen): String = when (screen) {
     is Screen.PlaylistDetail -> "playlistDetail"
 }
 
+/**
+ * 从 [from] 被引导去登录后，登录成功/取消该回到哪一页。
+ *
+ * 抽成纯函数有两个原因：
+ * 1. 旧实现把这段 `when` 内联在 `MainActivity` 的局部函数里，且末尾误写成了
+ *    递归调用（2.0.33 线上版本一点登录就 StackOverflow，见 2026-11-10 审查）；
+ *    纯函数可以直接钉测试，不用起 Activity。
+ * 2. 详情/队列页的状态依赖 `selectedPlaylist`/`queue` 等易失字段，登录回来时
+ *    已不可靠 → 降级回 [Screen.Mine]；登录页自身再退登录页会死循环 → 也回 Mine。
+ */
+fun loginReturnTarget(from: Screen): Screen = when (from) {
+    is Screen.PlaylistDetail, is Screen.Queue, is Screen.Login -> Screen.Mine
+    else -> from
+}
+
 private fun esc(s: String): String =
     s.replace("%", SCREEN_PCT_ESC).replace(SCREEN_SEP, SCREEN_SEP_ESC)
 

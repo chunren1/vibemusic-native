@@ -225,14 +225,13 @@ class MainActivity : ComponentActivity() {
             }
             // 登录返回目标：从哪个页面被引导去登录，成功/取消后就回哪里。
             // 旧实现固定跳 Mine，从助手页点「去登录」的用户登录完会被丢到「我的」。
-            var loginReturnTo by remember { mutableStateOf<Screen>(Screen.Mine) }
+            var loginReturnTo by rememberSaveable(stateSaver = ScreenSaver) {
+                mutableStateOf<Screen>(Screen.Mine)
+            }
             fun goLogin() {
-                // 详情/队列页登录后状态已不可靠（依赖 selectedPlaylist 等），降级回 Mine
-                loginReturnTo = when (screen) {
-                    is Screen.PlaylistDetail, is Screen.Queue -> Screen.Mine
-                    else -> screen
-                }
-                goLogin()
+                // 先记住来处，再进登录页。来处规则见 [loginReturnTarget]。
+                loginReturnTo = loginReturnTarget(screen)
+                screen = Screen.Login
             }
 
             // 系统返回键：二级页面回上一级，而不是直接退出 App。
@@ -246,6 +245,8 @@ class MainActivity : ComponentActivity() {
                 screen = when (screen) {
                     is Screen.PlaylistDetail -> Screen.Playlists
                     is Screen.Queue -> Screen.Player
+                    // 登录页的返回要和标题栏的返回一致：回被踢出去的那一页
+                    is Screen.Login -> loginReturnTo
                     else -> Screen.Mine
                 }
             }

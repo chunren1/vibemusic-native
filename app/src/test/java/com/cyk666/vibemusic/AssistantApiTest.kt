@@ -1,5 +1,6 @@
 package com.cyk666.vibemusic
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,5 +91,53 @@ class AssistantApiTest {
 
         assertTrue(e is RuntimeException)
         assertTrue(e!!.message!!.contains("data"))
+    }
+
+    @Test
+    fun parseActions_readsToolResultFields() {
+        val arr = JSONArray(
+            """[{"tool":"create_playlist","ok":true,"playlistName":"跑步","playlistId":"pl-1","added":0},
+                {"tool":"add_to_playlist","ok":false,"error":"未登录"}]"""
+        )
+
+        val actions = parseActions(arr)
+
+        assertEquals(2, actions.size)
+        assertEquals("create_playlist", actions[0].tool)
+        assertTrue(actions[0].ok)
+        assertEquals("跑步", actions[0].playlistName)
+        assertTrue(actions[0].touchesPlaylists())
+        assertFalse(actions[1].ok)
+        assertEquals("未登录", actions[1].error)
+        assertTrue(actions[1].touchesPlaylists())
+    }
+
+    @Test
+    fun parseActions_missingFieldsDegradeToDefaults() {
+        // 后端加字段/删字段都不该把整轮对话判失败：缺什么就取默认值。
+        val actions = parseActions(JSONArray("""[{"tool":"search_songs"}]"""))
+
+        assertEquals(1, actions.size)
+        assertEquals("", actions[0].playlistName)
+        assertEquals(0, actions[0].added)
+        assertFalse(actions[0].ok)
+        assertFalse(actions[0].touchesPlaylists())
+    }
+
+    @Test
+    fun parseActions_emptyOrNull_isEmpty() {
+        assertTrue(parseActions(null).isEmpty())
+        assertTrue(parseActions(JSONArray("[]")).isEmpty())
+    }
+
+    @Test
+    fun parse_replyCarriesActions() {
+        val json = """{"code":200,"data":{"reply":"建好了","songs":[],"toolCalls":1,
+            "actions":[{"tool":"create_playlist","ok":true,"playlistName":"跑步"}]}}"""
+
+        val reply = parseAssistantReply(json)
+
+        assertEquals(1, reply.actions.size)
+        assertEquals("跑步", reply.actions[0].playlistName)
     }
 }
