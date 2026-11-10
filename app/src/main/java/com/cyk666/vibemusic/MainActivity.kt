@@ -2876,6 +2876,14 @@ class MainActivity : ComponentActivity() {
                     if (snap.token.isBlank()) {
                         recordAuthDiag("NO_TOKEN")
                     } else {
+                        // 本地先亮：有 token 就按缓存昵称立即把登录态显示出来，
+                        // /api/auth/me 只做后台校正。冷启动最慢的一段是 me() 的
+                        // 公网往返（线上实测 0.2~1.4s，弱网更久），让用户先看到
+                        // 自己，比等校验回来再从「未登录」跳变好得多。
+                        // 若 token 其实已失效，下面的 ME_401_INVALID 会立刻纠正。
+                        if (snap.nickname.isNotBlank()) {
+                            currentUser = LoggedInUser("", snap.username, snap.nickname, "")
+                        }
                         var restored: LoggedInUser? = null
                         var settledError: Exception? = null
                         var invalidCredential = false
@@ -2898,7 +2906,9 @@ class MainActivity : ComponentActivity() {
                                 if (!retried && networkFail) {
                                     retried = true
                                     try {
-                                        delay(3000)
+                                        // 1.5s 足够覆盖「刚解锁/刚切网」的抖动；
+                                        // 原来的 3s 让失败路径白等一轮，用户感知更差。
+                                        delay(1500)
                                     } catch (ce: CancellationException) {
                                         throw ce
                                     }
