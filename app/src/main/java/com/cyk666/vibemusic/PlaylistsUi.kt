@@ -243,13 +243,15 @@ fun PlaylistsScreen(
                                 subtitle = "${pl.songCount} 首",
                                 coverUrl = pl.coverUrl,
                                 onClick = {
-                                    if (selecting) {
-                                        checkedIds =
-                                            if (checked) checkedIds - pl.id
-                                            else checkedIds + pl.id
-                                    } else {
-                                        onSelectPlaylist(pl)
-                                    }
+                                    if (selecting) checkedIds = toggleSelected(checkedIds, pl.id)
+                                    else onSelectPlaylist(pl)
+                                },
+                                // 与下载页、歌单详情同一套入口：长按任意行进入多选并选中该行。
+                                // 未进入多选时 checkedIds 必为空，先置 selecting 再 toggle 即可
+                                // 同时完成「进入 + 选中」；已多选时长按与单击一样是取反。
+                                onLongClick = {
+                                    selecting = true
+                                    checkedIds = toggleSelected(checkedIds, pl.id)
                                 },
                                 trailing = if (selecting) {
                                     null
