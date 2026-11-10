@@ -1801,6 +1801,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            /** 批量取消收藏：后端一次删完，本地只做增量剔除，不整表重拉。 */
+            fun removeFavBatch(sourceIds: List<String>) {
+                if (currentUser == null) return goLogin()
+                if (sourceIds.isEmpty()) return
+                api.launch("批量取消收藏失败") {
+                    val n = VibeApi.removeFavBatch(sourceIds)
+                    val removed = sourceIds.toSet()
+                    favIds = favIds - removed
+                    favSongs = favSongs.filterNot { it.sourceId in removed }
+                    showError(if (n > 0) "已取消收藏 $n 首" else "没有可取消的收藏")
+                }
+            }
+
             fun loadFavorites() {
                 if (currentUser == null) return
                 if (favLoading) return
@@ -3773,6 +3786,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onToggleFav = ::toggleFav,
                                 onAddToPlaylist = ::openAddSheet,
+                                onBatchRemove = { ids -> doRemoveHistory(ids, clearAll = false) },
                                 onDeleteOne = { item ->
                                     doRemoveHistory(listOf(item.song.sourceId), clearAll = false)
                                 },
@@ -3795,6 +3809,7 @@ class MainActivity : ComponentActivity() {
                                 onToggleFav = ::toggleFav,
                                 onAddToPlaylist = ::openAddSheet,
                                 onRetry = { loadFavorites() },
+                                onBatchUnfav = ::removeFavBatch,
                                 onBack = { screen = Screen.Mine }
                             )
 

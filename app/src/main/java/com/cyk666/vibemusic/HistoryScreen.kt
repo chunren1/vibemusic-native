@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.Manifest
+import androidx.activity.compose.BackHandler
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -147,11 +148,23 @@ fun HistoryScreen(
     onDeleteOne: (VibeApi.HistoryItem) -> Unit = {},
     onClearAll: () -> Unit = {},
     onRetry: () -> Unit = {},
+    onBatchRemove: (List<String>) -> Unit = {},
     onBack: () -> Unit
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<VibeApi.HistoryItem?>(null) }
     var sheetFor by remember { mutableStateOf<VibeApi.HistoryItem?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    var checkedIds by remember { mutableStateOf(emptySet<String>()) }
+    fun exitSelection() {
+        selecting = false
+        checkedIds = emptySet()
+    }
+    // 与其余多选页面同一套：系统返回键先退多选
+    BackHandler(enabled = selecting) { exitSelection() }
+    LaunchedEffect(items.size) {
+        if (shouldExitSelection(selecting, items.size)) exitSelection()
+    }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BackNavButton(label = "我的", onClick = onBack)
@@ -160,11 +173,27 @@ fun HistoryScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
-            if (items.isNotEmpty()) {
+            if (items.isNotEmpty() && !selecting) {
                 TextButton(onClick = { showClearConfirm = true }) {
                     Text("清空")
                 }
             }
+        }
+        if (selecting) {
+            // 后端按 sourceId 删，同一首歌的多条记录会一起删掉，所以选中集合也按 sourceId 去重
+            val ids = items.map { it.song.sourceId }.distinct()
+            SelectionToolbar(
+                count = checkedIds.size,
+                allSelected = allSelected(ids, checkedIds),
+                actionLabel = "删除",
+                onCancel = ::exitSelection,
+                onToggleAll = { checkedIds = toggleAllSelected(ids, checkedIds) },
+                onAction = {
+                    val picked = checkedIds.toList()
+                    exitSelection()
+                    onBatchRemove(picked)
+                }
+            )
         }
         Spacer(Modifier.height(4.dp))
         // 失败 ≠ 空：断网时若落进 empty 分支，用户会以为播放记录被清空了
@@ -182,7 +211,7 @@ fun HistoryScreen(
             ListState.CONTENT -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(items, key = { idx, h -> h.song.sourceId + h.song.platform + idx }) { index, item ->
                     val song = item.song
-                    SongRow(
+                    SelectableSongRow(
                         model = buildSongRowModel(
                             song,
                             subtitleOverride = if (item.playedAt.isNotBlank()) {
@@ -191,7 +220,17 @@ fun HistoryScreen(
                                 "第${index + 1}首 · " + song.artist
                             }
                         ),
-                        onClick = { onPlayAt(index) },
+                        meta = if (song.durationSec > 0) formatDuration(song.durationSec) else null,
+                        checked = song.sourceId in checkedIds,
+                        selecting = selecting,
+                        onClick = {
+                            if (selecting) checkedIds = toggleSelected(checkedIds, song.sourceId)
+                            else onPlayAt(index)
+                        },
+                        onLongClick = {
+                            selecting = true
+                            checkedIds = toggleSelected(checkedIds, song.sourceId)
+                        },
                         onOverflow = { sheetFor = item }
                     )
                 }

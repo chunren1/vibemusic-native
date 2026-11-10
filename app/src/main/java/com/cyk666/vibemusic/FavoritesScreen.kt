@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import android.Manifest
+import androidx.activity.compose.BackHandler
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -143,9 +144,21 @@ fun FavoritesScreen(
     onToggleFav: (Song) -> Unit = {},
     onAddToPlaylist: (Song) -> Unit = {},
     onRetry: () -> Unit = {},
+    onBatchUnfav: (List<String>) -> Unit = {},
     onBack: () -> Unit
 ) {
     var sheetFor by remember { mutableStateOf<Song?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    var checkedIds by remember { mutableStateOf(emptySet<String>()) }
+    fun exitSelection() {
+        selecting = false
+        checkedIds = emptySet()
+    }
+    // 与下载页 / 我的歌单 / 歌单详情同一套：系统返回键先退多选
+    BackHandler(enabled = selecting) { exitSelection() }
+    LaunchedEffect(songs.size) {
+        if (shouldExitSelection(selecting, songs.size)) exitSelection()
+    }
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BackNavButton(label = "我的", onClick = onBack)
@@ -154,13 +167,28 @@ fun FavoritesScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
-            if (songs.isNotEmpty()) {
+            if (songs.isNotEmpty() && !selecting) {
                 Text(
                     text = "${songs.size} 首",
                     style = MaterialTheme.typography.bodySmall,
                     color = GrayMuted
                 )
             }
+        }
+        if (selecting) {
+            val ids = songs.map { it.sourceId }
+            SelectionToolbar(
+                count = checkedIds.size,
+                allSelected = allSelected(ids, checkedIds),
+                actionLabel = "取消收藏",
+                onCancel = ::exitSelection,
+                onToggleAll = { checkedIds = toggleAllSelected(ids, checkedIds) },
+                onAction = {
+                    val picked = checkedIds.toList()
+                    exitSelection()
+                    onBatchUnfav(picked)
+                }
+            )
         }
         Spacer(Modifier.height(4.dp))
         // 失败 ≠ 空：断网时若落进 empty 分支，用户会以为收藏被清空了
@@ -186,14 +214,23 @@ fun FavoritesScreen(
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(songs, key = { idx, s -> s.sourceId + s.platform + idx }) { index, song ->
-                SongRow(
+                SelectableSongRow(
                     model = buildSongRowModel(song),
                     meta = if (song.durationSec > 0) {
                         formatDuration(song.durationSec)
                     } else {
                         null
                     },
-                    onClick = { onPlayAt(index) },
+                    checked = song.sourceId in checkedIds,
+                    selecting = selecting,
+                    onClick = {
+                        if (selecting) checkedIds = toggleSelected(checkedIds, song.sourceId)
+                        else onPlayAt(index)
+                    },
+                    onLongClick = {
+                        selecting = true
+                        checkedIds = toggleSelected(checkedIds, song.sourceId)
+                    },
                     onOverflow = { sheetFor = song }
                 )
             }
