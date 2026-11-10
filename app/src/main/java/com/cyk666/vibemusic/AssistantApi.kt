@@ -139,6 +139,41 @@ suspend fun VibeApi.assistantChat(
     rawPost(buildAssistantChatPath(deviceId), buildAssistantChatBody(message, context))
 )
 
+/** 服务端历史里的一条消息（`GET /history` 的 data[] 元素：role + content）。 */
+data class AssistantHistoryMessage(val role: ChatRole, val text: String)
+
+/**
+ * 解析 `GET /history` 的 `data[]`。
+ *
+ * 服务端只存 role + content 文本（songs/actions 的工具结果不落历史），恢复出来的
+ * 是纯文本气泡。role 异常或 content 空白的条目跳过——单条脏数据不该把整页历史判失败。
+ */
+fun parseAssistantHistory(json: String): List<AssistantHistoryMessage> {
+    val root = JSONObject(json)
+    val code = root.optInt("code", -1)
+    if (code != 200) {
+        throw RuntimeException("AI 历史失败: code=$code ${root.optString("message", "unknown error")}")
+    }
+    val arr = root.optJSONArray("data") ?: return emptyList()
+    val out = ArrayList<AssistantHistoryMessage>(arr.length())
+    for (i in 0 until arr.length()) {
+        val o = arr.optJSONObject(i) ?: continue
+        val role = when (o.optString("role")) {
+            "user" -> ChatRole.USER
+            "assistant" -> ChatRole.ASSISTANT
+            else -> continue
+        }
+        val text = o.optString("content")
+        if (text.isBlank()) continue
+        out.add(AssistantHistoryMessage(role, text))
+    }
+    return out
+}
+
+/** 拉服务端对话历史（与清除共用同一条路径与设备隔离规则）。 */
+suspend fun VibeApi.assistantHistory(deviceId: String): List<AssistantHistoryMessage> =
+    parseAssistantHistory(rawGet(buildAssistantHistoryPath(deviceId)))
+
 /** 清服务端对话记忆（App 侧"清空"必须同时清后端，否则下一轮又会被灌回上下文）。 */
 suspend fun VibeApi.clearAssistantHistory(deviceId: String) {
     rawDelete(buildAssistantHistoryPath(deviceId))

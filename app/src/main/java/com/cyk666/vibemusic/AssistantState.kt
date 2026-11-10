@@ -39,6 +39,8 @@ class AssistantState(
         VibeApi.assistantChat(msg, deviceId)
     },
     private val clearRemote: suspend () -> Unit = { VibeApi.clearAssistantHistory(deviceId) },
+    /** 冷启动拉服务端历史（注入以便单测；失败静默，见 [restore]）。 */
+    private val restoreRemote: suspend () -> List<AssistantHistoryMessage> = { VibeApi.assistantHistory(deviceId) },
     /** 服务端歌单被改动时通知宿主刷新本地缓存（AI 是「外部写入」，界面自己感知不到）。 */
     private val onWriteAction: () -> Unit = {}
 ) {
@@ -51,6 +53,9 @@ class AssistantState(
     /** 给 Snackbar 的一次性提示；消费后必须归 null（见 [consumeNotice]）。 */
     var notice by mutableStateOf<String?>(null)
         private set
+
+    /** 服务端历史只拉一次：进入页面、清空之后都不再重复拉（清空语义优先）。 */
+    private var restored = false
 
     /**
      * 发一条消息。空白消息直接忽略；[sending] 期间的重入一律丢弃（不是排队：
@@ -92,12 +97,38 @@ class AssistantState(
     }
 
     /**
+     * 冷启动拉服务端历史填充界面（由界面 `LaunchedEffect(Unit)` 调用；幂等）。
+     *
+     * 为什么必须补这个端点：此前只有 DELETE 没有 GET，App 界面空白但后端上下文
+     * 还在（30 分钟 TTL），AI 会冒出「你刚才提到…」而用户看到的是新对话——
+     * 这就是「没隔离」体感的来源。
+     *
+     * 恢复的只是纯文本气泡（songs/actions 不落服务端历史）。三条守卫：
+     * - 拉回时若用户已发过消息（restore 慢于首条 send），不覆盖现有对话；
+     * - 失败静默（冷启动网络失败不该在助手页弹错），记 SilentFail 便于诊断；
+     * - [clear] 后 [restored] 置位——用户刚清空就不该再把历史拉回来。
+     */
+    suspend fun restore() {
+        if (restored || messages.isNotEmpty()) return
+        restored = true
+        try {
+            val history = restoreRemote()
+            if (messages.isEmpty() && history.isNotEmpty()) {
+                messages = history.map { ChatMessage(it.role, it.text) }
+            }
+        } catch (e: Exception) {
+            SilentFail.note("AssistantState.restore:${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
      * 清空对话。界面先清、后端后清：后端失败不该让"点了清空还留着记录"，
      * 但失败要能重试——所以失败时给出提示，用户再点一次即可。
      */
     fun clear(scope: CoroutineScope) {
         val hadMessages = messages.isNotEmpty()
         messages = emptyList()
+        restored = true // 刚清空就不该再拉回历史：清空语义优先于恢复
         if (!hadMessages) return
         scope.launch {
             try {

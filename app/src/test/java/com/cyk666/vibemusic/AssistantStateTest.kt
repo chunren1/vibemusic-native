@@ -3,6 +3,7 @@ package com.cyk666.vibemusic
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -224,5 +225,75 @@ class AssistantStateTest {
 
         assertTrue(st.messages.isEmpty())
         assertEquals(AssistantState.CLEAR_FAIL_NOTICE, st.notice)
+    }
+
+    // ---------- 冷启动恢复（GET /api/assistant/history） ----------
+
+    @Test
+    fun restore_fillsMessagesFromServerHistory() {
+        val st = AssistantState(
+            deviceId = "d1",
+            send = { AssistantReply("x", emptyList(), 0) },
+            restoreRemote = {
+                listOf(
+                    AssistantHistoryMessage(ChatRole.USER, "推荐一首周杰伦"),
+                    AssistantHistoryMessage(ChatRole.ASSISTANT, "给你推荐《晴天》")
+                )
+            }
+        )
+        scope.launch { st.restore() }
+
+        assertEquals(2, st.messages.size)
+        assertEquals(ChatRole.USER, st.messages[0].role)
+        assertEquals("推荐一首周杰伦", st.messages[0].text)
+        assertEquals(ChatRole.ASSISTANT, st.messages[1].role)
+        // 历史不落 songs/actions：恢复出来的是纯文本气泡
+        assertTrue(st.messages[1].songs.isEmpty())
+    }
+
+    @Test
+    fun restore_isIdempotentAndDoesNotOverwriteNewMessages() {
+        val st = AssistantState(
+            deviceId = "d1",
+            send = { AssistantReply("x", emptyList(), 0) },
+            restoreRemote = { listOf(AssistantHistoryMessage(ChatRole.USER, "旧对话")) }
+        )
+        scope.launch { st.restore() }
+        // 恢复与首条 send 竞争时（restore 慢于 send），已有对话不能被旧历史覆盖
+        st.send(scope, "新的问题")
+        scope.launch { st.restore() }
+
+        assertEquals(3, st.messages.size)
+        assertEquals("旧对话", st.messages[0].text)
+        assertEquals("新的问题", st.messages[1].text)
+    }
+
+    @Test
+    fun clear_setsRestoredSoHistoryIsNotPulledBack() {
+        var pulled = 0
+        val st = AssistantState(
+            deviceId = "d1",
+            send = { AssistantReply("x", emptyList(), 0) },
+            restoreRemote = { pulled++; emptyList() }
+        )
+        scope.launch { st.restore() }
+        st.clear(scope)
+        scope.launch { st.restore() } // 清空后再进页面：清空语义优先，不再拉历史
+
+        assertEquals(1, pulled)
+        assertTrue(st.messages.isEmpty())
+    }
+
+    @Test
+    fun restore_remoteFailure_isSilent() {
+        val st = AssistantState(
+            deviceId = "d1",
+            send = { AssistantReply("x", emptyList(), 0) },
+            restoreRemote = { throw RuntimeException("offline") }
+        )
+        scope.launch { st.restore() } // 不抛：冷启动网络失败不该在助手页弹错
+
+        assertTrue(st.messages.isEmpty())
+        assertNull(st.notice)
     }
 }

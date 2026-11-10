@@ -92,6 +92,9 @@ fun AssistantScreen(
         if (target >= 0) listState.animateScrollToItem(target)
     }
 
+    // 冷启动拉服务端历史恢复界面（幂等；失败静默）。恢复出的历史不含 songs/actions。
+    LaunchedEffect(Unit) { state.restore() }
+
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 16.dp).imePadding()) {
         AssistantHeader(canClear = state.messages.isNotEmpty(), onClear = onClear)
 
