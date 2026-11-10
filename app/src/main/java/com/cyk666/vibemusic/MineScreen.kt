@@ -171,7 +171,9 @@ fun MineScreen(
         modifier = modifier.fillMaxSize().padding(16.dp)
             .verticalScroll(overviewScroll)
     ) {
-        if (!authChecked) {
+        // 只有「既没校验完、也没有可显示的用户」才转圈。冷启动时 MainActivity 会用
+        // 本地缓存的昵称先把 user 填上，这时不必再让用户盯着「正在恢复登录态…」。
+        if (!authChecked && user == null) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
             }

@@ -1522,7 +1522,9 @@ class MainActivity : ComponentActivity() {
                         playlists = VibeApi.myPlaylists()
                         playlistsError = null
                         playlistsLastLoaded = System.currentTimeMillis()
-                        currentUser?.userId?.let { uid ->
+                        // 空 userId = 乐观恢复的临时态（/api/auth/me 还没回来），
+                        // 不能用它当缓存键，否则会写出一条 uid 为空的脏记录。
+                        currentUser?.userId?.takeIf { it.isNotBlank() }?.let { uid ->
                             HotspotStore.write(context, "playlists", encodePlaylists(uid, playlists))
                         }
                     } catch (e: AuthException) {
@@ -3000,7 +3002,7 @@ class MainActivity : ComponentActivity() {
                     currentUser != null && !playlistsLoading) {
                     if (playlists.isEmpty()) {
                         val uid = currentUser?.userId
-                        if (uid != null) {
+                        if (!uid.isNullOrBlank()) {
                             seedHotspot("playlists") { ts, p ->
                                 decodePlaylists(p, uid)?.takeIf { it.isNotEmpty() }?.let {
                                     playlists = it
