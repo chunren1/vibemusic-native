@@ -220,8 +220,11 @@ jobs:
           fi
           PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           if [ -n "$PREV_TAG" ]; then
+            # 去掉 `feat(update): ` 这类前缀，给用户看的是纯描述
             CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
-              | grep -v '^- chore(release)' | head -12 || true)"
+              | grep -v '^- chore(release)' \
+              | sed -E 's/^- (feat|fix|perf|refactor|docs|test|chore)(\([a-z-]+\))?: /- /' \
+              | head -12 || true)"
           else
             CHANGES=""
           fi
@@ -287,8 +290,11 @@ jobs:
           PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           CHANGES=""
           if [ -n "$PREV_TAG" ]; then
+            # 去掉 `feat(update): ` 这类前缀，给用户看的是纯描述
             CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
-              | grep -v '^- chore(release)' | head -12 || true)"
+              | grep -v '^- chore(release)' \
+              | sed -E 's/^- (feat|fix|perf|refactor|docs|test|chore)(\([a-z-]+\))?: /- /' \
+              | head -12 || true)"
           fi
           [ -z "$CHANGES" ] && CHANGES="- 常规维护与问题修复"
           if printf '%s' "$TAG" | grep -qi 'beta'; then
