@@ -212,14 +212,28 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           # 双通道：tag 含 beta（不分大小写）即测试版 → GitHub prerelease；
           # 正式 tag（如 v2.0.17-ai）保持正式 Release。更新器正式通道只读 /latest（自动排除 prerelease）。
+          # 更新说明＝上一个 tag 到本 tag 的提交标题：用户要看的是「改了什么」，
+          # 版本号由 Release 标题那一行承担。哈希移进 HTML 注释——GitHub/Gitee
+          # 页面不渲染注释，而更新器的 parseSha256FromBody 仍能正则抽到（UPD-4 内容门靠它）。
+          if git rev-parse --is-shallow-repository | grep -q true; then
+            git fetch -q --unshallow --tags 2>/dev/null || true
+          fi
+          PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
+              | grep -v '^- chore(release)' | head -12 || true)"
+          else
+            CHANGES=""
+          fi
+          [ -z "$CHANGES" ] && CHANGES="- 常规维护与问题修复"
           if printf '%s' "$TAG" | grep -qi 'beta'; then
             PRERELEASE_FLAGS="--prerelease"
             # 坑①：bash 双引号不展开 \n —— 写死 "\n\n" 会变成字面量反斜杠 n（v2.0.11-ai 的说明里就真的这么显示了），必须用 printf。
             # 坑②：哈希由 Verify 步骤写进 $GITHUB_ENV 的 SHA256，跨步骤只能引 $SHA256，引 $SHA 永远是空串（原 bug 根因）。
-            printf -v NOTES 'VibeMusic 原生版 %s（测试版，CI 自动构建签名；正式通道收不到此版）\n\nAPK sha256: `%s`' "$TAG" "$SHA256"
+            printf -v NOTES '## 更新内容\n%s\n\n> 测试版，正式通道收不到此版。\n\n<!-- APK sha256: %s -->' "$CHANGES" "$SHA256"
           else
             PRERELEASE_FLAGS=""
-            printf -v NOTES 'VibeMusic 原生版 %s（CI 自动构建签名）\n\nAPK sha256: `%s`' "$TAG" "$SHA256"
+            printf -v NOTES '## 更新内容\n%s\n\n<!-- APK sha256: %s -->' "$CHANGES" "$SHA256"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_NAME" --clobber
@@ -265,11 +279,23 @@ jobs:
             echo "::error::SHA256 未从 Verify 步骤继承（GITHUB_ENV 断链）——拒绝发布无哈希的 release"
             exit 1
           fi
-          NOTES=$(printf 'VibeMusic 原生版 %s（CI 自动构建签名，与 GitHub Release 同包）\n\nAPK sha256: `%s`' "$TAG" "$SHA256")
+          # 变更摘要：与 GitHub 侧同源（上一 tag → 本 tag 的提交标题）。
+          # 必须在生成 NOTES 前补全历史，否则浅克隆里 describe 找不到上一个 tag。
+          if git rev-parse --is-shallow-repository | grep -q true; then
+            git fetch -q --unshallow --tags 2>/dev/null || true
+          fi
+          PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          CHANGES=""
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
+              | grep -v '^- chore(release)' | head -12 || true)"
+          fi
+          [ -z "$CHANGES" ] && CHANGES="- 常规维护与问题修复"
           if printf '%s' "$TAG" | grep -qi 'beta'; then
-            NOTES=$(printf 'VibeMusic 原生版 %s（测试版，CI 自动构建签名，与 GitHub Release 同包）\n\nAPK sha256: `%s`' "$TAG" "$SHA256")
+            NOTES=$(printf '## 更新内容\n%s\n\n> 测试版，正式通道收不到此版；与 GitHub Release 同包。\n\n<!-- APK sha256: %s -->' "$CHANGES" "$SHA256")
             PRERELEASE_JSON=',"prerelease":true'
           else
+            NOTES=$(printf '## 更新内容\n%s\n\n<!-- APK sha256: %s -->' "$CHANGES" "$SHA256")
             PRERELEASE_JSON=',"prerelease":false'
           fi
           # (0) mirror the tag itself first: create-release requires the tag to

@@ -143,12 +143,13 @@ fun UpdateDialog(
 ) {
     AlertDialog(
         onDismissRequest = { if (!busy) onLater() },
-        title = { Text("发现新版本 ${release.tag}") },
+        title = { Text("发现新版本 ${displayVersion(release.tag)}") },
         text = {
             Column {
-                if (release.body.isNotBlank()) {
+                val notes = remember(release.body) { releaseNotesText(release.body) }
+                if (notes.isNotBlank()) {
                     Text(
-                        text = release.body,
+                        text = notes,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -157,7 +158,7 @@ fun UpdateDialog(
                     )
                 } else {
                     Text(
-                        text = "新版本可用，立即更新体验改进。",
+                        text = "本次更新包含问题修复与体验改进。",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
