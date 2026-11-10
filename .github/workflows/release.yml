@@ -220,10 +220,12 @@ jobs:
           fi
           PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           if [ -n "$PREV_TAG" ]; then
-            # 去掉 `feat(update): ` 这类前缀，给用户看的是纯描述
+            # 只收用户能感知的类型（功能/修复/性能/重构），chore/docs/test 这类
+            # 内部改动不进更新说明——否则「更新说明去掉前缀」这种 CI 自己的改动
+            # 也会出现在用户的更新弹窗里。再去掉类型前缀，只留描述。
             CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
-              | grep -v '^- chore(release)' \
-              | sed -E 's/^- (feat|fix|perf|refactor|docs|test|chore)(\([a-z-]+\))?: /- /' \
+              | grep -E '^- (feat|fix|perf|refactor)\(?[a-z-]*\)?:' \
+              | sed -E 's/^- (feat|fix|perf|refactor)(\([a-z-]+\))?: /- /' \
               | head -12 || true)"
           else
             CHANGES=""
@@ -290,10 +292,12 @@ jobs:
           PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           CHANGES=""
           if [ -n "$PREV_TAG" ]; then
-            # 去掉 `feat(update): ` 这类前缀，给用户看的是纯描述
+            # 只收用户能感知的类型（功能/修复/性能/重构），chore/docs/test 这类
+            # 内部改动不进更新说明——否则「更新说明去掉前缀」这种 CI 自己的改动
+            # 也会出现在用户的更新弹窗里。再去掉类型前缀，只留描述。
             CHANGES="$(git log --no-merges --pretty='- %s' "${PREV_TAG}..${TAG}" \
-              | grep -v '^- chore(release)' \
-              | sed -E 's/^- (feat|fix|perf|refactor|docs|test|chore)(\([a-z-]+\))?: /- /' \
+              | grep -E '^- (feat|fix|perf|refactor)\(?[a-z-]*\)?:' \
+              | sed -E 's/^- (feat|fix|perf|refactor)(\([a-z-]+\))?: /- /' \
               | head -12 || true)"
           fi
           [ -z "$CHANGES" ] && CHANGES="- 常规维护与问题修复"
