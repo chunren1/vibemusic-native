@@ -3,7 +3,8 @@
 原生 Android 客户端，后端 `https://vibe.cyk666.top`（访客直进，登录接自家账号）。
 包名 `com.cyk666.vibemusic`，展示名 `VibeMusic`。
 
-当前版本：`2.0.31-ai`（versionCode 109，正式通道）；上一个稳定版 `2.0.30-ai`。
+当前版本见 [Releases](https://github.com/chunren1/vibemusic-native/releases)（按 tag 倒序，Gitee 有镜像）；
+版本号唯一来源是 `app/build.gradle.kts`，用例数以 CI 输出为准——这里不写死数字，免得漂。
 发版走 CI 打 tag 直发 GitHub Release（LanShare 传包已退役）；CI 发版前会先跑 `testDebugUnitTest` 作为发布门。
 
 ## 技术栈（版本冻结，升级需批准）
@@ -15,7 +16,7 @@ compileSdk 36 / minSdk 26 / targetSdk 35。测试：JUnit 4.13.2 + Robolectric 4
 ## 常用命令
 
 ```bash
-./gradlew testDebugUnitTest --no-daemon   # 验收门：1133 用例全绿才许交付（2026-11-03 实测）
+./gradlew testDebugUnitTest --no-daemon   # 验收门：全量用例零失败才许交付
 ./gradlew assembleDebug --no-daemon       # 调试包
 VIBEMUSIC_KEYSTORE_PASSWORD=<见凭据库> ./gradlew assembleRelease --no-daemon
 $ANDROID_HOME/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
@@ -64,7 +65,7 @@ keystore：本机保存的发布密钥库（alias `vibemusic`，RSA 2048，密�
 - 焦点补试阶梯 + 用户意愿门 `shouldFireRetryProbe`：未点按绝不自动续播，暂停即取消补试。
 - 卡死自愈交给 Media3 1.9.0 原生 `StuckPlayerException`（想播 + READY 10 秒无进度即抛错）→ 走既有 `onPlayerError` 重试/换源；自建看门狗已于 2026-10-26 删除。
 - 保活引导 `shouldShowKilledHint`：播放键失灵提示直指「我的→设置→后台保活」。
-- 可测性：上述门与纯函数都有单测钉住（1133 例），行为变更先改测试再改实现。
+- 可测性：上述门与纯函数都有单测钉住，行为变更先改测试再改实现。
 
 ## 血泪教训（新需求先读）
 
