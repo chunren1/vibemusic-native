@@ -180,26 +180,17 @@ private fun AssistantEmptyState(
         Modifier.fillMaxWidth().padding(top = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(Modifier.size(78.dp), contentAlignment = Alignment.Center) {
-            // 外圈柔光：让徽标从深色背景里浮起来，而不是贴一个硬边圆
+        Box(Modifier.size(118.dp), contentAlignment = Alignment.Center) {
+            // 外圈径向柔光：让「大肥鱼」从深色背景里浮起来，而不是贴一个硬边圆
             Box(
-                Modifier.size(78.dp).clip(CircleShape)
+                Modifier.size(118.dp).clip(CircleShape)
                     .background(
-                        Brush.linearGradient(
-                            listOf(UiViolet.copy(alpha = 0.16f), UiCyan.copy(alpha = 0.16f))
+                        Brush.radialGradient(
+                            listOf(UiViolet.copy(alpha = 0.20f), Color.Transparent)
                         )
                     )
             )
-            Box(
-                Modifier.size(56.dp).clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(UiViolet, UiCyan))),
-                contentAlignment = Alignment.Center
-            ) {
-                AppIcon(
-                    AppIconKind.WHALE, Color.White,
-                    size = 30.dp, contentDescription = null
-                )
-            }
+            WhaleMascot(size = 96.dp)
         }
 
         Text(
