@@ -1,6 +1,7 @@
 package com.cyk666.vibemusic
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -80,7 +84,11 @@ internal fun AssistantComposer(
     }
 }
 
-/** 发送键：启用时紫→青渐变，禁用时退回面板色（不靠降透明度，避免看着像"半坏"）。 */
+/**
+ * 发送键：启用时紫→青渐变 + 细高光边，禁用时退回面板色（不靠降透明度，
+ * 避免看着像"半坏"）。箭头用矢量图标而不是「↑」文字——文字箭头随系统字体
+ * 渲染不一致（粗细/基线各机型不同），这是之前「有点丑」的直接原因。
+ */
 @Composable
 private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     val brush = if (enabled) {
@@ -89,16 +97,21 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
         Brush.linearGradient(listOf(UiSurface, UiSurface))
     }
     androidx.compose.foundation.layout.Box(
-        Modifier.size(46.dp).clip(CircleShape).background(brush)
+        Modifier.size(48.dp).clip(CircleShape).background(brush)
+            .border(
+                1.dp,
+                Color.White.copy(alpha = if (enabled) 0.20f else 0f),
+                CircleShape
+            )
             .clickable(enabled = enabled, onClickLabel = "发送", onClick = onClick)
             .semantics { contentDescription = "发送" },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            "↑",
-            color = if (enabled) Color.White else UiMuted,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
+        Icon(
+            imageVector = Icons.Filled.ArrowUpward,
+            contentDescription = null,
+            tint = if (enabled) Color.White else UiMuted,
+            modifier = Modifier.size(21.dp)
         )
     }
 }

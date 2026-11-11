@@ -51,7 +51,7 @@ internal fun AppBottomBar(
             label = { Text("助手") },
             icon = {
                 AppIcon(
-                    kind = AppIconKind.MESSAGE,
+                    kind = AppIconKind.WHALE,
                     tint = if (selectedTab == 2) NeonViolet else GrayMuted,
                     filled = selectedTab == 2
                 )

@@ -196,8 +196,8 @@ private fun AssistantEmptyState(
                 contentAlignment = Alignment.Center
             ) {
                 AppIcon(
-                    AppIconKind.MUSIC_NOTE, Color.White,
-                    size = 26.dp, contentDescription = null
+                    AppIconKind.WHALE, Color.White,
+                    size = 30.dp, contentDescription = null
                 )
             }
         }

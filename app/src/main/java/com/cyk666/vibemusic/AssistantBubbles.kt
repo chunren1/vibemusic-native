@@ -58,8 +58,8 @@ internal fun AssistantAvatar(size: Dp = 30.dp) {
         contentAlignment = Alignment.Center
     ) {
         AppIcon(
-            AppIconKind.MUSIC_NOTE, Color.White,
-            size = size * 0.52f, contentDescription = null
+            AppIconKind.WHALE, Color.White,
+            size = size * 0.58f, contentDescription = null
         )
     }
 }
