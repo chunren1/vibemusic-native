@@ -122,7 +122,7 @@ internal fun DetailHeader(
         ) {
             AppIcon(
                 kind = AppIconKind.PLAY_CIRCLE,
-                tint = if (playEnabled) UiViolet else UiMuted,
+                tint = if (playEnabled) UiAccent else UiMuted,
                 filled = true,
                 size = 32.dp
             )

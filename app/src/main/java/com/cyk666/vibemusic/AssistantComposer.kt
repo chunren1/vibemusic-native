@@ -1,7 +1,6 @@
 package com.cyk666.vibemusic
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,8 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -72,11 +69,11 @@ internal fun AssistantComposer(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = UiSurface,
                 unfocusedContainerColor = UiSurface,
-                focusedBorderColor = UiViolet.copy(alpha = 0.45f),
+                focusedBorderColor = UiAccent.copy(alpha = 0.45f),
                 unfocusedBorderColor = UiInk.copy(alpha = 0.08f),
                 focusedTextColor = UiInk,
                 unfocusedTextColor = UiInk,
-                cursorColor = UiCyan
+                cursorColor = UiAccentSoft
             )
         )
         Spacer(Modifier.width(8.dp))
@@ -85,24 +82,14 @@ internal fun AssistantComposer(
 }
 
 /**
- * 发送键：启用时紫→青渐变 + 细高光边，禁用时退回面板色（不靠降透明度，
+ * 发送键：启用时暖金实底 + 深色箭头，禁用时退回面板色（不靠降透明度，
  * 避免看着像"半坏"）。箭头用矢量图标而不是「↑」文字——文字箭头随系统字体
  * 渲染不一致（粗细/基线各机型不同），这是之前「有点丑」的直接原因。
  */
 @Composable
 private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
-    val brush = if (enabled) {
-        Brush.linearGradient(listOf(UiViolet, UiCyan))
-    } else {
-        Brush.linearGradient(listOf(UiSurface, UiSurface))
-    }
     androidx.compose.foundation.layout.Box(
-        Modifier.size(48.dp).clip(CircleShape).background(brush)
-            .border(
-                1.dp,
-                Color.White.copy(alpha = if (enabled) 0.20f else 0f),
-                CircleShape
-            )
+        Modifier.size(48.dp).clip(CircleShape).background(if (enabled) UiAccent else UiSurface)
             .clickable(enabled = enabled, onClickLabel = "发送", onClick = onClick)
             .semantics { contentDescription = "发送" },
         contentAlignment = Alignment.Center
@@ -110,7 +97,7 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
         Icon(
             imageVector = Icons.Filled.ArrowUpward,
             contentDescription = null,
-            tint = if (enabled) Color.White else UiMuted,
+            tint = if (enabled) UiSurface else UiMuted,
             modifier = Modifier.size(21.dp)
         )
     }

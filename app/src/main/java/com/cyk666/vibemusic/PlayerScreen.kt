@@ -183,7 +183,7 @@ fun HeroControls(
             modifier = Modifier
                 .size(heroSize)
                 .clip(CircleShape)
-                .background(if (enabled) NeonViolet else GrayMuted.copy(alpha = 0.4f))
+                .background(if (enabled) UiAccent else GrayMuted.copy(alpha = 0.4f))
                 .clickable(enabled = enabled, onClick = onPlayPause),
             contentAlignment = Alignment.Center
         ) {
@@ -244,7 +244,7 @@ private fun PlayerSeekSection(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth((sliderValue / sliderMax).coerceIn(0f, 1f))
-                        .background(NeonViolet)
+                        .background(UiAccent)
                 )
             }
             Slider(
@@ -659,7 +659,7 @@ fun PlayerScreen(
                         } else {
                             AppIcon(
                                 AppIconKind.DOWNLOAD,
-                                if (downloadedCurrent) NeonCyan else InkOnDark
+                                if (downloadedCurrent) UiAccentSoft else InkOnDark
                             )
                         }
                     }
@@ -669,7 +669,7 @@ fun PlayerScreen(
                     ) {
                         AppIcon(
                             AppIconKind.TIMER,
-                            if (sleepActive) NeonViolet else InkOnDark
+                            if (sleepActive) UiAccent else InkOnDark
                         )
                     }
                 }
@@ -707,7 +707,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(NeonViolet)
+                            .background(UiAccent)
                             .clickable(onClick = onPlayPause),
                         contentAlignment = Alignment.Center
                     ) {
@@ -893,7 +893,7 @@ fun PlayerScreen(
                         } else {
                             AppIcon(
                                 AppIconKind.DOWNLOAD,
-                                if (downloadedCurrent) NeonCyan else InkOnDark
+                                if (downloadedCurrent) UiAccentSoft else InkOnDark
                             )
                         }
                     }
@@ -903,7 +903,7 @@ fun PlayerScreen(
                     ) {
                         AppIcon(
                             AppIconKind.TIMER,
-                            if (sleepActive) NeonViolet else InkOnDark
+                            if (sleepActive) UiAccent else InkOnDark
                         )
                     }
                 }

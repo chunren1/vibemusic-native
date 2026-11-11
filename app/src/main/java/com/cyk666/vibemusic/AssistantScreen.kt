@@ -35,8 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -144,7 +142,7 @@ private fun AssistantHeader(canClear: Boolean, onClear: () -> Unit) {
                 color = UiInk
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(5.dp).clip(CircleShape).background(UiCyan))
+                Box(Modifier.size(5.dp).clip(CircleShape).background(UiAccentSoft))
                 Spacer(Modifier.width(5.dp))
                 Text(
                     "在线 · 实时搜曲库",
@@ -183,19 +181,16 @@ private fun AssistantEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.size(118.dp), contentAlignment = Alignment.Center) {
-            // 外圈径向柔光：让「大肥鱼」从深色背景里浮起来，而不是贴一个硬边圆
+            // 中性深底 + 细金环，和消息头像同一套做法：不用发光光晕（那是 AI 味的一部分）。
             Box(
-                Modifier.size(118.dp).clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(UiViolet.copy(alpha = 0.20f), Color.Transparent)
-                        )
-                    )
+                Modifier.size(108.dp).clip(CircleShape)
+                    .background(UiSurface)
+                    .border(1.dp, UiAccent.copy(alpha = 0.28f), CircleShape)
             )
             Image(
                 painter = painterResource(R.drawable.ic_whale),
                 contentDescription = null,
-                modifier = Modifier.size(104.dp)
+                modifier = Modifier.size(88.dp)
             )
         }
 
@@ -232,7 +227,7 @@ private fun AssistantEmptyState(
             Text(
                 "去登录",
                 style = MaterialTheme.typography.labelMedium,
-                color = UiCyan, fontWeight = FontWeight.SemiBold,
+                color = UiAccentSoft, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 4.dp).heightIn(min = 40.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .clickable(onClick = onLogin)
@@ -254,11 +249,11 @@ private fun StarterCard(text: String, onClick: () -> Unit) {
     ) {
         Box(
             Modifier.size(26.dp).clip(CircleShape)
-                .background(UiViolet.copy(alpha = 0.14f)),
+                .background(UiAccent.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
             AppIcon(
-                AppIconKind.MUSIC_NOTE, UiViolet,
+                AppIconKind.MUSIC_NOTE, UiAccent,
                 size = 14.dp, contentDescription = null
             )
         }

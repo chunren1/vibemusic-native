@@ -111,7 +111,7 @@ internal fun HomeSongCard(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(UiViolet)
+                .background(UiAccent)
                 .clickable(onClick = onPlay),
             contentAlignment = Alignment.Center
         ) {

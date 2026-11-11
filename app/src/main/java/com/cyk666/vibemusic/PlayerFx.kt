@@ -55,11 +55,12 @@ import kotlinx.coroutines.launch
 // NO RECORD_AUDIO) and is released on dispose/pause/background(STOP) to
 // avoid battery drain. Init failure → settled flat strip, never crash.
 
-private val PfxViolet = Color(0xFF8B5CF6)
-private val PfxCyan = Color(0xFF06B6D4)
+// 频谱条：同色系暖金渐变（深琥珀 → 米金），2026-11-11 去 AI 味，替换紫→青霓虹。
+private val PfxAccentDeep = Color(0xFFB0802F)
+private val PfxAccentSoft = Color(0xFFE8C98A)
 
 /**
- * Neon spectrum bars driven by the player audio session.
+ * Warm-gold spectrum bars driven by the player audio session.
  *
  * @param audioSessionId ExoPlayer audio session (> 0). 0/negative → renders
  * nothing (hidden, no Visualizer created).
@@ -174,7 +175,7 @@ fun SpectrumVisualizer(
                 .coerceAtLeast(if (level > 0f) drawDp(2f) else 0f)
             if (h <= 0f) return@forEachIndexed
             drawRoundRect(
-                color = lerp(PfxViolet, PfxCyan, i.toFloat() / (n - 1).coerceAtLeast(1)),
+                color = lerp(PfxAccentDeep, PfxAccentSoft, i.toFloat() / (n - 1).coerceAtLeast(1)),
                 topLeft = Offset(i * (bw + gapPx), size.height - h),
                 size = Size(bw, h),
                 cornerRadius = CornerRadius(bw / 2f, bw / 2f)

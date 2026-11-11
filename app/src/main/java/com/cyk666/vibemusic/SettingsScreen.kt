@@ -459,7 +459,7 @@ fun SettingsScreen(
                 onClick = if (keepAliveIgnoring) null else onOpenBatterySettings,
                 trailing = {
                     if (keepAliveIgnoring) {
-                        Text(text = "✓", color = NeonViolet)
+                        Text(text = "✓", color = UiAccent)
                     } else {
                         TextButton(onClick = onOpenBatterySettings) { Text("去开启") }
                     }
@@ -483,7 +483,7 @@ fun SettingsScreen(
             SettingsRowShell(
                 title = themeRow.title,
                 subtitle = themeRow.subtitle,
-                trailing = { Text(text = "✓", color = NeonViolet) }
+                trailing = { Text(text = "✓", color = UiAccent) }
             )
             MineDivider()
             // 诊断信息（登录诊断 / 播放诊断）不再对用户展示：它们是开发排查用的，

@@ -33,9 +33,9 @@ import java.io.File
 // (Compose Material3 / Coil / foundation only). Colors duplicated per-file on
 // purpose: the Obsidian palette vals in MainActivity.kt are file-private.
 
-private val P10Bg = Color(0xFF0A0A0F)
-private val P10Surface = Color(0xFF14141C)
-private val P10Violet = Color(0xFF8B5CF6)
+private val P10Bg = Color(0xFF0B0B0C)
+private val P10Surface = Color(0xFF151516)
+private val P10Violet = Color(0xFFD4A24E)
 private val P10Muted = Color(0xFF9CA3AF)
 private val P10Ink = Color(0xFFEDEDF2)
 

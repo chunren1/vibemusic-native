@@ -144,7 +144,7 @@ private fun HomeTabLabel(
                 .width(16.dp)
                 .height(3.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(if (selected) UiViolet else Color.Transparent)
+                .background(if (selected) UiAccent else Color.Transparent)
         )
     }
 }
@@ -251,7 +251,7 @@ fun DiscoverScreen(
                 HomeSectionHeader(
                     title = "每日推荐",
                     enSubtitle = "DAILY",
-                    enColor = UiViolet,
+                    enColor = UiAccent,
                     actionLabel = "换一批",
                     actionBusy = dailyLoading && dailyGated.isNotEmpty(),
                     onAction = onRefreshDaily
@@ -286,7 +286,7 @@ fun DiscoverScreen(
                                 song = song,
                                 backCoverUrl = back,
                                 enLabel = "DAILY SONGS",
-                                enColor = UiViolet,
+                                enColor = UiAccent,
                                 onPlay = { onPlayDaily(index) },
                                 onOverflow = { cardSheetFor = song }
                             )
@@ -309,7 +309,7 @@ fun DiscoverScreen(
                 HomeSectionHeader(
                     title = "新歌速递",
                     enSubtitle = "NEW",
-                    enColor = UiCyan
+                    enColor = UiAccentSoft
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -331,7 +331,7 @@ fun DiscoverScreen(
                                 song = song,
                                 backCoverUrl = back,
                                 enLabel = "NEW SONGS",
-                                enColor = UiCyan,
+                                enColor = UiAccentSoft,
                                 onPlay = { onPlayGuess(index) },
                                 onOverflow = { cardSheetFor = song }
                             )

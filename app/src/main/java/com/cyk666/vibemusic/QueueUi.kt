@@ -247,7 +247,7 @@ fun QueueScreen(
                                 .width(3.dp)
                                 .height(56.dp)
                                 .background(
-                                    if (row.isCurrent) UiViolet else Color.Transparent,
+                                    if (row.isCurrent) UiAccent else Color.Transparent,
                                     RoundedCornerShape(2.dp)
                                 )
                         )

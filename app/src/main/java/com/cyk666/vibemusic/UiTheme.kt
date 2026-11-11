@@ -6,10 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 
-internal val ObsidianBg = Color(0xFF0A0A0F)
-internal val ObsidianSurface = Color(0xFF14141C)
-internal val NeonViolet = Color(0xFF8B5CF6)
-internal val NeonCyan = Color(0xFF06B6D4)
+internal val ObsidianBg = Color(0xFF0B0B0C)
+internal val ObsidianSurface = Color(0xFF151516)
 internal val Champagne = Color(0xFFF5E6C8)
 internal val InkOnDark = Color(0xFFEDEDF2)
 internal val GrayMuted = Color(0xFF9CA3AF)
@@ -18,13 +16,14 @@ internal val ObsidianScheme = darkColorScheme(
     background = ObsidianBg,
     surface = ObsidianSurface,
     surfaceVariant = ObsidianSurface,
-    primary = NeonViolet,
-    secondary = NeonCyan,
+    primary = UiAccent,
+    secondary = UiAccentSoft,
     tertiary = Champagne,
     onBackground = InkOnDark,
     onSurface = InkOnDark,
     onSurfaceVariant = GrayMuted,
-    onPrimary = InkOnDark
+    // 暖金实底上的前景用近黑：白字对 #D4A24E 只有 2.3:1，深色≈8:1。
+    onPrimary = ObsidianBg
 )
 
 sealed interface LyricUiState {

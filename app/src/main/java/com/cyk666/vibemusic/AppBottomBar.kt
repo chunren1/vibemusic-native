@@ -35,7 +35,7 @@ internal fun AppBottomBar(
             icon = {
                 AppIcon(
                     kind = AppIconKind.EXPLORE,
-                    tint = if (selectedTab == 0) NeonViolet else GrayMuted,
+                    tint = if (selectedTab == 0) UiAccent else GrayMuted,
                     filled = selectedTab == 0
                 )
             }
@@ -47,7 +47,7 @@ internal fun AppBottomBar(
             icon = {
                 AppIcon(
                     kind = AppIconKind.SEARCH,
-                    tint = if (selectedTab == 1) NeonViolet else GrayMuted,
+                    tint = if (selectedTab == 1) UiAccent else GrayMuted,
                     filled = selectedTab == 1
                 )
             }
@@ -76,7 +76,7 @@ internal fun AppBottomBar(
             icon = {
                 AppIcon(
                     kind = AppIconKind.PLAY_CIRCLE,
-                    tint = if (selectedTab == 3) NeonViolet else GrayMuted,
+                    tint = if (selectedTab == 3) UiAccent else GrayMuted,
                     filled = selectedTab == 3
                 )
             }
@@ -88,7 +88,7 @@ internal fun AppBottomBar(
             icon = {
                 AppIcon(
                     kind = AppIconKind.PERSON,
-                    tint = if (selectedTab == 4) NeonViolet else GrayMuted,
+                    tint = if (selectedTab == 4) UiAccent else GrayMuted,
                     filled = selectedTab == 4
                 )
             }

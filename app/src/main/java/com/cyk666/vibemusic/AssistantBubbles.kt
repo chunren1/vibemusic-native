@@ -30,8 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -56,7 +54,8 @@ internal const val MAX_SONG_ROWS = 5
 internal fun AssistantAvatar(size: Dp = 30.dp) {
     Box(
         Modifier.size(size).clip(CircleShape)
-            .background(Brush.linearGradient(listOf(UiViolet, UiCyan))),
+            .background(UiAccent.copy(alpha = 0.22f))
+            .border(1.dp, UiAccent.copy(alpha = 0.35f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
         Image(
@@ -79,10 +78,11 @@ internal fun AssistantMessageRow(
             Text(
                 msg.text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White,
+                // 金色实底 + 近黑字（对比度≈8:1）；白字在金底上只有 2.3:1，不可用。
+                color = UiSurface,
                 lineHeight = 22.sp,
                 modifier = Modifier.widthIn(max = maxBubble).clip(BubbleUser)
-                    .background(Brush.linearGradient(listOf(UiViolet, UiViolet.copy(alpha = 0.78f))))
+                    .background(UiAccent)
                     .padding(horizontal = 16.dp, vertical = 11.dp)
             )
         }
@@ -148,7 +148,7 @@ internal fun AssistantSongCard(
             Text(
                 "全部播放",
                 style = MaterialTheme.typography.labelMedium,
-                color = UiCyan, fontWeight = FontWeight.SemiBold,
+                color = UiAccentSoft, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable { onPlaySongs(songs, 0) }
                     .padding(horizontal = 8.dp, vertical = 5.dp)
@@ -190,10 +190,10 @@ private fun AssistantSongTile(song: Song, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Box(
-            Modifier.size(30.dp).clip(CircleShape).background(UiViolet.copy(alpha = 0.16f)),
+            Modifier.size(30.dp).clip(CircleShape).background(UiAccent.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center
         ) {
-            AppIcon(AppIconKind.PLAY, UiViolet, size = 15.dp, contentDescription = null)
+            AppIcon(AppIconKind.PLAY, UiAccent, size = 15.dp, contentDescription = null)
         }
     }
 }
@@ -217,7 +217,7 @@ internal fun AssistantActionCard(actions: List<AssistantAction>, maxBubble: Dp) 
 @Composable
 private fun ActionRow(action: AssistantAction) {
     val ok = action.ok
-    val accent = if (ok) UiCyan else UiViolet
+    val accent = if (ok) UiAccentSoft else UiAccent
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
             .background(accent.copy(alpha = 0.10f))
@@ -299,7 +299,7 @@ internal fun AssistantThinkingRow(maxBubble: Dp) {
                 repeat(3) { i ->
                     Box(
                         Modifier.size(5.dp).clip(CircleShape)
-                            .background(if (i == active) UiCyan else UiMuted.copy(alpha = 0.35f))
+                            .background(if (i == active) UiAccentSoft else UiMuted.copy(alpha = 0.35f))
                     )
                 }
             }
