@@ -285,6 +285,18 @@ object OfflineStore {
                 }
                 return false
             }
+            // 防错配（2026-11-11）：换源错配/试听片段可以是合法音频（magic 校验拦不住），
+            // 用解码器读到的实际时长与元数据比对，偏差超阈值拒绝入库——绝不让
+            // 「歌名 A、内容 B」的副本进入离线库。
+            if (!durationMatches(song.durationSec, readAudioDurationMs(tmpFile))) {
+                try {
+                    tmpFile.delete()
+                } catch (_: Exception) {
+                    SilentFail.note("OfflineStore.saveBytes:313")
+                }
+                SilentFail.note("OfflineStore.saveBytes:duration-mismatch")
+                return false
+            }
             // Atomic rename (same dir, same fs) replaces any previous file.
             if (!tmpFile.renameTo(finalFile)) {
                 try {
@@ -315,6 +327,41 @@ object OfflineStore {
             }
             false
         }
+    }
+
+    /**
+     * 删除某首歌的下载副本（音频 + meta）。只给自愈用：播放时发现本地文件提前
+     * 结束（内容与歌曲不符/被截断），删掉这份**可重下**的副本，下次播放自动走
+     * 在线流（正确内容）。本地导入文件不在 offline 目录，不受影响。
+     * 返回是否真的删到了文件。
+     */
+    fun deleteDownloadedBySong(context: Context, song: Song): Boolean = try {
+        val audio = audioFile(context, song)
+        val meta = metaFile(context, song)
+        var hit = false
+        if (audio.exists()) hit = audio.delete() || hit
+        if (meta.exists()) hit = meta.delete() || hit
+        hit
+    } catch (_: Exception) {
+        false
+    }
+
+    /** 读音频文件时长（ms）；读不出/异常返回 null。阻塞 IO，调用方须在 IO 线程。 */
+    internal fun readAudioDurationMs(file: File): Long? = try {
+        val r = android.media.MediaMetadataRetriever()
+        try {
+            r.setDataSource(file.absolutePath)
+            r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()
+        } finally {
+            try {
+                r.release()
+            } catch (_: Exception) {
+                SilentFail.note("OfflineStore.readAudioDurationMs:release")
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 
     fun delete(context: Context, meta: OfflineMeta): Boolean {

@@ -116,9 +116,10 @@ object LocalAudioIntent {
         var artwork: ByteArray? = null
         try {
             retriever.setDataSource(context, uri)
-            retriever.meta(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let { title = it }
-            retriever.meta(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let { artist = it }
-            retriever.meta(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let { album = it }
+            // GBK 标签（微信/网盘下载的 MP3 常见）会被读成 Latin-1 mojibake，统一修复
+            retriever.meta(MediaMetadataRetriever.METADATA_KEY_TITLE)?.let { title = fixTagMojibake(it) }
+            retriever.meta(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.let { artist = fixTagMojibake(it) }
+            retriever.meta(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.let { album = fixTagMojibake(it) }
             artwork = retriever.embeddedPicture
         } catch (e: Exception) {
             // 元信息读不出不影响播放：标题回退文件名，其余留空

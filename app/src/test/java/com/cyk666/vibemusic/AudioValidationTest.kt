@@ -167,4 +167,58 @@ class AudioValidationTest {
     fun floor_matchesSpec() {
         assertEquals(100_000, MIN_AUDIO_BYTES)
     }
+
+    // ---- durationMatches：下载内容与歌曲元数据的时长一致性（防换源错配/试听片段入库）----
+
+    @Test
+    fun durationMatches_exactMatch() {
+        assertTrue(durationMatches(190, 190_063L))
+    }
+
+    @Test
+    fun durationMatches_withinToleranceForVersionEdits() {
+        // 前奏剪辑/编码误差：190s 的歌实际 200s（+10s，在 15s 容差内）
+        assertTrue(durationMatches(190, 200_000L))
+        // 190s 实际 175s（-15s，边界）
+        assertTrue(durationMatches(190, 175_000L))
+    }
+
+    @Test
+    fun durationMatches_rejectsWrongSongOrSnippet() {
+        // 试听片段：190s 的歌只下到 60s
+        assertFalse(durationMatches(190, 60_000L))
+        // 另一首歌：190s 的歌实际 240s
+        assertFalse(durationMatches(190, 240_000L))
+    }
+
+    @Test
+    fun durationMatches_missingMetadataPasses() {
+        // 元数据缺失或时长读不出时不拦（宁可入库也不误拒）
+        assertTrue(durationMatches(0, 190_000L))
+        assertTrue(durationMatches(-1, null))
+        assertTrue(durationMatches(190, null))
+        assertTrue(durationMatches(190, 0L))
+    }
+
+    // ---- fixTagMojibake：GBK 标签乱码修复 ----
+
+    @Test
+    fun fixTagMojibake_repairsGbkMojibake() {
+        // "还是会想你" 的 GBK 字节被按 ISO-8859-1 读出后的形态
+        val gbkBytes = "还是会想你".toByteArray(charset("GBK"))
+        val mojibake = String(gbkBytes, Charsets.ISO_8859_1)
+        assertEquals("还是会想你", fixTagMojibake(mojibake))
+    }
+
+    @Test
+    fun fixTagMojibake_keepsNormalChinese() {
+        assertEquals("晴天", fixTagMojibake("晴天"))
+        assertEquals("还是会想你 (Live版)", fixTagMojibake("还是会想你 (Live版)"))
+    }
+
+    @Test
+    fun fixTagMojibake_keepsAscii() {
+        assertEquals("Shape of You", fixTagMojibake("Shape of You"))
+        assertEquals("", fixTagMojibake(""))
+    }
 }
