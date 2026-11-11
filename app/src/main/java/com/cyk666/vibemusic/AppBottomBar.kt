@@ -1,15 +1,14 @@
 package com.cyk666.vibemusic
 
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 /**
@@ -57,15 +56,13 @@ internal fun AppBottomBar(
             onClick = { onSelect(Screen.Assistant) },
             label = { Text("助手") },
             icon = {
-                // 鲸鱼图标保留 Twemoji 原色（多色扁平设计），选中/未选中用大小+透明度区分：
-                // 单色 tint 会把这个图形最关键的蓝色抹掉，反而失去辨识度。
+                // 星芒 ✦：与其它四个 tab 同族的单色矢量符号，选中金/未选中灰。
+                // 不用卡通 IP：多色 emoji 混在单色图标组里必然违和（2026-11-11 反馈）。
                 Icon(
-                    painter = painterResource(R.drawable.ic_whale),
+                    imageVector = Icons.Filled.AutoAwesome,
                     contentDescription = null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier
-                        .size(if (selectedTab == 2) 26.dp else 23.dp)
-                        .alpha(if (selectedTab == 2) 1f else 0.62f)
+                    tint = if (selectedTab == 2) UiAccent else GrayMuted,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         )
