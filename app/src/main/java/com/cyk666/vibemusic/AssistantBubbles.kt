@@ -249,6 +249,11 @@ private fun ActionRow(action: AssistantAction) {
 }
 
 private fun actionTitle(action: AssistantAction): String = when {
+    action.tool == "favorite_song" && action.favorited && action.songName.isNotBlank() ->
+        "已收藏《${action.songName}》"
+    action.tool == "favorite_song" && !action.favorited && action.songName.isNotBlank() ->
+        "已取消收藏《${action.songName}》"
+    action.tool == "favorite_song" -> "收藏状态已更新"
     action.tool == "create_playlist" && action.playlistName.isNotBlank() ->
         "已创建《${action.playlistName}》"
     action.tool == "add_to_playlist" && action.playlistName.isNotBlank() ->
@@ -258,6 +263,9 @@ private fun actionTitle(action: AssistantAction): String = when {
 }
 
 private fun actionSubtitle(action: AssistantAction): String {
+    if (action.tool == "favorite_song") {
+        return if (action.favorited) "已同步到「我喜欢」" else "已从「我喜欢」移除"
+    }
     val parts = ArrayList<String>(2)
     if (action.added > 0) parts.add("${action.added} 首已添加")
     if (action.failedCount > 0) parts.add("${action.failedCount} 首没找到")

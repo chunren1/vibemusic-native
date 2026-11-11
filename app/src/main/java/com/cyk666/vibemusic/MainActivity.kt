@@ -433,7 +433,9 @@ class MainActivity : ComponentActivity() {
                         // AI 建/加歌单属于「外部写入」，界面自己感知不到：
                         // 清零加载时间戳，下次进歌单页立即重拉，不再等 5 分钟 TTL 自然过期
                         playlistsLastLoaded = 0L
-                    }
+                    },
+                    // AI 收藏/取消收藏后局部更新收藏态，收藏页/歌曲卡立即正确
+                    onFavoriteAction = { sid, faved -> if (sid.isNotBlank()) favIds = if (faved) favIds + sid else favIds - sid }
                 )
             }
             AssistantNoticeEffect(assistant) { showError(it) }

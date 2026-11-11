@@ -42,7 +42,9 @@ class AssistantState(
     /** 冷启动拉服务端历史（注入以便单测；失败静默，见 [restore]）。 */
     private val restoreRemote: suspend () -> List<AssistantHistoryMessage> = { VibeApi.assistantHistory(deviceId) },
     /** 服务端歌单被改动时通知宿主刷新本地缓存（AI 是「外部写入」，界面自己感知不到）。 */
-    private val onWriteAction: () -> Unit = {}
+    private val onWriteAction: () -> Unit = {},
+    /** 收藏类写操作（AI 收藏/取消收藏后同步界面收藏态）。 */
+    private val onFavoriteAction: (sourceId: String, favorited: Boolean) -> Unit = { _, _ -> }
 ) {
     var messages by mutableStateOf<List<ChatMessage>>(emptyList())
         private set
@@ -81,6 +83,9 @@ class AssistantState(
                     actions = reply.actions
                 )
                 if (reply.actions.any { it.ok && it.touchesPlaylists() }) onWriteAction()
+                // 收藏是局部状态（favIds），按条同步给界面做增量更新
+                reply.actions.filter { it.ok && it.touchesFavorites() }
+                    .forEach { onFavoriteAction(it.sourceId, it.favorited) }
             } catch (e: Exception) {
                 SilentFail.note("AssistantState.send:${e.javaClass.simpleName}")
                 val rateLimited = isRateLimited(e)

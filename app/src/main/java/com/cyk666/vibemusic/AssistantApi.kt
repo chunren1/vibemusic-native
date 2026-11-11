@@ -35,10 +35,18 @@ data class AssistantAction(
     val playlistId: String,
     val added: Int,
     val failedCount: Int,
-    val error: String
+    val error: String,
+    /** 收藏类结果：切换后的状态（true=已收藏）。 */
+    val favorited: Boolean = false,
+    /** 收藏类结果：歌曲名与 ID（局部刷新收藏态用）。 */
+    val songName: String = "",
+    val sourceId: String = ""
 ) {
     /** 是否改动了歌单数据——是则本地歌单缓存必须失效。 */
     fun touchesPlaylists(): Boolean = tool == "create_playlist" || tool == "add_to_playlist"
+
+    /** 是否改动了收藏数据——是则本地收藏态（favIds）必须同步。 */
+    fun touchesFavorites(): Boolean = tool == "favorite_song"
 }
 
 /**
@@ -124,7 +132,10 @@ fun parseActions(arr: org.json.JSONArray?): List<AssistantAction> {
                 playlistId = o.optString("playlistId"),
                 added = o.optInt("added", 0),
                 failedCount = o.optInt("failedCount", 0),
-                error = o.optString("error")
+                error = o.optString("error"),
+                favorited = o.optBoolean("favorited", false),
+                songName = o.optString("name"),
+                sourceId = o.optString("sourceId")
             )
         )
     }
