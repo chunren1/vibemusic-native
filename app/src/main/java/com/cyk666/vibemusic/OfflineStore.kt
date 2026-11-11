@@ -188,7 +188,10 @@ object OfflineStore {
                 }
             }
             if (read < head.size) return false
-            looksLikeAudio(head)
+            if (!looksLikeAudio(head)) return false
+            // 存量清理：历史坏副本里有一类是「两段音频拼接」，头部合法、时长也可能
+            // 接近，只有帧结构能识破。命中即判损坏，由 auditInvalid 删除。
+            !isSplicedAudio(f)
         } catch (_: Exception) {
             false
         }
@@ -253,6 +256,12 @@ object OfflineStore {
     fun saveBytes(context: Context, song: Song, bytes: ByteArray, nowMs: Long): Boolean {
         if (bytes.isEmpty()) return false
         if (!isValidDownload(bytes)) return false
+        // 拼接副本（前半段 A、后半段 B）也是合法音频，magic/时长都可能蒙混过关——
+        // 用帧结构定位第二段起点，命中即拒绝入库（2026-11-11「梦醒」现场）。
+        if (findMp3SpliceOffset(bytes) >= 0) {
+            SilentFail.note("OfflineStore.saveBytes:spliced")
+            return false
+        }
         val targetDir = try {
             dir(context)
         } catch (_: Exception) {

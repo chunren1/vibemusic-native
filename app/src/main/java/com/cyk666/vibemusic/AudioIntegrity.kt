@@ -57,6 +57,29 @@ internal fun rejectIfDurationMismatch(tmpFile: File, song: Song): Boolean {
     return true
 }
 
+/**
+ * 文件级拼接判定（2026-11-11）：「前半段是这首歌、后半段变成另一首」的历史副本。
+ *
+ * 只扫 MP3（ID3 或帧同步开头），把整个文件交给 [findMp3SpliceOffset]。限 60MB，
+ * 超出视为异常文件不做判定。阻塞 IO（顺序读几 MB），调用方须在 IO 线程。
+ */
+internal fun isSplicedAudio(file: File): Boolean = try {
+    val len = file.length()
+    if (len < MIN_AUDIO_BYTES || len > 60L * 1024 * 1024) {
+        false
+    } else {
+        val head = ByteArray(4)
+        val read = file.inputStream().use { it.read(head) }
+        val isMp3 = read == 4 && (
+            (head[0] == 'I'.code.toByte() && head[1] == 'D'.code.toByte() && head[2] == '3'.code.toByte()) ||
+                ((head[0].toInt() and 0xFF) == 0xFF && (head[1].toInt() and 0xE0) == 0xE0)
+            )
+        isMp3 && findMp3SpliceOffset(file.readBytes()) >= 0
+    }
+} catch (_: Exception) {
+    false
+}
+
 /** 删除某首歌的下载副本（音频 + meta），返回是否真的删到了文件。 */
 fun deleteDownloadedBySong(context: Context, song: Song): Boolean = try {
     val audio = OfflineStore.audioFile(context, song)
