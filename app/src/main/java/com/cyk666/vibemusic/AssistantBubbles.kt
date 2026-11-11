@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -57,9 +59,10 @@ internal fun AssistantAvatar(size: Dp = 30.dp) {
             .background(Brush.linearGradient(listOf(UiViolet, UiCyan))),
         contentAlignment = Alignment.Center
     ) {
-        AppIcon(
-            AppIconKind.WHALE, Color.White,
-            size = size * 0.58f, contentDescription = null
+        Image(
+            painter = painterResource(R.drawable.ic_whale),
+            contentDescription = null,
+            modifier = Modifier.size(size * 0.76f)
         )
     }
 }

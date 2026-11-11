@@ -13,11 +13,9 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -211,26 +209,6 @@ internal fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s:
             line(pt(8f, 15.5f), pt(10.5f, 19.5f), w, c)
             line(pt(10.5f, 19.5f), pt(13.5f, 15.5f), w, c)
         }
-        AppIconKind.WHALE -> {
-            // 「大肥鱼」：圆润鲸鱼（头朝左、分叉尾上翘）+ 镂空眼（EvenOdd）。
-            // 品牌形象统一用在：底部导航助手 tab、AI 消息头像、助手空态 logo。
-            // Stroke（未选中）描出身体与眼睛轮廓，Fill（选中）眼洞透明，两种形态都清晰。
-            val whale = Path().apply {
-                fillType = PathFillType.EvenOdd
-                moveTo(2.8f * s, 14.0f * s)
-                cubicTo(2.8f * s, 9.2f * s, 6.8f * s, 6.6f * s, 10.8f * s, 6.6f * s)
-                cubicTo(13.8f * s, 6.6f * s, 16.4f * s, 8.2f * s, 17.8f * s, 10.6f * s)
-                lineTo(21.8f * s, 6.8f * s)
-                lineTo(20.0f * s, 10.8f * s)
-                lineTo(22.2f * s, 14.8f * s)
-                lineTo(18.4f * s, 13.6f * s)
-                cubicTo(17.6f * s, 16.6f * s, 14.6f * s, 18.4f * s, 11.0f * s, 18.4f * s)
-                cubicTo(6.6f * s, 18.4f * s, 2.8f * s, 17.8f * s, 2.8f * s, 14.0f * s)
-                close()
-                addOval(Rect(Offset(7.0f * s, 10.8f * s), 1.0f * s))
-            }
-            drawPath(path = whale, color = c, style = if (filled) Fill else Stroke(w))
-        }
         AppIconKind.SHARE -> {
             line(pt(12f, 16f), pt(12f, 4f), w, c)
             line(pt(8f, 8f), pt(12f, 3.5f), w, c)
@@ -297,5 +275,5 @@ fun defaultAppIconLabel(kind: AppIconKind): String? = when (kind) {
     AppIconKind.MODE_SINGLE, AppIconKind.MODE_SHUFFLE -> "播放模式"
     // 纯装饰/导航指示类：不产生冗余播报
     AppIconKind.CHECK, AppIconKind.CHEVRON_RIGHT, AppIconKind.CHEVRON_LEFT,
-    AppIconKind.MUSIC_NOTE, AppIconKind.MESSAGE, AppIconKind.WHALE -> null
+    AppIconKind.MUSIC_NOTE, AppIconKind.MESSAGE -> null
 }
