@@ -22,8 +22,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -178,30 +176,16 @@ private fun AssistantEmptyState(
     onLogin: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(top = 28.dp),
+        // 空态不再放品牌大图：底栏和顶栏头像已经有同一个星芒，再出现第三次就冗余了。
+        // 留白给文案自己撑场，顶部 34dp 与顶栏拉开呼吸。
+        Modifier.fillMaxWidth().padding(top = 34.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(Modifier.size(118.dp), contentAlignment = Alignment.Center) {
-            // 中性深底 + 细金环，和消息头像同一套做法：不用发光光晕（那是 AI 味的一部分）。
-            Box(
-                Modifier.size(108.dp).clip(CircleShape)
-                    .background(UiSurface)
-                    .border(1.dp, UiAccent.copy(alpha = 0.28f), CircleShape)
-            )
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                tint = UiAccent,
-                modifier = Modifier.size(64.dp)
-            )
-        }
-
         Text(
             "想听点什么？",
             style = MaterialTheme.typography.titleLarge,
             color = UiInk, fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 18.dp)
+            textAlign = TextAlign.Center
         )
         Text(
             "说个心情、场景或歌手，我来挑歌",
