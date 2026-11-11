@@ -2417,33 +2417,10 @@ class MainActivity : ComponentActivity() {
                         // 纯观察：AUTO 切轨时上一首若明显没放到结尾（提前 EOF / 静默截断，
                         // 没有任何 onPlayerError），记一条。用于区分"出错被跳"（error:…@pos/dur）
                         // 与"上游把流截断当正常结束"。positionMs/durationMs 此刻仍是上一首的值。
-                        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO &&
-                            durationMs > 0 && positionMs > 0 &&
-                            positionMs < durationMs - 5_000
-                        ) {
-                            PlayDiag.observe(context, "early-auto:$positionMs/$durationMs")
-                            // 自愈（2026-11-11）：「歌名 A、内容 B」或截断的下载副本不得复用。
-                            // 实际播放时长（positionMs）明显短于歌曲元数据时长（<80%）时，
-                            // 删除这份**可重下**的副本（仅 OfflineStore 目录，本地导入不受影响），
-                            // 下次播放自动走在线流拿到正确内容。
-                            val prevSong = queue.getOrNull(currentIndex)
-                            if (prevSong != null && prevSong.durationSec > 0 &&
-                                positionMs < prevSong.durationSec * 800L
-                            ) {
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        if (OfflineStore.deleteDownloadedBySong(context, prevSong)) {
-                                            PlayDiag.observe(
-                                                context,
-                                                "bad-local-removed:" + prevSong.sourceId
-                                            )
-                                        }
-                                    } catch (_: Exception) {
-                                        SilentFail.note("MainActivity.onMediaItemTransition:badLocal")
-                                    }
-                                }
-                            }
-                        }
+                        // 提前 EOF 观察 + 坏本地副本自愈（细节见 AudioIntegrity.kt）
+                        observeEarlyAutoAndMaybePurge(
+                            context, scope, reason, positionMs, durationMs
+                        ) { queue.getOrNull(currentIndex) }
                         if (queue.isEmpty() && c.mediaItemCount > 0) {
                             val rebuilt =
                                 (0 until c.mediaItemCount).map { songFromMediaItem(c.getMediaItemAt(it)) }
