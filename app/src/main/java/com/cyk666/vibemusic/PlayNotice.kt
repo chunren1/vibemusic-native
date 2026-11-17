@@ -5,7 +5,10 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
 import java.net.URLDecoder
 
 /**
@@ -31,6 +34,28 @@ data class PlaySubstituteNotice(
 object PlayNoticeBus {
     /** extraBufferCapacity：没有订阅者时也不阻塞播放线程。 */
     val notices = MutableSharedFlow<PlaySubstituteNotice>(extraBufferCapacity = 8)
+}
+
+/**
+ * 收集换源提示并交给宿主展示。
+ *
+ * 放在这里而不是 MainActivity：根组件的行数有守卫（check-file-size.sh），
+ * 新增逻辑不该靠调高债务记录来过关。
+ */
+@Composable
+fun PlayNoticeEffect(announce: (String) -> Unit) {
+    LaunchedEffect("play-substitute") {
+        PlayNoticeBus.notices.collect { n ->
+            val who = listOfNotNull(
+                n.title?.takeIf { it.isNotBlank() },
+                n.artist?.takeIf { it.isNotBlank() }
+            ).joinToString(" - ")
+            announce(
+                if (who.isBlank()) "已切换为${platformLabel(n.platform)}"
+                else "已切换为${platformLabel(n.platform)}：$who（可能为不同版本）"
+            )
+        }
+    }
 }
 
 /** 平台代码 → 界面文案。 */
