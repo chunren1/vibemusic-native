@@ -44,12 +44,14 @@ fun platformLabel(platform: String?): String = when (platform?.lowercase()) {
 }
 
 /** 包装 HTTP 数据源：open() 成功后读响应头，命中替代版本就发一条提示。 */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlayNoticeDataSourceFactory(
     private val upstream: DataSource.Factory
 ) : DataSource.Factory {
     override fun createDataSource(): DataSource = PlayNoticeDataSource(upstream.createDataSource())
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private class PlayNoticeDataSource(private val delegate: DataSource) : DataSource {
 
     override fun addTransferListener(transferListener: TransferListener) {
