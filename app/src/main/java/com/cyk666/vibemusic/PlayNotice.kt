@@ -28,6 +28,7 @@ data class PlaySubstituteNotice(
     val title: String?,
     val artist: String?,
     val coverUrl: String?,
+    val quality: String?,
     val reason: String?
 )
 
@@ -50,9 +51,10 @@ fun PlayNoticeEffect(announce: (String) -> Unit) {
                 n.title?.takeIf { it.isNotBlank() },
                 n.artist?.takeIf { it.isNotBlank() }
             ).joinToString(" - ")
+            val quality = if (n.quality in setOf("128", "PQ", "AAC")) " · 标准音质" else ""
             announce(
-                if (who.isBlank()) "已切换为${platformLabel(n.platform)}"
-                else "已切换为${platformLabel(n.platform)}：$who（可能为不同版本）"
+                if (who.isBlank()) "已切换为${platformLabel(n.platform)}$quality"
+                else "已切换为${platformLabel(n.platform)}：$who$quality（可能为不同版本）"
             )
         }
     }
@@ -109,6 +111,7 @@ private class PlayNoticeDataSource(private val delegate: DataSource) : DataSourc
                     title = headers["X-Play-Title"]?.firstOrNull()?.decode(),
                     artist = headers["X-Play-Artist"]?.firstOrNull()?.decode(),
                     coverUrl = headers["X-Play-Cover"]?.firstOrNull()?.decode(),
+                    quality = headers["X-Quality"]?.firstOrNull(),
                     reason = headers["X-Play-Reason"]?.firstOrNull()?.decode()
                 )
             )
