@@ -51,13 +51,22 @@ fun PlayNoticeEffect(announce: (String) -> Unit) {
                 n.title?.takeIf { it.isNotBlank() },
                 n.artist?.takeIf { it.isNotBlank() }
             ).joinToString(" - ")
-            val quality = if (n.quality in setOf("128", "PQ", "AAC")) " · 标准音质" else ""
+            val quality = qualityLabel(n.quality)
             announce(
                 if (who.isBlank()) "已切换为${platformLabel(n.platform)}$quality"
                 else "已切换为${platformLabel(n.platform)}：$who$quality（可能为不同版本）"
             )
         }
     }
+}
+
+/** 码率标签 → 界面文案。未知档位不显示，宁可不写也不给用户一个假音质。 */
+fun qualityLabel(quality: String?): String = when (quality?.uppercase()) {
+    "FLAC" -> " · 无损"
+    "320" -> " · 320k"
+    "192" -> " · 192k"
+    "128", "PQ", "AAC" -> " · 标准音质"
+    else -> ""
 }
 
 /** 平台代码 → 界面文案。 */
