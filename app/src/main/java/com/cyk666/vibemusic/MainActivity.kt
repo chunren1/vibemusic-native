@@ -129,6 +129,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -190,6 +191,20 @@ class MainActivity : ComponentActivity() {
                 val gen = topToastGen
                 delay(TOP_TOAST_DISMISS_MS)
                 if (topToastGen == gen) topToast = null
+            }
+            // 换源提示：服务端在音频流响应头里说明"实际在放哪一首"，
+            // 数据源层捕获后从这里弹出，避免"听到的是另一版、界面还写着原曲"。
+            LaunchedEffect("play-substitute") {
+                PlayNoticeBus.notices.collect { n ->
+                    val who = listOfNotNull(
+                        n.title?.takeIf { it.isNotBlank() },
+                        n.artist?.takeIf { it.isNotBlank() }
+                    ).joinToString(" - ")
+                    announceTop(
+                        if (who.isBlank()) "已切换为${platformLabel(n.platform)}"
+                        else "已切换为${platformLabel(n.platform)}：$who（可能为不同版本）"
+                    )
+                }
             }
             // Media3 posts playback state to a notification; on SDK 33+ that needs
             // a runtime grant, requested once on launch.

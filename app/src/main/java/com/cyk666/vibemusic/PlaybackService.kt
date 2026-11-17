@@ -554,7 +554,8 @@ class PlaybackService : MediaLibraryService() {
         // unchanged. Offline replay works for fully-cached items; a partially-cached
         // item errors on the cache hole (upstream unreachable) → auto-skip/message
         // path handles it (see MainActivity.onPlayerError).
-        val upstream = httpUpstream
+        // 包一层：换源时从响应头拿到"实际在放的那一首"，转成界面提示（不改变字节流）。
+        val upstream = PlayNoticeDataSourceFactory(httpUpstream)
         val cacheSourceFactory = MediaCache.cachedDataSourceFactory(this, upstream)
         // Scheme routing: file:// download items read straight from disk and
         // content:// items (微信「用其他应用打开」) through the ContentResolver;

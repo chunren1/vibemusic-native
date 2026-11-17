@@ -7,6 +7,9 @@ import androidx.media3.common.MediaMetadata
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** 与后端 SongPlayService.MATCH_POLICY_VERSION 对齐；改匹配规则时两边一起自增。 */
+const val MATCH_POLICY_VERSION = "2026-11-16-1"
+
 data class Song(
     val sourceId: String,
     val name: String,
@@ -31,6 +34,9 @@ data class Song(
         .appendQueryParameter("name", name)
         .appendQueryParameter("artist", artist)
         .appendQueryParameter("platform", platform)
+        // 匹配策略版本：服务端规则一变就自增，缓存键随之失效，用户不用手动清缓存
+        // 也能摆脱旧规则选出的坏版本。与后端 SongPlayService.MATCH_POLICY_VERSION 对齐。
+        .appendQueryParameter("v", MATCH_POLICY_VERSION)
         .build()
         .toString()
 
