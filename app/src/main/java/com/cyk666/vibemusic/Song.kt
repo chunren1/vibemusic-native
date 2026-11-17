@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 与后端 SongPlayService.MATCH_POLICY_VERSION 对齐；改匹配规则时两边一起自增。 */
-const val MATCH_POLICY_VERSION = "2026-11-16-1"
+const val MATCH_POLICY_VERSION = "2026-11-17-1"
 
 data class Song(
     val sourceId: String,
