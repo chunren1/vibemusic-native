@@ -55,7 +55,8 @@ class SongTest {
                 "?sourceId=1895330088" +
                 "&name=%E4%BA%88%E4%BB%A5" +
                 "&artist=%E9%98%9F%E9%95%BF" +
-                "&platform=netease",
+                "&platform=netease" +
+                "&v=${MATCH_POLICY_VERSION}",
             chinese.streamUrl()
         )
     }
@@ -69,7 +70,8 @@ class SongTest {
                 "?sourceId=abc%20123%3F%26%3D" +
                 "&name=%E4%BA%88%E4%BB%A5" +
                 "&artist=%E9%98%9F%E9%95%BF" +
-                "&platform=qq",
+                "&platform=qq" +
+                "&v=${MATCH_POLICY_VERSION}",
             url
         )
     }
