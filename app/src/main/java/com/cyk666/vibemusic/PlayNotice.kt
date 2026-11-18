@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
 import java.net.URLDecoder
 
 /**
@@ -29,7 +30,9 @@ data class PlaySubstituteNotice(
     val artist: String?,
     val coverUrl: String?,
     val quality: String?,
-    val reason: String?
+    val reason: String?,
+    /** 服务端判定为「同一首歌，只是换了播放源」（标题歌手都对得上）。 */
+    val sameTrack: Boolean = false
 )
 
 object PlayNoticeBus {
@@ -46,18 +49,34 @@ object PlayNoticeBus {
 @Composable
 fun PlayNoticeEffect(announce: (String) -> Unit) {
     LaunchedEffect("play-substitute") {
-        PlayNoticeBus.notices.collect { n ->
-            val who = listOfNotNull(
-                n.title?.takeIf { it.isNotBlank() },
-                n.artist?.takeIf { it.isNotBlank() }
-            ).joinToString(" - ")
-            val quality = qualityLabel(n.quality)
-            announce(
-                if (who.isBlank()) "已切换为${platformLabel(n.platform)}$quality"
-                else "已切换为${platformLabel(n.platform)}：$who$quality（可能为不同版本）"
-            )
-        }
+        PlayNoticeBus.notices.filter { shouldAnnounce(it) }.collect { n -> announce(substituteMessage(n)) }
     }
+}
+
+/**
+ * 该不该弹换源提示。
+ *
+ * 同一首歌（标题歌手都对得上、只是换了平台取音频）**不提示**：
+ * 用户听到的是本地缓存/CDN 上的同一首录音，弹一句"已切换为 QQ 音乐"只会让人以为歌被换了。
+ * 2026-11-18 用户反馈原话：「这个服务器不是有吗，为什么不从服务器取」——提示的语义和事实不符。
+ *
+ * 只有真正换了版本（标题/歌手对不上）才需要警告。
+ */
+fun shouldAnnounce(n: PlaySubstituteNotice): Boolean = !n.sameTrack
+
+/**
+ * 换源提示文案（仅用于"确实换了版本"的场景）。抽成纯函数：
+ * 不需要 Compose 环境就能钉测试（见 PlayNoticeLabelTest）。
+ */
+fun substituteMessage(n: PlaySubstituteNotice): String {
+    val platform = platformLabel(n.platform)
+    val quality = qualityLabel(n.quality)
+    val who = listOfNotNull(
+        n.title?.takeIf { it.isNotBlank() },
+        n.artist?.takeIf { it.isNotBlank() }
+    ).joinToString(" - ")
+    return if (who.isBlank()) "已切换为$platform$quality"
+    else "已切换为$platform：$who$quality（可能为不同版本）"
 }
 
 /** 码率标签 → 界面文案。未知档位不显示，宁可不写也不给用户一个假音质。 */
@@ -121,7 +140,8 @@ private class PlayNoticeDataSource(private val delegate: DataSource) : DataSourc
                     artist = headers["X-Play-Artist"]?.firstOrNull()?.decode(),
                     coverUrl = headers["X-Play-Cover"]?.firstOrNull()?.decode(),
                     quality = headers["X-Quality"]?.firstOrNull(),
-                    reason = headers["X-Play-Reason"]?.firstOrNull()?.decode()
+                    reason = headers["X-Play-Reason"]?.firstOrNull()?.decode(),
+                    sameTrack = headers["X-Play-Same-Track"]?.firstOrNull() == "1"
                 )
             )
         } catch (_: Exception) {

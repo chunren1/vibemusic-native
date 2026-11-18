@@ -1,6 +1,8 @@
 package com.cyk666.vibemusic
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -27,6 +29,36 @@ class PlayNoticeLabelTest {
         assertEquals("", qualityLabel("unknown"))
         assertEquals("", qualityLabel(null))
         assertEquals("", qualityLabel(""))
+    }
+
+    @Test
+    fun shouldAnnounce_skipsSameTrackSwitch() {
+        // 用户原话：「这个服务器不是有吗，为什么不从服务器取」——
+        // 同一首歌换平台取音频（甚至直接来自本地缓存）不该弹提示，否则语义与事实不符。
+        val same = PlaySubstituteNotice(
+            platform = "qq", title = "唯一", artist = "告五人",
+            coverUrl = null, quality = "320", reason = "原曲在其他平台不可播", sameTrack = true
+        )
+        assertFalse(shouldAnnounce(same))
+
+        val different = same.copy(sameTrack = false)
+        assertTrue("真正换版本时必须提示", shouldAnnounce(different))
+    }
+
+    @Test
+    fun substituteMessage_differentTrack_keepsVersionWarning() {
+        val msg = substituteMessage(
+            PlaySubstituteNotice(
+                platform = "kugou",
+                title = "失眠",
+                artist = "Suki刘舒妤",
+                coverUrl = null,
+                quality = "128",
+                reason = "原曲在其他平台不可播",
+                sameTrack = false
+            )
+        )
+        assertEquals("已切换为酷狗音乐：失眠 - Suki刘舒妤 · 标准音质（可能为不同版本）", msg)
     }
 
     @Test
