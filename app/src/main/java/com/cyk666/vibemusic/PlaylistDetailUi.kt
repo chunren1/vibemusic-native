@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -18,10 +19,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 
 /**
@@ -67,7 +70,9 @@ fun PlaylistDetailScreen(
     onImportPlaylist: (String, String) -> Unit = { _, _ -> },
     // Non-null only on an unimported treasure view: explicit on-demand
     // import ([加入我的歌单]). Null everywhere else (button hidden).
-    onJoinMine: (() -> Unit)? = null
+    onJoinMine: (() -> Unit)? = null,
+    /** 正在播放的曲目（platform:sourceId）。给了就在顶栏显示「定位」按钮。 */
+    currentPlayingKey: String? = null
 ) {
     var showOverflow by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
@@ -93,6 +98,8 @@ fun PlaylistDetailScreen(
     val checkedSongs = remember(songs, checkedIds) { selectedSongs(songs, checkedIds) }
     val selecting = checkedSongs.isNotEmpty()
     val songIds = remember(songs) { songs.map { it.sourceId } }
+    // 定位正在播放：滚动状态留在这里，下标计算与按钮在 PlaylistLocate.kt
+    val listState = rememberLazyListState()
 
     // 系统返回键：多选态先退出多选；非多选态**不拦截**，交还系统默认返回
     BackHandler(enabled = selecting) { checkedIds = emptySet() }
@@ -100,7 +107,10 @@ fun PlaylistDetailScreen(
     val vipCount = remember(songs) { countVipSongs(songs) }
     val count = resolveDetailSongCount(songs, songsLoading, playlist.songCount)
     val songListBlock: @Composable () -> Unit = {
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
+        ) {
             item(key = "detail-header") {
                 DetailHeader(
                     playlist = playlist,
@@ -181,6 +191,7 @@ fun PlaylistDetailScreen(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                PlaylistLocateButton(listState, visibleSongs, currentPlayingKey)
                 IconButton(
                     onClick = {
                         // 多选态下打开筛选 = 清空并关闭（选中项与可见行必须同一集合）

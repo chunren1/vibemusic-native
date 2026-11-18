@@ -1861,6 +1861,8 @@ class MainActivity : ComponentActivity() {
             }
 
             var pendingAddSong by remember { mutableStateOf<Song?>(null) }
+            // 「其他版本」弹层：原版没有可播资源时用户主动打开（状态与请求在 AlternativesHost 内）
+            var altSheetSong by remember { mutableStateOf<Song?>(null) }
             var addBusy by remember { mutableStateOf(false) }
 
             fun openAddSheet(song: Song) {
@@ -3610,6 +3612,9 @@ class MainActivity : ComponentActivity() {
                                 onAddCurrentToPlaylist = {
                                     queue.getOrNull(currentIndex)?.let(::openAddSheet)
                                 },
+                                onFindAlternatives = {
+                                    altSheetSong = queue.getOrNull(currentIndex)
+                                },
                                 onOpenQueue = { screen = Screen.Queue },
                                 playMode = playModeState.mode,
                                 onCycleMode = ::cyclePlayMode,
@@ -3755,6 +3760,8 @@ class MainActivity : ComponentActivity() {
                                     if (playlistSongs.isNotEmpty()) playAt(playlistSongs, 0)
                                 },
                                 onPlaySong = { idx -> playAt(playlistSongs, idx) },
+                                currentPlayingKey = queue.getOrNull(currentIndex)
+                                    ?.let { it.platform + ":" + it.sourceId },
                                 favIds = favIds,
                                 downloadingKeys = downloadingIds,
                                 downloadedKeys = downloadedKeys,
@@ -3907,6 +3914,17 @@ class MainActivity : ComponentActivity() {
                             },
                             onInvalid = { showError("请输入 5~180 分钟") },
                             onDismiss = { showSleepDialog = false }
+                        )
+                    }
+                    altSheetSong?.let { target ->
+                        AlternativesHost(
+                            original = target,
+                            onDismiss = { altSheetSong = null },
+                            onPlay = { c ->
+                                altSheetSong = null
+                                playAt(listOf(c.toSong()), 0)
+                                showError("正在播放其他版本：" + c.artists.ifBlank { c.platform })
+                            }
                         )
                     }
                     pendingAddSong?.let { target ->

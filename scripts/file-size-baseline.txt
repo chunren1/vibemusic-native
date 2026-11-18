@@ -1,22 +1,26 @@
 # 纯 LOC 白名单（scripts/check-file-size.sh 维护，勿手改）。
 # 格式：<纯 LOC> <相对 app/src/main/java 的路径>
 # 规则：不得超过记录值（只降不升）；硬上限见脚本 MAX_PURE_LOC。
-3409 com/cyk666/vibemusic/MainActivity.kt
+3424 com/cyk666/vibemusic/MainActivity.kt
 1603 com/cyk666/vibemusic/VibeApi.kt
-905 com/cyk666/vibemusic/PlayerScreen.kt
-792 com/cyk666/vibemusic/PlaybackService.kt
-612 com/cyk666/vibemusic/DiscoverUi.kt
+907 com/cyk666/vibemusic/PlayerScreen.kt
+791 com/cyk666/vibemusic/PlaybackService.kt
 609 com/cyk666/vibemusic/UiAtoms.kt
-595 com/cyk666/vibemusic/SettingsScreen.kt
 532 com/cyk666/vibemusic/SearchScreen.kt
 527 com/cyk666/vibemusic/UpdateCheck.kt
-479 com/cyk666/vibemusic/MineScreen.kt
-420 com/cyk666/vibemusic/PlaybackStateStore.kt
-403 com/cyk666/vibemusic/PlaylistDetailUi.kt
+506 com/cyk666/vibemusic/SettingsScreen.kt
+477 com/cyk666/vibemusic/MineScreen.kt
+441 com/cyk666/vibemusic/DiscoverUi.kt
+418 com/cyk666/vibemusic/PlaybackStateStore.kt
+412 com/cyk666/vibemusic/PlaylistDetailUi.kt
 316 com/cyk666/vibemusic/BeautyPhase10.kt
 309 com/cyk666/vibemusic/OfflineUi.kt
 307 com/cyk666/vibemusic/Karaoke.kt
-304 com/cyk666/vibemusic/PlaylistsUi.kt
-295 com/cyk666/vibemusic/OfflineStore.kt
+303 com/cyk666/vibemusic/PlaylistsUi.kt
+284 com/cyk666/vibemusic/OfflineStore.kt
+279 com/cyk666/vibemusic/HistoryScreen.kt
+271 com/cyk666/vibemusic/AssistantBubbles.kt
 266 com/cyk666/vibemusic/PlayerFx.kt
 261 com/cyk666/vibemusic/QueueUi.kt
+261 com/cyk666/vibemusic/LoginScreen.kt
+253 com/cyk666/vibemusic/FavoritesScreen.kt

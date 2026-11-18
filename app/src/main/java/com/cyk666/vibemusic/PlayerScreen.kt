@@ -353,6 +353,8 @@ fun PlayerScreen(
     onSeek: (Long) -> Unit,
     onClose: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit = {},
+    /** 原版放不出来时查「其他版本」；空实现时按钮照常显示，点了无副作用。 */
+    onFindAlternatives: () -> Unit = {},
     onOpenQueue: () -> Unit = {},
     playMode: PlayMode = PlayMode.SEQUENTIAL,
     onCycleMode: () -> Unit = {},
@@ -646,6 +648,7 @@ fun PlayerScreen(
                     ) {
                         AppIcon(AppIconKind.ADD, InkOnDark)
                     }
+                    FindAlternativesButton(onFindAlternatives)
                     IconButton(
                         onClick = onDownloadCurrent,
                         enabled = !downloadingCurrent,
