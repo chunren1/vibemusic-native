@@ -326,6 +326,7 @@ fun SettingsScreen(
     onCheckUpdate: () -> Unit,
     orientationMode: OrientationMode = OrientationMode.LOCK_PORTRAIT,
     onSelectOrientation: (OrientationMode) -> Unit = {},
+    theme: AppTheme = AppTheme.OBSIDIAN, onSelectTheme: (AppTheme) -> Unit = {},
     onClearCache: () -> Unit,
     onBack: () -> Unit,
     keepAliveIgnoring: Boolean = false,
@@ -350,8 +351,10 @@ fun SettingsScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     var showChangePwd by remember(user?.username) { mutableStateOf(false) }
     var showProfile by remember(user?.username) { mutableStateOf(false) }
+    var showThemeSheet by remember { mutableStateOf(false) }
     val rows = remember(cacheSizeLabel, storageLabel, versionLabel) {
         buildSettingsRows(
+            themeName = theme.label,
             cacheLabel = "已用 $cacheSizeLabel · 满150MB自动清理",
             storageLabel = storageLabel,
             versionLabel = versionLabel.ifBlank { formatVersionLabel("") }
@@ -480,11 +483,7 @@ fun SettingsScreen(
         }
         SettingsSectionTitle("关于与退出")
         MineSectionCard {
-            SettingsRowShell(
-                title = themeRow.title,
-                subtitle = themeRow.subtitle,
-                trailing = { Text(text = "✓", color = UiAccent) }
-            )
+            ThemeSettingRow(themeRow.title, themeRow.subtitle) { showThemeSheet = true }
             MineDivider()
             // 诊断信息（登录诊断 / 播放诊断）不再对用户展示：它们是开发排查用的，
             // 数据仍由 PlayDiag / 认证链路写入本地 SharedPreferences，需要时用 adb 取。
@@ -493,6 +492,15 @@ fun SettingsScreen(
                 subtitle = aboutRow.subtitle
             )
         }
+        ThemeSheetHost(
+            visible = showThemeSheet,
+            current = theme,
+            onSelect = { picked ->
+                showThemeSheet = false
+                onSelectTheme(picked)
+            },
+            onDismiss = { showThemeSheet = false }
+        )
         Spacer(Modifier.height(4.dp))
         OrientationModeRow(
             mode = orientationMode,

@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Context.playbackDataStore by preferencesDataStore(
+internal val Context.playbackDataStore by preferencesDataStore(
     name = "playback",
     corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
 )

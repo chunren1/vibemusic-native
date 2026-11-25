@@ -442,6 +442,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             AssistantNoticeEffect(assistant) { showError(it) }
+            val appTheme = rememberAppTheme(context)
             var orientationMode by remember { mutableStateOf(OrientationMode.LOCK_PORTRAIT) }
             fun applyOrientationMode(mode: OrientationMode) {
                 requestedOrientation = if (mode == OrientationMode.FOLLOW_SYSTEM) {
@@ -3287,7 +3288,7 @@ class MainActivity : ComponentActivity() {
             val guessVisible = remember(guessSongs) { homeVisibleSongs(guessSongs) }
             val hotVisible = remember(hotPlaylists) { homeVisiblePlaylists(hotPlaylists) }
 
-            MaterialTheme(colorScheme = ObsidianScheme) {
+            MaterialTheme(colorScheme = appColorScheme(appTheme.value)) {
                 Scaffold(
                     containerColor = ObsidianBg,
                     snackbarHost = { SnackbarHost(snackbar) },
@@ -3833,6 +3834,8 @@ class MainActivity : ComponentActivity() {
                                 onCheckUpdate = { updater.checkManual(appVersionName) },
                                 orientationMode = orientationMode,
                                 onSelectOrientation = ::setOrientationMode,
+                                theme = appTheme.value,
+                                onSelectTheme = appTheme.set,
                                 onClearCache = ::clearMediaCache,
                                 onBack = { screen = Screen.Mine },
                                 keepAliveIgnoring = keepAliveIgnoring,
