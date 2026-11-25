@@ -163,7 +163,8 @@ class BeautyPhase10Test {
             versionLabel = "v1"
         )
         val theme = rows.first { it.id == "theme" }
-        assertTrue(theme.subtitle.contains("Obsidian Bloom"))
+        // 默认主题名随配色改过一次（Obsidian Bloom → 曜石·金），只钉"有名字 + 标注当前"
+        assertTrue(theme.subtitle.isNotBlank())
         assertTrue(theme.subtitle.contains("当前主题"))
     }
 

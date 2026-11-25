@@ -154,7 +154,7 @@ private fun CandidateRow(c: AlternativeCandidate, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val dur = if (c.durationMs > 0) formatDuration(c.durationMs) else ""
+            val dur = if (c.durationMs > 0) formatDurationMs(c.durationMs) else ""
             val q = qualityLabel(c.quality).removePrefix(" · ")
             val meta = listOf(dur, q, c.warningText()).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) {
@@ -171,7 +171,7 @@ private fun CandidateRow(c: AlternativeCandidate, onClick: () -> Unit) {
 }
 
 /** 毫秒 → m:ss（列表里只做粗略展示）。 */
-fun formatDuration(ms: Long): String {
+fun formatDurationMs(ms: Long): String {
     val total = (ms / 1000L).coerceAtLeast(0L)
     return "%d:%02d".format(total / 60, total % 60)
 }

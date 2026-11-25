@@ -482,16 +482,16 @@ fun PlayerScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize().background(ObsidianBg)) {
+    Box(modifier = modifier.fillMaxSize().background(AppBg)) {
         // Static blurred backdrop (composed once per song — never spins).
         PlayerBackdrop(coverUrl = coverUrl)
         Box(
             modifier = Modifier.matchParentSize().background(
                 Brush.verticalGradient(
                     listOf(
-                        ObsidianBg.copy(alpha = 0.55f),
-                        ObsidianBg.copy(alpha = 0.88f),
-                        ObsidianBg
+                        AppBg.copy(alpha = 0.55f),
+                        AppBg.copy(alpha = 0.88f),
+                        AppBg
                     )
                 )
             )

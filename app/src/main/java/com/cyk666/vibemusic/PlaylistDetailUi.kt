@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 
 /**
- * Standalone QQ-style playlist detail page (Obsidian Bloom dark).
+ * Standalone QQ-style playlist detail page (跟随当前主题).
  *
  * Top bar (back + search + overflow) → header (cover/title/creator/count/
  * 2-line description) → 分享 action → big 播放全部 row → song rows with

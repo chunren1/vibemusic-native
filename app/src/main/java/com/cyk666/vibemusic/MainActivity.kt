@@ -162,7 +162,7 @@ class MainActivity : ComponentActivity() {
         // 又被当成新请求重播一次 → 每次进 App 都弹「这个音频文件播放失败」。
         // onNewIntent 覆盖真正的「又来一个新分享」。
         if (savedInstanceState == null) handleLocalAudioIntent(intent)
-        // Edge-to-edge with a single Obsidian background behind the status
+        // Edge-to-edge with a single theme background behind the status
         // bar: transparent bars + dark icons so no translucent band shows.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(
@@ -3290,7 +3290,7 @@ class MainActivity : ComponentActivity() {
 
             MaterialTheme(colorScheme = appColorScheme(appTheme.value)) {
                 Scaffold(
-                    containerColor = ObsidianBg,
+                    containerColor = AppBg,
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
                         Column {
@@ -3313,7 +3313,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = AppBg) {
                         Box(modifier = Modifier.fillMaxSize()) {
                         // Track B4: 150ms crossfade on tab content (GPU alpha only).
                         Crossfade(

@@ -124,10 +124,8 @@ fun ShimmerBox(
 // modes (BOM-managed, no version pin). AppIconKind.MODE_* entries are kept
 // (PlayMode.playModeIconKind + PlayerScreen call sites unchanged) but render
 // via modeMaterialIcon() instead of Canvas paths.
-// Obsidian Bloom palette duplicated per-file (MainActivity vals are private).
-
-// 以下五个随主题变化：从 ThemeState 读，切换主题时所有读取方自动重组。
-// 语义色（收藏红、金色标记、粉色）保持固定，不参与主题。
+// 颜色 token 定义在 UiTheme.kt。以下五个随主题变化（从 ThemeState 读），
+// 其余语义色（香槟、收藏红、金色标记、粉色）固定，不参与主题。
 val UiInk: Color @Composable get() = ThemeState.current.ink
 val UiMuted: Color @Composable get() = ThemeState.current.muted
 val UiAccent: Color @Composable get() = ThemeState.current.accent
@@ -135,10 +133,6 @@ val UiAccentSoft: Color @Composable get() = ThemeState.current.accentSoft
 val UiSurface: Color @Composable get() = ThemeState.current.surface
 val UiChampagne = Color(0xFFF5E6C8)
 val UiFavRed = Color(0xFFEF4444)
-// 封面遮罩：半透明黑，与主题无关（任何主题下都要压暗底图）
-val UiScrimTop = Color(0x99000000)
-val UiScrimMid = Color(0x66000000)
-val UiScrimBottom = Color(0xCC000000)
 val UiGold = Color(0xFFE8B84B)
 val UiPink = Color(0xFFF472B6)
 
@@ -176,7 +170,7 @@ fun AppIcon(
         Modifier
     }
     // 镂空部分必须用当前主题背景色，否则纯黑/暖灰主题下会露出黑块
-    val cutout = ObsidianBg
+    val cutout = AppBg
     Canvas(modifier = Modifier.size(size).then(a11y)) {
         val s = size.toPx() / 24f
         drawKind(kind, tint, filled, s, cutout)

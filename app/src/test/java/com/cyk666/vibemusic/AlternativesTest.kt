@@ -70,8 +70,8 @@ class AlternativesTest {
 
     @Test
     fun formatDuration_mmss() {
-        assertEquals("3:56", formatDuration(236000L))
-        assertEquals("0:05", formatDuration(5000L))
-        assertEquals("0:00", formatDuration(-1L))
+        assertEquals("3:56", formatDurationMs(236000L))
+        assertEquals("0:05", formatDurationMs(5000L))
+        assertEquals("0:00", formatDurationMs(-1L))
     }
 }

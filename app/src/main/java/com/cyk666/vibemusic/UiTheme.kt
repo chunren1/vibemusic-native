@@ -66,11 +66,16 @@ object ThemeState {
 
 // 名字保持不变，130 多处引用一行都不用改；在 @Composable 之外读取会编译报错，
 // 这是有意的约束——颜色只能来自当前主题，不能来自某个对象的初始化。
-val ObsidianBg: Color @Composable get() = ThemeState.current.bg
-val ObsidianSurface: Color @Composable get() = ThemeState.current.surface
+val AppBg: Color @Composable get() = ThemeState.current.bg
+val AppSurface: Color @Composable get() = ThemeState.current.surface
 val InkOnDark: Color @Composable get() = ThemeState.current.ink
 val GrayMuted: Color @Composable get() = ThemeState.current.muted
 internal val Champagne = Color(0xFFF5E6C8)
+
+// 封面遮罩：半透明黑，与主题无关（任何主题下都要压暗底图），但必须有名字
+val UiScrimTop = Color(0x99000000)
+val UiScrimMid = Color(0x66000000)
+val UiScrimBottom = Color(0xCC000000)
 
 @Composable
 internal fun appColorScheme(theme: AppTheme) = darkColorScheme(
@@ -84,7 +89,7 @@ internal fun appColorScheme(theme: AppTheme) = darkColorScheme(
     onSurface = theme.ink,
     onSurfaceVariant = theme.muted,
     // 暖金实底上的前景用近黑：白字对 #D4A24E 只有 2.3:1，深色≈8:1。
-    onPrimary = ObsidianBg
+    onPrimary = AppBg
 )
 
 sealed interface LyricUiState {

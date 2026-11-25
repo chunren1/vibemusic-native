@@ -31,7 +31,7 @@ import java.io.File
 
 // Phase 10 beauty overhaul: pure logic + shared atoms. Zero new dependencies
 // (Compose Material3 / Coil / foundation only). Colors duplicated per-file on
-// purpose: the Obsidian palette vals in MainActivity.kt are file-private.
+// purpose: 颜色统一从 UiTheme 的 AppBg/AppSurface 等 token 取。
 
 
 /** Minimum touch target height for every tappable added/changed in Phase 10. */
@@ -113,7 +113,7 @@ const val SETTINGS_GITHUB_URL = "https://github.com/chunren1/vibemusic-native"
 data class SettingsRow(val id: String, val title: String, val subtitle: String)
 
 fun buildSettingsRows(
-    themeName: String = "Obsidian Bloom",
+    themeName: String = "曜石·金",
     cacheLabel: String,
     storageLabel: String,
     versionLabel: String
@@ -330,7 +330,7 @@ fun MiniPlayerBar(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(ObsidianSurface)
+            .background(AppSurface)
             .clickable(onClick = onTap)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {

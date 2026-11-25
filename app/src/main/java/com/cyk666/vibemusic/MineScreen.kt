@@ -379,7 +379,7 @@ private fun MineUserCard(
             .heightIn(min = 140.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .background(ObsidianSurface)
+            .background(AppSurface)
     ) {
         if (shouldShowMineBg(bgUrl)) {
             AsyncImage(
@@ -443,7 +443,7 @@ private fun MineTripleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(ObsidianSurface)
+            .background(AppSurface)
             .padding(vertical = 8.dp)
     ) {
         items.forEach { e ->
