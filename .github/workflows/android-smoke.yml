@@ -82,6 +82,11 @@ jobs:
       - name: Layering guard
         run: scripts/check-layering.sh
 
+      # 颜色来源守卫：UI 层禁止裸色值，必须走主题 token 或语义色。
+      # 起因：加主题时发现同一份色板被复制了 5 份、29 处字面量里一半是副本。
+      - name: Color source guard
+        run: scripts/check-colors.sh
+
       # ★ 验收门：全量单测必须全绿（与 release.yml 同一个任务，同一份真值）
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon

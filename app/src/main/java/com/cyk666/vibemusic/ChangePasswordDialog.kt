@@ -184,7 +184,7 @@ fun ChangePasswordDialog(
             Text(
                 text = "两次输入不一致",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFEF4444)
+                color = UiFavRed
             )
         }
     }

@@ -27,8 +27,6 @@ import org.json.JSONArray
 //   takes over the moment LyricLine carries words (backend yrc work is a
 //   separate later task and needs no UI change).
 
-private val KaraokeLit = Color(0xFFF5E6C8)
-private val KaraokeDim = Color(0xFF9CA3AF)
 
 /** A single word with timing. endMs < 0 = unknown (runs until the next word). */
 data class WordTimed(val startMs: Long, val endMs: Long, val text: String)
@@ -458,7 +456,7 @@ fun KaraokeLine(
         Text(
             text = plain,
             style = MaterialTheme.typography.titleMedium,
-            color = KaraokeDim,
+            color = GrayMuted,
             modifier = modifier
         )
         return
@@ -471,7 +469,7 @@ fun KaraokeLine(
     )
     val style = MaterialTheme.typography.titleMedium
     Box(modifier = modifier.fillMaxWidth()) {
-        Text(text = plain, style = style, color = KaraokeDim)
+        Text(text = plain, style = style, color = GrayMuted)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -484,7 +482,7 @@ fun KaraokeLine(
             Text(
                 text = plain,
                 style = style,
-                color = KaraokeLit,
+                color = InkOnDark,
                 maxLines = Int.MAX_VALUE
             )
         }

@@ -397,9 +397,9 @@ private fun MineUserCard(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color(0x99000000),
-                                Color(0x66000000),
-                                Color(0xCC000000)
+                                UiScrimTop,
+                                UiScrimMid,
+                                UiScrimBottom
                             )
                         )
                     )

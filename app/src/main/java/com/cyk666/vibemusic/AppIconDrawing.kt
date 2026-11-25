@@ -64,7 +64,7 @@ private fun heartPath(s: Float): Path = Path().apply {
     close()
 }
 
-internal fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: Float) {
+internal fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s: Float, cutout: Color) {
     val w = 2f * s
     fun pt(x: Float, y: Float) = Offset(x * s, y * s)
     when (kind) {
@@ -89,7 +89,7 @@ internal fun DrawScope.drawKind(kind: AppIconKind, c: Color, filled: Boolean, s:
             val tri = Path().apply {
                 moveTo(10f * s, 8f * s); lineTo(10f * s, 16f * s); lineTo(16f * s, 12f * s); close()
             }
-            drawPath(path = tri, color = if (filled) Color(0xFF0B0B0C) else c, style = Fill)
+            drawPath(path = tri, color = if (filled) cutout else c, style = Fill)
         }
         AppIconKind.PERSON -> {
             drawCircle(color = c, radius = 3.6f * s, center = pt(12f, 7.8f), style = if (filled) Fill else Stroke(w))

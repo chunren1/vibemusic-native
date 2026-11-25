@@ -56,8 +56,6 @@ import kotlinx.coroutines.launch
 // avoid battery drain. Init failure → settled flat strip, never crash.
 
 // 频谱条：同色系暖金渐变（深琥珀 → 米金），2026-11-11 去 AI 味，替换紫→青霓虹。
-private val PfxAccentDeep = Color(0xFFB0802F)
-private val PfxAccentSoft = Color(0xFFE8C98A)
 
 /**
  * Warm-gold spectrum bars driven by the player audio session.
@@ -161,6 +159,9 @@ fun SpectrumVisualizer(
             }
         }
     }
+    // Canvas 的 lambda 是 DrawScope，不是 Composable：颜色要在进入前取好
+    val barDeep = UiAccent
+    val barSoft = UiAccentSoft
     Canvas(modifier = modifier) {
         // Settled failure state: Visualizer unavailable → empty strip, never
         // an animated/loading look. (bars are already flat zeros; early-out.)
@@ -175,7 +176,7 @@ fun SpectrumVisualizer(
                 .coerceAtLeast(if (level > 0f) drawDp(2f) else 0f)
             if (h <= 0f) return@forEachIndexed
             drawRoundRect(
-                color = lerp(PfxAccentDeep, PfxAccentSoft, i.toFloat() / (n - 1).coerceAtLeast(1)),
+                color = lerp(barDeep, barSoft, i.toFloat() / (n - 1).coerceAtLeast(1)),
                 topLeft = Offset(i * (bw + gapPx), size.height - h),
                 size = Size(bw, h),
                 cornerRadius = CornerRadius(bw / 2f, bw / 2f)

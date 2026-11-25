@@ -33,11 +33,6 @@ import java.io.File
 // (Compose Material3 / Coil / foundation only). Colors duplicated per-file on
 // purpose: the Obsidian palette vals in MainActivity.kt are file-private.
 
-private val P10Bg = Color(0xFF0B0B0C)
-private val P10Surface = Color(0xFF151516)
-private val P10Violet = Color(0xFFD4A24E)
-private val P10Muted = Color(0xFF9CA3AF)
-private val P10Ink = Color(0xFFEDEDF2)
 
 /** Minimum touch target height for every tappable added/changed in Phase 10. */
 const val MIN_TOUCH_DP = 44
@@ -274,7 +269,7 @@ fun EmptyStateLine(
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
-            color = P10Muted
+            color = GrayMuted
         )
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.padding(top = 4.dp))
@@ -335,7 +330,7 @@ fun MiniPlayerBar(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(P10Surface)
+            .background(ObsidianSurface)
             .clickable(onClick = onTap)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -343,8 +338,8 @@ fun MiniPlayerBar(
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = P10Violet,
-                    trackColor = P10Muted.copy(alpha = 0.3f)
+                    color = UiAccent,
+                    trackColor = GrayMuted.copy(alpha = 0.3f)
                 )
             }
             Row(
@@ -365,14 +360,14 @@ fun MiniPlayerBar(
                     Text(
                         text = song.name.ifBlank { "(untitled)" },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = P10Ink,
+                        color = InkOnDark,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = song.artist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = P10Muted,
+                        color = GrayMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -380,11 +375,11 @@ fun MiniPlayerBar(
                 IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp)) {
                     AppIcon(
                         kind = if (isPlaying) AppIconKind.PAUSE else AppIconKind.PLAY,
-                        tint = P10Violet
+                        tint = UiAccent
                     )
                 }
                 IconButton(onClick = onOpenQueue, modifier = Modifier.size(48.dp)) {
-                    AppIcon(kind = AppIconKind.QUEUE, tint = P10Muted)
+                    AppIcon(kind = AppIconKind.QUEUE, tint = GrayMuted)
                 }
             }
         }
@@ -413,14 +408,14 @@ fun SettingsRowShell(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
-                color = P10Ink,
+                color = InkOnDark,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = P10Muted,
+                color = GrayMuted,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -431,7 +426,7 @@ fun SettingsRowShell(
         } else if (showChevron && onClick != null) {
             Spacer(Modifier.width(8.dp))
             Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                AppIcon(AppIconKind.CHEVRON_RIGHT, P10Muted)
+                AppIcon(AppIconKind.CHEVRON_RIGHT, GrayMuted)
             }
         }
     }

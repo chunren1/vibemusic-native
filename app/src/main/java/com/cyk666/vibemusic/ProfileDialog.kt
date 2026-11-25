@@ -192,7 +192,7 @@ fun ProfileDialog(
             Text(
                 text = "生日格式应为 YYYY-MM-DD",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFEF4444)
+                color = UiFavRed
             )
         }
     }

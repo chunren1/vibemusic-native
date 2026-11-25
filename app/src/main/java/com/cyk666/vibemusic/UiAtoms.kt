@@ -135,6 +135,10 @@ val UiAccentSoft: Color @Composable get() = ThemeState.current.accentSoft
 val UiSurface: Color @Composable get() = ThemeState.current.surface
 val UiChampagne = Color(0xFFF5E6C8)
 val UiFavRed = Color(0xFFEF4444)
+// 封面遮罩：半透明黑，与主题无关（任何主题下都要压暗底图）
+val UiScrimTop = Color(0x99000000)
+val UiScrimMid = Color(0x66000000)
+val UiScrimBottom = Color(0xCC000000)
 val UiGold = Color(0xFFE8B84B)
 val UiPink = Color(0xFFF472B6)
 
@@ -171,9 +175,11 @@ fun AppIcon(
     } else {
         Modifier
     }
+    // 镂空部分必须用当前主题背景色，否则纯黑/暖灰主题下会露出黑块
+    val cutout = ObsidianBg
     Canvas(modifier = Modifier.size(size).then(a11y)) {
         val s = size.toPx() / 24f
-        drawKind(kind, tint, filled, s)
+        drawKind(kind, tint, filled, s, cutout)
     }
 }
 
