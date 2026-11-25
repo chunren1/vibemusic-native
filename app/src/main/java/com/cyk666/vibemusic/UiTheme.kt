@@ -16,10 +16,32 @@ import androidx.compose.ui.graphics.Color
  * <p>只做深色变体是刻意的：前景、分割线、半透明遮罩都不动，迁移面最小；
  * 浅色主题要重算全部对比度，不在这里顺带做。</p>
  */
-enum class AppTheme(val label: String, val bg: Color, val surface: Color) {
-    OBSIDIAN("曜石", Color(0xFF0B0B0C), Color(0xFF151516)),
-    OLED("纯黑", Color(0xFF000000), Color(0xFF0A0A0A)),
-    WARM_GRAY("暖灰", Color(0xFF1A1917), Color(0xFF242220));
+enum class AppTheme(
+    val label: String,
+    val bg: Color,
+    val surface: Color,
+    val accent: Color,
+    val accentSoft: Color,
+    val ink: Color,
+    val muted: Color
+) {
+    /** 黑金：原有的样子。 */
+    OBSIDIAN(
+        "曜石·金", Color(0xFF0B0B0C), Color(0xFF151516),
+        Color(0xFFD4A24E), Color(0xFFE8C98A), Color(0xFFEDEDF2), Color(0xFF9CA3AF)
+    ),
+
+    /** 纯黑 + 冷银：去金色，黑白极简，OLED 上最省电。 */
+    OLED(
+        "纯黑·银", Color(0xFF000000), Color(0xFF0C0C0D),
+        Color(0xFFD7DBE0), Color(0xFFF2F4F7), Color(0xFFFFFFFF), Color(0xFF9AA0A6)
+    ),
+
+    /** 暖灰 + 铜橙：像旧纸与铜器，长时间看不刺眼。 */
+    WARM_GRAY(
+        "暖灰·铜", Color(0xFF1A1917), Color(0xFF262320),
+        Color(0xFFC97B4A), Color(0xFFE0A57E), Color(0xFFF2EDE4), Color(0xFFA69C8F)
+    );
 
     companion object {
         fun parse(name: String?): AppTheme = entries.firstOrNull { it.name == name } ?: OBSIDIAN
@@ -46,21 +68,21 @@ object ThemeState {
 // 这是有意的约束——颜色只能来自当前主题，不能来自某个对象的初始化。
 val ObsidianBg: Color @Composable get() = ThemeState.current.bg
 val ObsidianSurface: Color @Composable get() = ThemeState.current.surface
+val InkOnDark: Color @Composable get() = ThemeState.current.ink
+val GrayMuted: Color @Composable get() = ThemeState.current.muted
 internal val Champagne = Color(0xFFF5E6C8)
-internal val InkOnDark = Color(0xFFEDEDF2)
-internal val GrayMuted = Color(0xFF9CA3AF)
 
 @Composable
 internal fun appColorScheme(theme: AppTheme) = darkColorScheme(
     background = theme.bg,
     surface = theme.surface,
     surfaceVariant = theme.surface,
-    primary = UiAccent,
-    secondary = UiAccentSoft,
+    primary = theme.accent,
+    secondary = theme.accentSoft,
     tertiary = Champagne,
-    onBackground = InkOnDark,
-    onSurface = InkOnDark,
-    onSurfaceVariant = GrayMuted,
+    onBackground = theme.ink,
+    onSurface = theme.ink,
+    onSurfaceVariant = theme.muted,
     // 暖金实底上的前景用近黑：白字对 #D4A24E 只有 2.3:1，深色≈8:1。
     onPrimary = ObsidianBg
 )

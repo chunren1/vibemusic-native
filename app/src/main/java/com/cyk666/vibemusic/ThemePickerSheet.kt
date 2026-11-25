@@ -80,7 +80,8 @@ private fun ThemeOptionRow(theme: AppTheme, selected: Boolean, onClick: () -> Un
         Column(modifier = Modifier.weight(1f)) {
             Text(theme.label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = if (theme == AppTheme.OBSIDIAN) "默认" else "背景 #" + hexOf(theme.bg),
+                text = if (theme == AppTheme.OBSIDIAN) "默认 · 强调色 #" + hexOf(theme.accent)
+                else "强调色 #" + hexOf(theme.accent),
                 style = MaterialTheme.typography.bodySmall,
                 color = GrayMuted
             )
@@ -98,14 +99,14 @@ private fun ThemeSwatch(theme: AppTheme) {
             .size(36.dp)
             .clip(CircleShape)
             .background(theme.bg)
-            .border(1.dp, GrayMuted.copy(alpha = 0.35f), CircleShape),
+            .border(2.dp, theme.accent, CircleShape),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(18.dp)
+                .size(14.dp)
                 .clip(CircleShape)
-                .background(theme.surface)
+                .background(theme.accent)
         )
     }
 }

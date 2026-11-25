@@ -126,14 +126,14 @@ fun ShimmerBox(
 // via modeMaterialIcon() instead of Canvas paths.
 // Obsidian Bloom palette duplicated per-file (MainActivity vals are private).
 
-val UiInk = Color(0xFFEDEDF2)
-val UiMuted = Color(0xFF9CA3AF)
-// 品牌强调色（2026-11-11 去 AI 味）：暖金 + 浅金，替代原来的紫青霓虹双色。
-// 金/米白是黑胶唱片的质感色，中性不刺眼；紫青渐变是 AI 产品的刻板印象配色，已全量移除。
-val UiAccent = Color(0xFFD4A24E)
-val UiAccentSoft = Color(0xFFE8C98A)
+// 以下五个随主题变化：从 ThemeState 读，切换主题时所有读取方自动重组。
+// 语义色（收藏红、金色标记、粉色）保持固定，不参与主题。
+val UiInk: Color @Composable get() = ThemeState.current.ink
+val UiMuted: Color @Composable get() = ThemeState.current.muted
+val UiAccent: Color @Composable get() = ThemeState.current.accent
+val UiAccentSoft: Color @Composable get() = ThemeState.current.accentSoft
+val UiSurface: Color @Composable get() = ThemeState.current.surface
 val UiChampagne = Color(0xFFF5E6C8)
-val UiSurface = Color(0xFF151516)
 val UiFavRed = Color(0xFFEF4444)
 val UiGold = Color(0xFFE8B84B)
 val UiPink = Color(0xFFF472B6)
